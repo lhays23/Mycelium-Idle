@@ -1,0 +1,372 @@
+[gd_scene format=3 uid="uid://418ahg5fd1mv"]
+
+[ext_resource type="Script" uid="uid://uobs8r4vhkco" path="res://scripts/MainUI.gd" id="1_elqb8"]
+[ext_resource type="Texture2D" uid="uid://c4u30hp63lrx7" path="res://art/placeholder/background_1080x1920.png" id="2_nxtc6"]
+[ext_resource type="Texture2D" uid="uid://16jrpnytyt4c" path="res://art/placeholder/icon_damp_soil_256.png" id="3_jlsqs"]
+[ext_resource type="Texture2D" uid="uid://cv2l7rajy7ua5" path="res://art/placeholder/icon_rotting_log_256.png" id="4_q8u5g"]
+[ext_resource type="Texture2D" uid="uid://diasslnhor113" path="res://art/placeholder/icon_compost_heap_256.png" id="5_lhr70"]
+[ext_resource type="Texture2D" uid="uid://1qyhp1xksksv" path="res://art/placeholder/icon_root_cluster_256.png" id="6_wp0k4"]
+[ext_resource type="Texture2D" uid="uid://c7o0lf0d2rxn1" path="res://art/placeholder/spore_cloud_512.png" id="7_bjd11"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_qmy6f"]
+radius = 60.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_nxtc6"]
+radius = 60.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_jlsqs"]
+radius = 60.0
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_q8u5g"]
+radius = 60.0
+
+[node name="Main" type="Control" unique_id=101075177]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_elqb8")
+
+[node name="MapLayer" type="Node2D" parent="." unique_id=140309699]
+
+[node name="Background" type="Sprite2D" parent="MapLayer" unique_id=1311952276]
+position = Vector2(540, 960)
+texture = ExtResource("2_nxtc6")
+
+[node name="Lines" type="Node2D" parent="MapLayer" unique_id=865356276]
+
+[node name="Line_DampSoil" type="Line2D" parent="MapLayer/Lines" unique_id=1941104848]
+points = PackedVector2Array(540, 1050, 260, 520)
+width = 4.0
+default_color = Color(0.48623234, 0.9895777, 0.84338486, 1)
+antialiased = true
+
+[node name="Line_RottingLog" type="Line2D" parent="MapLayer/Lines" unique_id=64063629]
+points = PackedVector2Array(540, 1050, 820, 520)
+width = 4.0
+default_color = Color(0.48623234, 0.9895777, 0.84338486, 1)
+antialiased = true
+
+[node name="Line_CompostHeap" type="Line2D" parent="MapLayer/Lines" unique_id=1640478048]
+points = PackedVector2Array(540, 1050, 260, 760)
+width = 4.0
+default_color = Color(0.48623234, 0.9895777, 0.84338486, 1)
+antialiased = true
+
+[node name="Line_RootCluster" type="Line2D" parent="MapLayer/Lines" unique_id=1473794020]
+points = PackedVector2Array(540, 1050, 820, 760)
+width = 4.0
+default_color = Color(0.48623234, 0.9895777, 0.84338486, 1)
+antialiased = true
+
+[node name="Nodes" type="Node2D" parent="MapLayer" unique_id=541584217]
+
+[node name="Node_DampSoil" type="Area2D" parent="MapLayer/Nodes" unique_id=2117603479]
+position = Vector2(260, 520)
+
+[node name="DampSoil" type="Sprite2D" parent="MapLayer/Nodes/Node_DampSoil" unique_id=1755272008]
+texture = ExtResource("3_jlsqs")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="MapLayer/Nodes/Node_DampSoil" unique_id=1427346300]
+shape = SubResource("CircleShape2D_qmy6f")
+
+[node name="Node_RottingLog" type="Area2D" parent="MapLayer/Nodes" unique_id=1166915789]
+position = Vector2(820, 520)
+
+[node name="RottingLog" type="Sprite2D" parent="MapLayer/Nodes/Node_RottingLog" unique_id=1065156365]
+texture = ExtResource("4_q8u5g")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="MapLayer/Nodes/Node_RottingLog" unique_id=256165073]
+shape = SubResource("CircleShape2D_nxtc6")
+
+[node name="Node_CompostHeap" type="Area2D" parent="MapLayer/Nodes" unique_id=809945854]
+position = Vector2(260, 760)
+
+[node name="CompostHeap" type="Sprite2D" parent="MapLayer/Nodes/Node_CompostHeap" unique_id=388173951]
+texture = ExtResource("5_lhr70")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="MapLayer/Nodes/Node_CompostHeap" unique_id=413690655]
+shape = SubResource("CircleShape2D_jlsqs")
+
+[node name="Node_RootCluster" type="Area2D" parent="MapLayer/Nodes" unique_id=930780256]
+position = Vector2(820, 760)
+
+[node name="RootCluster" type="Sprite2D" parent="MapLayer/Nodes/Node_RootCluster" unique_id=81313284]
+texture = ExtResource("6_wp0k4")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="MapLayer/Nodes/Node_RootCluster" unique_id=374662136]
+shape = SubResource("CircleShape2D_q8u5g")
+
+[node name="SporeCloud" type="Sprite2D" parent="MapLayer" unique_id=1687664358]
+position = Vector2(540, 1050)
+texture = ExtResource("7_bjd11")
+
+[node name="UILayer" type="CanvasLayer" parent="." unique_id=525166777]
+layer = 20
+
+[node name="HUD" type="Control" parent="UILayer" unique_id=901310585]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TopBar" type="PanelContainer" parent="UILayer/HUD" unique_id=1134723390]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+grow_horizontal = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="UILayer/HUD/TopBar" unique_id=1756051920]
+layout_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="UILayer/HUD/TopBar/MarginContainer" unique_id=1718788206]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="UILayer/HUD/TopBar/MarginContainer/HBoxContainer" unique_id=570904810]
+layout_mode = 2
+text = "Nutrients: 12,500"
+
+[node name="Control" type="Control" parent="UILayer/HUD/TopBar/MarginContainer/HBoxContainer" unique_id=2034812342]
+layout_mode = 2
+
+[node name="BottomBar" type="PanelContainer" parent="UILayer/HUD" unique_id=326917664]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="UILayer/HUD/BottomBar" unique_id=1820459460]
+layout_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="UILayer/HUD/BottomBar/MarginContainer" unique_id=1811895250]
+layout_mode = 2
+
+[node name="BtnUpgrades" type="Button" parent="UILayer/HUD/BottomBar/MarginContainer/HBoxContainer" unique_id=449042112]
+layout_mode = 2
+text = "Upgrades"
+
+[node name="BtnDiscoveries" type="Button" parent="UILayer/HUD/BottomBar/MarginContainer/HBoxContainer" unique_id=517367564]
+layout_mode = 2
+text = "Disocveries"
+
+[node name="BtnRefinery" type="Button" parent="UILayer/HUD/BottomBar/MarginContainer/HBoxContainer" unique_id=773761842]
+layout_mode = 2
+text = "Refinery"
+
+[node name="BtnDigest" type="Button" parent="UILayer/HUD/BottomBar/MarginContainer/HBoxContainer" unique_id=1381115035]
+layout_mode = 2
+text = "Digest"
+
+[node name="BtnSettings" type="Button" parent="UILayer/HUD/BottomBar/MarginContainer/HBoxContainer" unique_id=1926115462]
+layout_mode = 2
+text = "Settings"
+
+[node name="PanelHost" type="CanvasLayer" parent="." unique_id=1546212436]
+layer = 10
+
+[node name="Dimmer" type="ColorRect" parent="PanelHost" unique_id=2024784945]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 0.3137255)
+
+[node name="PanelContainer" type="Control" parent="PanelHost" unique_id=2102931128]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="UpgradesPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=698182464]
+visible = false
+custom_minimum_size = Vector2(0, 864)
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="PanelHost/PanelContainer/UpgradesPanel" unique_id=603455301]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/UpgradesPanel/MarginContainer" unique_id=1345802335]
+layout_mode = 2
+
+[node name="Upgrades (V0)" type="Label" parent="PanelHost/PanelContainer/UpgradesPanel/MarginContainer/VBoxContainer" unique_id=637498209]
+layout_mode = 2
+
+[node name="DiscoveriesPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=1189599567]
+visible = false
+custom_minimum_size = Vector2(0, 864)
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="PanelHost/PanelContainer/DiscoveriesPanel" unique_id=1367259429]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/DiscoveriesPanel/MarginContainer" unique_id=83199086]
+layout_mode = 2
+
+[node name="Discoveries (V0)" type="Label" parent="PanelHost/PanelContainer/DiscoveriesPanel/MarginContainer/VBoxContainer" unique_id=1093818918]
+layout_mode = 2
+
+[node name="RefineryPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=334278723]
+visible = false
+custom_minimum_size = Vector2(0, 864)
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="PanelHost/PanelContainer/RefineryPanel" unique_id=2129546263]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/RefineryPanel/MarginContainer" unique_id=1439437106]
+layout_mode = 2
+
+[node name="Refinery (V0)" type="Label" parent="PanelHost/PanelContainer/RefineryPanel/MarginContainer/VBoxContainer" unique_id=948251880]
+layout_mode = 2
+
+[node name="DigestPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=368915363]
+visible = false
+custom_minimum_size = Vector2(0, 864)
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="PanelHost/PanelContainer/DigestPanel" unique_id=455695398]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer" unique_id=1576011733]
+layout_mode = 2
+
+[node name="Digest (V0)" type="Label" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer/VBoxContainer" unique_id=683456915]
+layout_mode = 2
+
+[node name="SettingsPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=1471553631]
+visible = false
+custom_minimum_size = Vector2(0, 864)
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="PanelHost/PanelContainer/SettingsPanel" unique_id=1467504237]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/SettingsPanel/MarginContainer" unique_id=1232511566]
+layout_mode = 2
+
+[node name="Settings (V0)" type="Label" parent="PanelHost/PanelContainer/SettingsPanel/MarginContainer/VBoxContainer" unique_id=1632078930]
+layout_mode = 2
+
+[node name="NodePanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=1678375330]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -50.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="PanelHost/PanelContainer/NodePanel" unique_id=818914362]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer" unique_id=1048735519]
+layout_mode = 2
+
+[node name="Header row" type="HBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer" unique_id=121854815]
+layout_mode = 2
+
+[node name="Name" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/Header row" unique_id=271303743]
+layout_mode = 2
+text = "Damp Soil"
+
+[node name="Spacer" type="Control" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/Header row" unique_id=1470480958]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Close" type="Button" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/Header row" unique_id=98272117]
+layout_mode = 2
+text = "X"
+
+[node name="GridContainer" type="GridContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer" unique_id=341856915]
+layout_mode = 2
+columns = 4
+
+[node name="Resource" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=1436765711]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 1, 0, 1)
+text = "Resource"
+
+[node name="Yield" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=896450254]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 1, 0, 1)
+text = "Yield"
+horizontal_alignment = 2
+
+[node name="Rate" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=287326944]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 1, 0, 1)
+text = "Rate"
+horizontal_alignment = 2
+
+[node name="Harvested" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=1719490993]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 1, 0, 1)
+text = "Harvested"
+horizontal_alignment = 2
+
+[node name="Spores" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=1117330724]
+layout_mode = 2
+text = "Spores"
+
+[node name="Percent" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=10787209]
+layout_mode = 2
+text = "100%
+"
+
+[node name="Time per sec" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=301105036]
+layout_mode = 2
+text = "0.18/s"
+
+[node name="HarvestedValue" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=1184898016]
+layout_mode = 2
+text = "13/50"
+
+[node name="HelpText" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer" unique_id=1197925863]
+layout_mode = 2
+text = "Rate = delivered/sec. Harvested = stored at node."

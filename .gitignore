@@ -1,0 +1,57 @@
+# =========================
+# Godot 4.x
+# =========================
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+
+# Godot cache / temp
+*.tmp
+*.temp
+
+# =========================
+# Build / Export outputs
+# =========================
+*.apk
+*.aab
+*.keystore
+*.jks
+*.pck
+*.zip
+*.log
+
+# Common export folders (if you create them)
+exports/
+build/
+dist/
+
+# =========================
+# IDE / OS files
+# =========================
+.vscode/
+.idea/
+*.suo
+*.user
+*.userprefs
+*.csproj
+*.sln
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# Optional: C# / Mono (only if you use it later)
+# =========================
+.mono/
+.nuget/
+bin/
+obj/
+
+# =========================
+# Optional: Android Studio / Gradle (only if you add a custom build later)
+# =========================
+.gradle/
+local.properties
+*.iml
