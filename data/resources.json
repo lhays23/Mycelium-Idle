@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "resources": [
+    {
+      "id": "nutrients",
+      "name": "Nutrients",
+      "kind": "currency",
+      "format": "compact_int"
+    },
+    {
+      "id": "glowcaps",
+      "name": "Glowcaps",
+      "kind": "premium",
+      "format": "compact_int"
+    },
+    {
+      "id": "strain_points",
+      "name": "Strain Points",
+      "kind": "prestige",
+      "format": "compact_int"
+    },
+    {
+      "id": "spores",
+      "name": "Spores",
+      "kind": "resource",
+      "format": "compact_int"
+    },
+    {
+      "id": "hyphae",
+      "name": "Hyphae",
+      "kind": "resource",
+      "format": "compact_int"
+    },
+    {
+      "id": "cellulose",
+      "name": "Cellulose",
+      "kind": "resource",
+      "format": "compact_int"
+    },
+    {
+      "id": "mycelium",
+      "name": "Mycelium",
+      "kind": "resource",
+      "format": "compact_int"
+    }
+  ]
+}

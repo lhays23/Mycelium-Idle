@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "global": [
+    {
+      "id": "mite_speed",
+      "name": "Mite Speed",
+      "desc": "Increases mite travel speed (transport layer).",
+      "base_cost": 50,
+      "cost_mult": 1.3
+    },
+    {
+      "id": "mite_carry",
+      "name": "Mite Carry",
+      "desc": "Increases mite carry capacity (transport layer).",
+      "base_cost": 50,
+      "cost_mult": 1.3
+    }
+  ],
+  "per_node": [
+    {
+      "id": "yield",
+      "name": "Yield",
+      "desc": "Increases production into the node pool.",
+      "base_cost": 25,
+      "cost_mult": 1.3
+    },
+    {
+      "id": "node_speed",
+      "name": "Node Speed Bonus",
+      "desc": "Increases production speed into the node pool.",
+      "base_cost": 25,
+      "cost_mult": 1.3
+    }
+  ]
+}
