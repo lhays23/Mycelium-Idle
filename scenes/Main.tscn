@@ -1,6 +1,7 @@
 [gd_scene format=3 uid="uid://418ahg5fd1mv"]
 
 [ext_resource type="Script" uid="uid://uobs8r4vhkco" path="res://scripts/MainUI.gd" id="1_elqb8"]
+[ext_resource type="FontFile" uid="uid://c5luwff4qhsku" path="res://assets/fonts/verdanab.ttf" id="1_wp0k4"]
 [ext_resource type="Texture2D" uid="uid://c4u30hp63lrx7" path="res://art/placeholder/background_1080x1920.png" id="2_nxtc6"]
 [ext_resource type="Texture2D" uid="uid://16jrpnytyt4c" path="res://art/placeholder/icon_damp_soil_256.png" id="3_jlsqs"]
 [ext_resource type="Texture2D" uid="uid://cv2l7rajy7ua5" path="res://art/placeholder/icon_rotting_log_256.png" id="4_q8u5g"]
@@ -8,8 +9,13 @@
 [ext_resource type="Texture2D" uid="uid://1qyhp1xksksv" path="res://art/placeholder/icon_root_cluster_256.png" id="6_wp0k4"]
 [ext_resource type="Texture2D" uid="uid://c7o0lf0d2rxn1" path="res://art/placeholder/spore_cloud_512.png" id="7_bjd11"]
 [ext_resource type="Texture2D" uid="uid://xhfekbys1e3v" path="res://art/placeholder/icon_nutrients_64.png" id="8_lhr70"]
+[ext_resource type="Theme" uid="uid://1wx2udfor3i7" path="res://ui/UITheme.tres" id="9_bjd11"]
 [ext_resource type="Texture2D" uid="uid://jmjwcpukvh1u" path="res://art/placeholder/icon_glowcaps_64.png" id="9_wp0k4"]
 [ext_resource type="Texture2D" uid="uid://cskssxvx0lcpk" path="res://art/placeholder/icon_strain_points_64.png" id="10_bjd11"]
+
+[sub_resource type="Theme" id="Theme_lhr70"]
+default_font = ExtResource("1_wp0k4")
+default_font_size = 24
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_qmy6f"]
 radius = 60.0
@@ -31,6 +37,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+theme = SubResource("Theme_lhr70")
 script = ExtResource("1_elqb8")
 
 [node name="MapLayer" type="Node2D" parent="." unique_id=140309699]
@@ -124,6 +131,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+theme = ExtResource("9_bjd11")
 
 [node name="BottomBar" type="PanelContainer" parent="UILayer/HUD" unique_id=326917664]
 layout_mode = 1
@@ -236,6 +244,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+theme = ExtResource("9_bjd11")
 
 [node name="UpgradesPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=698182464]
 visible = false
@@ -317,6 +326,23 @@ layout_mode = 2
 [node name="Digest (V0)" type="Label" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer/VBoxContainer" unique_id=683456915]
 layout_mode = 2
 
+[node name="LblDigestTitle" type="Label" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer/VBoxContainer" unique_id=392183218]
+layout_mode = 2
+text = "Digest
+"
+
+[node name="LblDigestSelected" type="Label" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer/VBoxContainer" unique_id=1934715429]
+layout_mode = 2
+text = "Selected: None"
+
+[node name="BtnDigest1" type="Button" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer/VBoxContainer" unique_id=532134237]
+layout_mode = 2
+text = "Digest 1"
+
+[node name="BtnDigestAll" type="Button" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer/VBoxContainer" unique_id=190480871]
+layout_mode = 2
+text = "Digest All"
+
 [node name="SettingsPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=1471553631]
 visible = false
 custom_minimum_size = Vector2(0, 864)
@@ -370,34 +396,42 @@ text = "X"
 
 [node name="GridContainer" type="GridContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer" unique_id=341856915]
 layout_mode = 2
-columns = 4
+columns = 5
 
-[node name="Resource" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=1436765711]
+[node name="Hdr_Icon" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=98647837]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 1, 0, 1)
+
+[node name="Hdr_Resource" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=1436765711]
 layout_mode = 2
 theme_override_colors/font_color = Color(0, 1, 0, 1)
 text = "Resource"
 
-[node name="Yield" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=896450254]
+[node name="Hdr_Yield" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=896450254]
 layout_mode = 2
 theme_override_colors/font_color = Color(0, 1, 0, 1)
 text = "Yield"
 horizontal_alignment = 2
 
-[node name="Rate" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=287326944]
+[node name="Hdr_Rate" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=287326944]
 layout_mode = 2
 theme_override_colors/font_color = Color(0, 1, 0, 1)
 text = "Rate"
 horizontal_alignment = 2
 
-[node name="Harvested" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=1719490993]
+[node name="Hdr_Harvested" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=1719490993]
 layout_mode = 2
 theme_override_colors/font_color = Color(0, 1, 0, 1)
 text = "Harvested"
 horizontal_alignment = 2
 
-[node name="Cell_Resource" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=1117330724]
+[node name="ResIcon" type="TextureRect" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=108656782]
+custom_minimum_size = Vector2(64, 64)
 layout_mode = 2
-text = "Spores"
+stretch_mode = 5
+
+[node name="ResName" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=996191115]
+layout_mode = 2
 
 [node name="Cell_Yield" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/GridContainer" unique_id=10787209]
 layout_mode = 2
@@ -412,6 +446,61 @@ text = "0.18/s"
 layout_mode = 2
 text = "13/50"
 
-[node name="HelpText" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer" unique_id=1197925863]
+[node name="UpgradesBox" type="VBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer" unique_id=1082707378]
 layout_mode = 2
-text = "Rate = delivered/sec. Harvested = stored at node."
+
+[node name="RowYield" type="HBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox" unique_id=1640959428]
+layout_mode = 2
+
+[node name="LblName" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowYield" unique_id=755211866]
+layout_mode = 2
+
+[node name="LblLevel" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowYield" unique_id=1549986580]
+layout_mode = 2
+
+[node name="LblValue" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowYield" unique_id=937599523]
+layout_mode = 2
+
+[node name="BtnUpgrade" type="Button" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowYield" unique_id=176805768]
+layout_mode = 2
+
+[node name="RowTravel" type="HBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox" unique_id=825038480]
+layout_mode = 2
+
+[node name="LblName" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowTravel" unique_id=1116110832]
+layout_mode = 2
+
+[node name="LblLevel" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowTravel" unique_id=1903537173]
+layout_mode = 2
+
+[node name="LblValue" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowTravel" unique_id=282474769]
+layout_mode = 2
+
+[node name="BtnUpgrade" type="Button" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowTravel" unique_id=1550682976]
+layout_mode = 2
+
+[node name="RowCarry" type="HBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox" unique_id=248397971]
+layout_mode = 2
+
+[node name="LblName" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowCarry" unique_id=366692707]
+layout_mode = 2
+
+[node name="LblLevel" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowCarry" unique_id=2056002358]
+layout_mode = 2
+
+[node name="LblValue" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowCarry" unique_id=440244365]
+layout_mode = 2
+
+[node name="BtnUpgrade" type="Button" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowCarry" unique_id=49418406]
+layout_mode = 2
+
+[node name="RowProduction" type="HBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer" unique_id=1680959890]
+layout_mode = 2
+
+[node name="LblProdTitle" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/RowProduction" unique_id=767229842]
+layout_mode = 2
+text = "Production"
+
+[node name="LblProdValue" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/RowProduction" unique_id=232656036]
+layout_mode = 2
+text = "0.00/s → 0.00/s"

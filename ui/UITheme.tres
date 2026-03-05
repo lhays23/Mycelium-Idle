@@ -1,0 +1,7 @@
+[gd_resource type="Theme" format=3 uid="uid://1wx2udfor3i7"]
+
+[ext_resource type="FontFile" uid="uid://c5luwff4qhsku" path="res://assets/fonts/verdanab.ttf" id="1_hhkoe"]
+
+[resource]
+default_font = ExtResource("1_hhkoe")
+default_font_size = 24
