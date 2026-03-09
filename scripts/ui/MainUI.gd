@@ -76,6 +76,10 @@ var digest_lbl_selected: Label = null
 var digest_btn_1: Button = null
 var digest_btn_all: Button = null
 
+# Discoveries panel widgets
+var discoveries_list: VBoxContainer = null
+var discoveries_feedback: Label = null
+
 # Nutrients flash
 var _nutrients_base_scale: Vector2 = Vector2.ONE
 var _nutrients_flash_tween: Tween = null
@@ -169,6 +173,7 @@ func _ready() -> void:
 	node_close.pressed.connect(_close_current)
 
 	_bind_digest_panel()
+	_bind_discoveries_panel()
 	_bind_nodepanel_top_table()
 	_bind_nodepanel_production()
 	_bind_nodepanel_upgrades()
@@ -176,6 +181,7 @@ func _ready() -> void:
 	if lbl_nutrients != null:
 		_nutrients_base_scale = lbl_nutrients.scale
 
+	_refresh_panel_access_ui()
 	_refresh_currency_ui()
 	get_tree().root.print_tree_pretty()
 
@@ -189,6 +195,7 @@ func _process(dt: float) -> void:
 	_ui_accum += dt
 	if _ui_accum >= UI_REFRESH_DT:
 		_ui_accum = 0.0
+		_refresh_panel_access_ui()
 		_refresh_currency_ui()
 		_refresh_node_world_state()
 
@@ -197,6 +204,9 @@ func _process(dt: float) -> void:
 
 		if _open_panel == digest_panel:
 			_refresh_digest_panel_selected()
+
+		if _open_panel == discoveries_panel:
+			_refresh_discoveries_panel()
 
 
 func _register_transport_positions() -> void:
@@ -505,6 +515,7 @@ func _digest_selected_node_at_cloud(amount: int) -> void:
 	if digested > 0:
 		_flash_nutrients()
 
+	_refresh_panel_access_ui()
 	_refresh_currency_ui()
 	_refresh_digest_panel_selected()
 	_refresh_nodepanel_all()
@@ -546,6 +557,138 @@ func _flash_nutrients() -> void:
 	_nutrients_flash_tween = create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_nutrients_flash_tween.tween_property(lbl_nutrients, "scale", _nutrients_base_scale * 1.12, 0.07)
 	_nutrients_flash_tween.tween_property(lbl_nutrients, "scale", _nutrients_base_scale, 0.10)
+
+
+# ---------------- DiscoveriesPanel ----------------
+
+func _bind_discoveries_panel() -> void:
+	discoveries_list = discoveries_panel.find_child("VBoxContainer", true, false) as VBoxContainer
+	if discoveries_list == null:
+		return
+
+	discoveries_feedback = Label.new()
+	discoveries_feedback.name = "DiscoveriesFeedback"
+	discoveries_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	discoveries_feedback.text = ""
+	discoveries_list.add_child(discoveries_feedback)
+
+
+func _refresh_panel_access_ui() -> void:
+	var can_show_discoveries := false
+	var can_show_refinery := false
+	if game_state != null:
+		if game_state.has_method("can_show_discoveries_tab"):
+			can_show_discoveries = bool(game_state.call("can_show_discoveries_tab"))
+		if game_state.has_method("is_refinery_unlocked"):
+			can_show_refinery = bool(game_state.call("is_refinery_unlocked"))
+	btn_discoveries.visible = can_show_discoveries
+	btn_discoveries.disabled = not can_show_discoveries
+	btn_refinery.visible = can_show_refinery
+	btn_refinery.disabled = not can_show_refinery
+	if not can_show_refinery and _open_panel == refinery_panel:
+		_close_current()
+
+
+func _clear_discoveries_rows() -> void:
+	if discoveries_list == null:
+		return
+	for child in discoveries_list.get_children():
+		if child == discoveries_feedback:
+			continue
+		child.queue_free()
+
+
+func _refresh_discoveries_panel() -> void:
+	if discoveries_list == null or game_state == null:
+		return
+	_clear_discoveries_rows()
+	if discoveries_feedback != null and discoveries_feedback.get_parent() == null:
+		discoveries_list.add_child(discoveries_feedback)
+	if discoveries_feedback != null and discoveries_feedback.text == "":
+		discoveries_feedback.text = "Spend physical resources to unlock discoveries for this run."
+
+	if not game_state.has_method("can_show_discoveries_tab") or not bool(game_state.call("can_show_discoveries_tab")):
+		if discoveries_feedback != null:
+			discoveries_feedback.text = "Connect a second node to unlock Discoveries."
+		return
+
+	if not game_state.has_method("get_discovery_ui_entries"):
+		return
+	var entries = game_state.call("get_discovery_ui_entries")
+	if typeof(entries) != TYPE_ARRAY:
+		return
+	for entry_variant in entries:
+		var entry: Dictionary = entry_variant as Dictionary
+		discoveries_list.add_child(_make_discovery_card(entry))
+
+
+func _make_discovery_card(entry: Dictionary) -> Control:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 4)
+
+	var title := Label.new()
+	var level: int = int(entry.get("level", 0))
+	var max_level: int = int(entry.get("max_level", 1))
+	var repeatable: bool = bool(entry.get("repeatable", false))
+	var title_text: String = str(entry.get("name", ""))
+	if repeatable:
+		title_text += "  Lv %s/%s" % [level, max_level]
+	title.text = title_text
+	box.add_child(title)
+
+	var effect := Label.new()
+	effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	effect.text = str(entry.get("effect_text", ""))
+	effect.modulate = Color(0.88, 0.92, 0.88, 1.0)
+	box.add_child(effect)
+
+	var cost := Label.new()
+	cost.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cost.text = "Cost: " + str(entry.get("cost_text", "—"))
+	box.add_child(cost)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+
+	var status := Label.new()
+	status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var status_text := str(entry.get("status_text", ""))
+	if bool(entry.get("complete", false)):
+		status_text = "Complete"
+	elif bool(entry.get("can_buy", false)):
+		status_text = "Ready"
+	status.text = status_text
+	row.add_child(status)
+
+	var buy_btn := Button.new()
+	buy_btn.text = "Buy" if not repeatable else "Buy Lv"
+	buy_btn.disabled = not bool(entry.get("can_buy", false))
+	var discovery_id: String = str(entry.get("id", ""))
+	buy_btn.pressed.connect(func(): _on_discovery_buy_pressed(discovery_id))
+	row.add_child(buy_btn)
+
+	return box
+
+
+func _on_discovery_buy_pressed(discovery_id: String) -> void:
+	if game_state == null or not game_state.has_method("buy_discovery"):
+		return
+	var result = game_state.call("buy_discovery", discovery_id)
+	if discoveries_feedback != null:
+		if typeof(result) == TYPE_DICTIONARY and bool((result as Dictionary).get("ok", false)):
+			discoveries_feedback.text = "Unlocked %s" % discovery_id
+		else:
+			var reason := "Unable to buy discovery."
+			if typeof(result) == TYPE_DICTIONARY:
+				reason = str((result as Dictionary).get("reason", reason))
+			discoveries_feedback.text = reason
+	_refresh_panel_access_ui()
+	_refresh_currency_ui()
+	_refresh_node_world_state()
+	_refresh_discoveries_panel()
 
 
 # ---------------- NodePanel (Top Table) ----------------
@@ -703,6 +846,7 @@ func _try_upgrade(stat_key: String) -> void:
 	var ok: bool = bool(game_state.call("upgrade_node_stat", _selected_node_id, stat_key))
 	if ok:
 		_flash_nutrients()
+		_refresh_panel_access_ui()
 		_refresh_currency_ui()
 		_refresh_nodepanel_all()
 		_refresh_digest_panel_selected()
@@ -813,6 +957,8 @@ func _open(panel: Control) -> void:
 
 	if panel == digest_panel:
 		_refresh_digest_panel_selected()
+	if panel == discoveries_panel:
+		_refresh_discoveries_panel()
 	if panel == node_panel:
 		_refresh_nodepanel_all()
 
@@ -897,6 +1043,7 @@ func _input(event: InputEvent) -> void:
 			if game_state != null and game_state.has_method("try_unlock_node"):
 				var unlocked: bool = bool(game_state.call("try_unlock_node", node_id))
 				if unlocked:
+					_refresh_panel_access_ui()
 					_refresh_currency_ui()
 					_refresh_node_world_state()
 					node_title.text = str(e["name"])

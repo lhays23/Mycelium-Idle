@@ -20,7 +20,10 @@
           "id": "spores",
           "qty": 300
         }
-      ]
+      ],
+      "requires_connected_nodes": 2,
+      "requires_discovery": null,
+      "active_in_pass1": true
     },
     {
       "id": "primitive_refinery",
@@ -40,7 +43,10 @@
           "id": "hyphae",
           "qty": 100
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "mycelial_insight",
+      "active_in_pass1": true
     },
     {
       "id": "aura_activation",
@@ -60,7 +66,10 @@
           "id": "hyphae",
           "qty": 50
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "mycelial_insight",
+      "active_in_pass1": true
     },
     {
       "id": "excess_fertilizer",
@@ -80,7 +89,10 @@
           "id": "hyphae",
           "qty": 150
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "mycelial_insight",
+      "active_in_pass1": true
     },
     {
       "id": "refinery_speed_1",
@@ -101,7 +113,10 @@
           "id": "hyphae",
           "qty": 1500
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "primitive_refinery",
+      "active_in_pass1": false
     },
     {
       "id": "synthesis",
@@ -121,7 +136,10 @@
           "id": "hyphae",
           "qty": 2000
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "primitive_refinery",
+      "active_in_pass1": false
     },
     {
       "id": "refinery_speed_2",
@@ -142,7 +160,10 @@
           "id": "cellulose",
           "qty": 2000
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "refinery_speed_1",
+      "active_in_pass1": false
     },
     {
       "id": "synth_speed_1",
@@ -163,7 +184,10 @@
           "id": "cellulose",
           "qty": 3000
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "synthesis",
+      "active_in_pass1": false
     },
     {
       "id": "aura_reach_1",
@@ -188,7 +212,10 @@
           "id": "cellulose",
           "qty": 500
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "aura_activation",
+      "active_in_pass1": false
     },
     {
       "id": "fungal_enhancement",
@@ -212,7 +239,10 @@
           "id": "mycelium",
           "qty": 1000
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "aura_activation",
+      "active_in_pass1": false
     },
     {
       "id": "aura_reach_2",
@@ -233,7 +263,10 @@
           "id": "cellulose",
           "qty": 2000
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "aura_reach_1",
+      "active_in_pass1": false
     },
     {
       "id": "nutrient_efficiency_1",
@@ -254,7 +287,11 @@
           "id": "hyphae",
           "qty": 1000
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "excess_fertilizer",
+      "active_in_pass1": true,
+      "repeat_cost_mult": 1.5
     },
     {
       "id": "fertile_surge_1",
@@ -279,7 +316,10 @@
           "id": "hyphae",
           "qty": 250
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "excess_fertilizer",
+      "active_in_pass1": false
     },
     {
       "id": "refinery_speed_3",
@@ -300,7 +340,10 @@
           "id": "cellulose_weave",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "refinery_speed_2",
+      "active_in_pass1": false
     },
     {
       "id": "synth_speed_2",
@@ -321,7 +364,10 @@
           "id": "growth_gel",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "synth_speed_1",
+      "active_in_pass1": false
     },
     {
       "id": "aura_density",
@@ -342,7 +388,10 @@
           "id": "growth_gel",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "aura_activation",
+      "active_in_pass1": false
     },
     {
       "id": "node_resonance",
@@ -363,7 +412,10 @@
           "id": "growth_gel",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "aura_density",
+      "active_in_pass1": false
     },
     {
       "id": "dense_aura_1",
@@ -388,7 +440,10 @@
           "id": "spore_weave",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "aura_density",
+      "active_in_pass1": false
     },
     {
       "id": "nutrient_efficiency_2",
@@ -409,7 +464,10 @@
           "id": "cellulose",
           "qty": 2000
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "nutrient_efficiency_1",
+      "active_in_pass1": false
     },
     {
       "id": "fertile_surge_2",
@@ -430,7 +488,10 @@
           "id": "growth_gel",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "fertile_surge_1",
+      "active_in_pass1": false
     },
     {
       "id": "catalytic_rooting",
@@ -450,7 +511,10 @@
           "id": "carapace_gel",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "fungal_enhancement",
+      "active_in_pass1": false
     },
     {
       "id": "expansion_catalysis",
@@ -470,7 +534,10 @@
           "id": "living_fiber",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "catalytic_rooting",
+      "active_in_pass1": false
     },
     {
       "id": "dense_aura_2",
@@ -495,7 +562,10 @@
           "id": "crystal_bloom",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "dense_aura_1",
+      "active_in_pass1": false
     },
     {
       "id": "synth_speed_3",
@@ -512,7 +582,10 @@
           "id": "bloom_matrix",
           "qty": 1
         }
-      ]
+      ],
+      "requires_connected_nodes": 0,
+      "requires_discovery": "synth_speed_2",
+      "active_in_pass1": false
     }
   ]
 }

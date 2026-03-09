@@ -20,6 +20,8 @@ const RAW_BASE_VALUES := {
 	"mycelium": 7.0
 }
 const BASE_DIGEST_MODIFIER: float = 1.0
+const DEFAULT_DISCOVERY_BASE_DIGESTION_MODIFIER: float = 0.8
+const PASS1_DISCOVERY_IDS := ["mycelial_insight", "primitive_refinery", "aura_activation", "excess_fertilizer", "nutrient_efficiency_1"]
 
 var resource_defs: Dictionary = {}   # res_id -> metadata
 var node_defs: Dictionary = {}       # node_id -> static definition
@@ -27,6 +29,11 @@ var node_order: Array[String] = []   # stable display order
 
 var resources: Dictionary = {}       # res_id -> float (cloud inventory)
 var nodes: Dictionary = {}           # node_id -> live node state
+var discovery_defs: Dictionary = {}  # discovery_id -> static definition
+var discovery_order: Array[String] = []
+var discovery_notes: Dictionary = {}
+var unlocked_discoveries: Dictionary = {}  # discovery_id -> bool
+var discovery_levels: Dictionary = {}      # discovery_id -> current level
 var total_nutrients_earned_run: float = 0.0
 var _accum: float = 0.0
 
@@ -430,7 +437,7 @@ func digest_node_primary(node_id: String, amount: int) -> int:
 		return 0
 	var take: int = min(amount, available)
 	resources[res_id] = max(0.0, float(resources.get(res_id, 0.0)) - float(take))
-	var gained: float = float(take) * _get_resource_base_value(res_id) * BASE_DIGEST_MODIFIER
+	var gained: float = float(take) * _get_resource_base_value(res_id) * get_current_digestion_modifier()
 	resources["nutrients"] = float(resources.get("nutrients", 0.0)) + gained
 	total_nutrients_earned_run += gained
 	_update_node_reveals()
@@ -567,7 +574,7 @@ func get_resource_base_value(res_id: String) -> float:
 
 
 func get_resource_digest_value(res_id: String) -> float:
-	return _get_resource_base_value(res_id) * BASE_DIGEST_MODIFIER
+	return _get_resource_base_value(res_id) * get_current_digestion_modifier()
 
 
 func get_node_display_name(node_id: String) -> String:
@@ -638,6 +645,8 @@ func get_total_nutrients_earned_run() -> int:
 
 
 func _update_node_reveals() -> void:
+	if not is_aura_active():
+		return
 	for node_id_variant in nodes.keys():
 		var node_id: String = str(node_id_variant)
 		var n: Dictionary = nodes[node_id] as Dictionary
@@ -651,17 +660,291 @@ func _update_node_reveals() -> void:
 			nodes[node_id] = n
 
 
+# ---------------- Discovery state / effects ----------------
+
+func get_connected_node_count() -> int:
+	var count := 0
+	for node_id_variant in nodes.keys():
+		var n: Dictionary = nodes[str(node_id_variant)] as Dictionary
+		if bool(n.get("is_connected", false)):
+			count += 1
+	return count
+
+
+func can_show_discoveries_tab() -> bool:
+	return get_connected_node_count() >= 2
+
+
+func get_discovery_def(discovery_id: String) -> Dictionary:
+	return (discovery_defs.get(discovery_id, {}) as Dictionary).duplicate(true)
+
+
+func get_discovery_level(discovery_id: String) -> int:
+	return int(discovery_levels.get(discovery_id, 0))
+
+
+func has_discovery(discovery_id: String) -> bool:
+	return bool(unlocked_discoveries.get(discovery_id, false))
+
+
+func is_discovery_unlocked(discovery_id: String) -> bool:
+	return has_discovery(discovery_id)
+
+
+func is_refinery_unlocked() -> bool:
+	return has_discovery("primitive_refinery")
+
+
+func is_aura_active() -> bool:
+	return has_discovery("aura_activation")
+
+
+func is_excess_fertilizer_unlocked() -> bool:
+	return has_discovery("excess_fertilizer")
+
+
+func get_current_digestion_modifier() -> float:
+	var base_mod: float = float(discovery_notes.get("base_digestion_modifier", DEFAULT_DISCOVERY_BASE_DIGESTION_MODIFIER))
+	for discovery_id in discovery_order:
+		if get_discovery_level(discovery_id) <= 0:
+			continue
+		var d: Dictionary = discovery_defs.get(discovery_id, {}) as Dictionary
+		if str(d.get("effect_type", "")) == "digestion_return_additive":
+			base_mod += float(d.get("effect_per_level", 0.0)) * float(get_discovery_level(discovery_id))
+	return base_mod
+
+
+func get_current_refinery_speed_multiplier() -> float:
+	var bonus := 0.0
+	for discovery_id in discovery_order:
+		if get_discovery_level(discovery_id) <= 0:
+			continue
+		var d: Dictionary = discovery_defs.get(discovery_id, {}) as Dictionary
+		if str(d.get("effect_type", "")) == "refinery_speed_mult":
+			bonus += float(d.get("effect_per_level", 0.0)) * float(get_discovery_level(discovery_id))
+	return 1.0 + bonus
+
+
+func get_current_synth_speed_multiplier() -> float:
+	var bonus := 0.0
+	for discovery_id in discovery_order:
+		if get_discovery_level(discovery_id) <= 0:
+			continue
+		var d: Dictionary = discovery_defs.get(discovery_id, {}) as Dictionary
+		if str(d.get("effect_type", "")) == "synth_speed_mult":
+			bonus += float(d.get("effect_per_level", 0.0)) * float(get_discovery_level(discovery_id))
+	return 1.0 + bonus
+
+
+func _get_discovery_base_costs(discovery_id: String) -> Array:
+	if not discovery_defs.has(discovery_id):
+		return []
+	return ((discovery_defs[discovery_id] as Dictionary).get("costs", []) as Array).duplicate(true)
+
+
+func get_discovery_costs_for_next_level(discovery_id: String) -> Array:
+	if not discovery_defs.has(discovery_id):
+		return []
+	var d: Dictionary = discovery_defs[discovery_id] as Dictionary
+	var costs: Array = _get_discovery_base_costs(discovery_id)
+	var current_level: int = get_discovery_level(discovery_id)
+	var mult: float = float(d.get("repeat_cost_mult", 1.0))
+	if current_level <= 0 or mult <= 1.0:
+		return costs
+	var scaled: Array = []
+	for c_variant in costs:
+		var c: Dictionary = (c_variant as Dictionary).duplicate(true)
+		var qty: int = int(c.get("qty", 0))
+		c["qty"] = int(ceil(float(qty) * pow(mult, float(current_level))))
+		scaled.append(c)
+	return scaled
+
+
+func _can_afford_costs(costs: Array) -> bool:
+	for c_variant in costs:
+		var c: Dictionary = c_variant as Dictionary
+		var res_id: String = str(c.get("id", ""))
+		var qty: int = int(c.get("qty", 0))
+		if res_id == "" or qty <= 0:
+			continue
+		if get_amount(res_id) < qty:
+			return false
+	return true
+
+
+func _spend_costs(costs: Array) -> void:
+	for c_variant in costs:
+		var c: Dictionary = c_variant as Dictionary
+		var res_id: String = str(c.get("id", ""))
+		var qty: int = int(c.get("qty", 0))
+		if res_id == "" or qty <= 0:
+			continue
+		resources[res_id] = max(0.0, float(resources.get(res_id, 0.0)) - float(qty))
+
+
+func can_buy_discovery(discovery_id: String) -> Dictionary:
+	var out := {"ok": false, "reason": "Unknown discovery.", "can_afford": false, "available": false}
+	if not discovery_defs.has(discovery_id):
+		return out
+	var d: Dictionary = discovery_defs[discovery_id] as Dictionary
+	var current_level: int = get_discovery_level(discovery_id)
+	var max_level: int = int(d.get("max_level", 1))
+	var repeatable: bool = bool(d.get("repeatable", false))
+	if has_discovery(discovery_id) and (not repeatable or current_level >= max_level):
+		out["reason"] = "Already complete."
+		return out
+	if not bool(d.get("active_in_pass1", false)):
+		out["reason"] = "Not active in this pass."
+		return out
+	if not can_show_discoveries_tab():
+		out["reason"] = "Connect a second node first."
+		return out
+	var req_nodes: int = int(d.get("requires_connected_nodes", 0))
+	if get_connected_node_count() < req_nodes:
+		out["reason"] = "Requires %s connected nodes." % req_nodes
+		return out
+	var parent_variant = d.get("parent", null)
+	var parent_id := ""
+	if parent_variant != null:
+		parent_id = str(parent_variant)
+
+	if parent_id != "" and not has_discovery(parent_id):
+		var parent_name := parent_id
+		if discovery_defs.has(parent_id):
+			parent_name = str((discovery_defs[parent_id] as Dictionary).get("name", parent_id))
+		out["reason"] = "Requires %s." % parent_name
+		return out
+	var costs: Array = get_discovery_costs_for_next_level(discovery_id)
+	out["available"] = true
+	out["can_afford"] = _can_afford_costs(costs)
+	if not bool(out["can_afford"]):
+		out["reason"] = "Not enough materials."
+		return out
+	out["ok"] = true
+	out["reason"] = ""
+	return out
+
+
+func buy_discovery(discovery_id: String) -> Dictionary:
+	var check := can_buy_discovery(discovery_id)
+	if not bool(check.get("ok", false)):
+		return check
+	var d: Dictionary = discovery_defs[discovery_id] as Dictionary
+	var costs: Array = get_discovery_costs_for_next_level(discovery_id)
+	_spend_costs(costs)
+	var new_level: int = get_discovery_level(discovery_id) + 1
+	discovery_levels[discovery_id] = new_level
+	unlocked_discoveries[discovery_id] = true
+	if discovery_id == "aura_activation":
+		_update_node_reveals()
+	check["ok"] = true
+	check["reason"] = ""
+	check["new_level"] = new_level
+	return check
+
+
+func _get_discovery_effect_text(d: Dictionary) -> String:
+	var effect_type: String = str(d.get("effect_type", ""))
+	match effect_type:
+		"unlock_center":
+			return "Unlocks the first discovery branches."
+		"unlock_refinery_tab_and_slot_1":
+			return "Unlocks the Refinery tab and Slot 1."
+		"unlock_aura_branch":
+			return "Reveals the aura mechanic and enables aura-based node reveals."
+		"spawn_temporary_bonus_nodes":
+			return "Enables temporary bonus resource nodes."
+		"digestion_return_additive":
+			return "+%s digestion return per level." % str(int(round(float(d.get("effect_per_level", 0.0)) * 100.0)))
+		_:
+			return effect_type.replace("_", " ").capitalize()
+
+
+func _format_discovery_costs(costs: Array) -> String:
+	var parts: Array[String] = []
+	for c_variant in costs:
+		var c: Dictionary = c_variant as Dictionary
+		var res_id: String = str(c.get("id", ""))
+		var qty: int = int(c.get("qty", 0))
+		if res_id == "" or qty <= 0:
+			continue
+		parts.append("%s %s" % [str(qty), get_resource_name(res_id)])
+	return ", ".join(parts)
+
+
+func get_discovery_ui_entries() -> Array:
+	var out: Array = []
+	if not can_show_discoveries_tab():
+		return out
+	for discovery_id in PASS1_DISCOVERY_IDS:
+		if not discovery_defs.has(discovery_id):
+			continue
+		# Visibility rules for first pass
+		if discovery_id != "mycelial_insight" and not has_discovery("mycelial_insight"):
+			continue
+		if discovery_id == "nutrient_efficiency_1" and not has_discovery("excess_fertilizer"):
+			continue
+		var d: Dictionary = discovery_defs[discovery_id] as Dictionary
+		var level: int = get_discovery_level(discovery_id)
+		var costs: Array = get_discovery_costs_for_next_level(discovery_id)
+		var check: Dictionary = can_buy_discovery(discovery_id)
+		var max_level: int = int(d.get("max_level", 1))
+		out.append({
+			"id": discovery_id,
+			"name": str(d.get("name", discovery_id)),
+			"family": str(d.get("family", "")),
+			"tier": int(d.get("tier", 0)),
+			"repeatable": bool(d.get("repeatable", false)),
+			"level": level,
+			"max_level": max_level,
+			"effect_text": _get_discovery_effect_text(d),
+			"cost_text": _format_discovery_costs(costs),
+			"available": bool(check.get("available", false)),
+			"can_afford": bool(check.get("can_afford", false)),
+			"can_buy": bool(check.get("ok", false)),
+			"status_text": str(check.get("reason", "")),
+			"complete": has_discovery(discovery_id) and (not bool(d.get("repeatable", false)) or level >= max_level)
+		})
+	return out
+
+
+func get_current_run_discovery_progress() -> Dictionary:
+	return {
+		"unlocked_discoveries": unlocked_discoveries.duplicate(true),
+		"discovery_levels": discovery_levels.duplicate(true)
+	}
+
+
 # ---------------- Loading ----------------
 
 func _load_all() -> void:
 	resource_defs.clear()
 	node_defs.clear()
 	node_order.clear()
+	discovery_defs.clear()
+	discovery_order.clear()
+	discovery_notes.clear()
+	unlocked_discoveries.clear()
+	discovery_levels.clear()
 	resources.clear()
 	nodes.clear()
 	node_world_positions.clear()
 	spore_cloud_world_pos = Vector2.ZERO
 	total_nutrients_earned_run = 0.0
+
+	var discoveries_data = _load_json("res://data/discoveries.json")
+	if discoveries_data is Dictionary:
+		discovery_notes = ((discoveries_data as Dictionary).get("notes", {}) as Dictionary).duplicate(true)
+		var dlist: Array = ((discoveries_data as Dictionary).get("discoveries", []) as Array)
+		for d_variant in dlist:
+			var dsrc: Dictionary = d_variant as Dictionary
+			var did: String = str(dsrc.get("id", ""))
+			if did == "":
+				continue
+			discovery_order.append(did)
+			discovery_defs[did] = dsrc.duplicate(true)
+			unlocked_discoveries[did] = false
+			discovery_levels[did] = 0
 
 	var res_data = _load_json("res://data/resources.json")
 	if res_data is Dictionary:
@@ -675,9 +958,11 @@ func _load_all() -> void:
 			resources[res_id] = 0.0
 
 	# seed starting amounts
-	resources["nutrients"] = 12500.0
+	resources["nutrients"] = 2900.0
 	resources["glowcaps"] = 0.0
 	resources["strain_points"] = 0.0
+	resources["spores"] = 15330.0
+	resources["hyphae"] = 15330.0
 
 	var nodes_data = _load_json("res://data/nodes.json")
 	if nodes_data is Dictionary:
