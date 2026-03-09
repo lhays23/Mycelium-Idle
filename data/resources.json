@@ -1,47 +1,154 @@
 {
-  "version": 1,
+  "version": 2,
   "resources": [
-    {
-      "id": "nutrients",
-      "name": "Nutrients",
-      "kind": "currency",
-      "format": "compact_int"
-    },
-    {
-      "id": "glowcaps",
-      "name": "Glowcaps",
-      "kind": "premium",
-      "format": "compact_int"
-    },
-    {
-      "id": "strain_points",
-      "name": "Strain Points",
-      "kind": "prestige",
-      "format": "compact_int"
-    },
-    {
-      "id": "spores",
-      "name": "Spores",
-      "kind": "resource",
-      "format": "compact_int"
-    },
-    {
-      "id": "hyphae",
-      "name": "Hyphae",
-      "kind": "resource",
-      "format": "compact_int"
-    },
-    {
-      "id": "cellulose",
-      "name": "Cellulose",
-      "kind": "resource",
-      "format": "compact_int"
-    },
-    {
-      "id": "mycelium",
-      "name": "Mycelium",
-      "kind": "resource",
-      "format": "compact_int"
-    }
+	{
+	  "id": "nutrients",
+	  "name": "Nutrients",
+	  "kind": "currency",
+	  "format": "compact_int",
+	  "player_visible_value": true
+	},
+	{
+	  "id": "glowcaps",
+	  "name": "Glowcaps",
+	  "kind": "premium",
+	  "format": "compact_int",
+	  "player_visible_value": true
+	},
+	{
+	  "id": "strain_points",
+	  "name": "Strain Points",
+	  "kind": "prestige",
+	  "format": "compact_int",
+	  "player_visible_value": true
+	},
+	{
+	  "id": "spores",
+	  "name": "Spores",
+	  "kind": "resource",
+	  "tier": 1,
+	  "base_value": 1,
+	  "format": "compact_int",
+	  "player_visible_value": true,
+	  "discovery_gate": "aura",
+	  "identity_note": "Starter bulk biomass.",
+	  "first_compound": "spore_composite",
+	  "advanced_uses": [
+		"spore_weave",
+        "spore_resin"
+	  ]
+	},
+	{
+	  "id": "hyphae",
+	  "name": "Hyphae",
+	  "kind": "resource",
+	  "tier": 1,
+	  "base_value": 2,
+	  "format": "compact_int",
+	  "player_visible_value": true,
+	  "discovery_gate": "aura",
+	  "identity_note": "Threadlike transport tissue.",
+	  "first_compound": "hyphal_thread",
+	  "advanced_uses": [
+		"spore_weave",
+        "fiber_broth"
+	  ]
+	},
+	{
+	  "id": "cellulose",
+	  "name": "Cellulose",
+	  "kind": "resource",
+	  "tier": 1,
+	  "base_value": 4,
+	  "format": "compact_int",
+	  "player_visible_value": true,
+	  "discovery_gate": "aura",
+	  "identity_note": "Fibrous structural matter.",
+	  "first_compound": "cellulose_weave",
+	  "advanced_uses": [
+		"living_fiber",
+        "fiber_broth"
+	  ]
+	},
+	{
+	  "id": "mycelium",
+	  "name": "Mycelium",
+	  "kind": "resource",
+	  "tier": 1,
+	  "base_value": 7,
+	  "format": "compact_int",
+	  "player_visible_value": true,
+	  "discovery_gate": "aura",
+	  "identity_note": "Dense colony mass.",
+	  "first_compound": "growth_gel",
+	  "advanced_uses": [
+		"living_fiber",
+        "gel_tonic"
+	  ]
+	},
+	{
+	  "id": "sporoplasm",
+	  "name": "Sporoplasm",
+	  "kind": "resource",
+	  "tier": 1,
+	  "base_value": 14,
+	  "format": "compact_int",
+	  "player_visible_value": true,
+	  "discovery_gate": "aura",
+	  "identity_note": "Active fungal slurry.",
+	  "first_compound": "sporoplasm_slurry",
+	  "advanced_uses": [
+		"carapace_gel",
+        "gel_tonic"
+	  ]
+	},
+	{
+	  "id": "chitin",
+	  "name": "Chitin",
+	  "kind": "resource",
+	  "tier": 1,
+	  "base_value": 29,
+	  "format": "compact_int",
+	  "player_visible_value": true,
+	  "discovery_gate": "aura",
+	  "identity_note": "Rigid fungal shell material.",
+	  "first_compound": "chitin_plate",
+	  "advanced_uses": [
+		"carapace_gel",
+        "chitin_sap"
+	  ]
+	},
+	{
+	  "id": "crystal_mold",
+	  "name": "Crystal Mold",
+	  "kind": "resource",
+	  "tier": 1,
+	  "base_value": 63,
+	  "format": "compact_int",
+	  "player_visible_value": true,
+	  "discovery_gate": "aura",
+	  "identity_note": "Crystalline growth matter.",
+	  "first_compound": "crystal_bloom",
+	  "advanced_uses": [
+		"bloom_matrix",
+        "bloom_tincture"
+	  ]
+	},
+	{
+	  "id": "voidspore",
+	  "name": "Voidspore",
+	  "kind": "resource",
+	  "tier": 1,
+	  "base_value": 140,
+	  "format": "compact_int",
+	  "player_visible_value": true,
+	  "discovery_gate": "aura",
+	  "identity_note": "Late-run void-touched spores.",
+	  "first_compound": "void_mesh",
+	  "advanced_uses": [
+		"bloom_matrix",
+        "bloom_ascendant"
+	  ]
+	}
   ]
 }

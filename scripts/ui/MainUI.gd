@@ -45,10 +45,8 @@ const TRANSPORT_CHEER_DURATION := 0.65
 @onready var btn_settings: BaseButton    = $UILayer/HUD/BottomBar/MarginContainer/HBoxContainer/BtnSettings
 
 # Map nodes
-@onready var n_damp: Node2D    = $MapLayer/Nodes/Node_DampSoil
-@onready var n_log: Node2D     = $MapLayer/Nodes/Node_RottingLog
-@onready var n_compost: Node2D = $MapLayer/Nodes/Node_CompostHeap
-@onready var n_root: Node2D    = $MapLayer/Nodes/Node_RootCluster
+@onready var nodes_container: Node = $MapLayer/Nodes
+@onready var lines_container: Node = $MapLayer/Lines
 @onready var spore_cloud: Node2D = $MapLayer/SporeCloud
 
 @onready var selection_ring: Sprite2D = $MapLayer/SelectionRing
@@ -63,6 +61,8 @@ var _open_panel: Control = null
 var _bar_h: float = 0.0
 
 var _node_list: Array = []
+var _node_lookup: Dictionary = {}
+var _line_lookup: Dictionary = {}
 
 var _selected_node: Node2D = null
 var _selected_node_id: String = ""
@@ -135,12 +135,8 @@ func _ready() -> void:
 
 	_bind_currency_labels()
 
-	_node_list = [
-		{"id": "damp_soil",    "node": n_damp,    "name": "Damp Soil"},
-		{"id": "rotting_log",  "node": n_log,     "name": "Rotting Log"},
-		{"id": "compost_heap", "node": n_compost, "name": "Compost Heap"},
-		{"id": "root_cluster", "node": n_root,    "name": "Root Cluster"},
-	]
+	_build_node_registry()
+	_refresh_node_world_state()
 
 	_register_transport_positions()
 	_setup_mites()
@@ -194,6 +190,7 @@ func _process(dt: float) -> void:
 	if _ui_accum >= UI_REFRESH_DT:
 		_ui_accum = 0.0
 		_refresh_currency_ui()
+		_refresh_node_world_state()
 
 		if _open_panel == node_panel and _selected_node_id != "":
 			_refresh_nodepanel_all()
@@ -209,11 +206,15 @@ func _register_transport_positions() -> void:
 	if game_state.has_method("register_spore_cloud_world_position"):
 		game_state.call("register_spore_cloud_world_position", spore_cloud.global_position)
 
-	if game_state.has_method("register_node_world_position"):
-		game_state.call("register_node_world_position", "damp_soil", n_damp.global_position)
-		game_state.call("register_node_world_position", "rotting_log", n_log.global_position)
-		game_state.call("register_node_world_position", "compost_heap", n_compost.global_position)
-		game_state.call("register_node_world_position", "root_cluster", n_root.global_position)
+	if not game_state.has_method("register_node_world_position"):
+		return
+
+	for e in _node_list:
+		var node_id: String = str(e.get("id", ""))
+		var node_ref: Node2D = e.get("node", null) as Node2D
+		if node_id == "" or node_ref == null:
+			continue
+		game_state.call("register_node_world_position", node_id, node_ref.global_position)
 
 
 func _setup_mites() -> void:
@@ -288,10 +289,10 @@ func _update_mite_visuals() -> void:
 
 		var route_t: float = clamp(float(info.get("route_t", 0.0)), 0.0, 1.0)
 		var carrying: bool = bool(info.get("carrying", false))
-		var visible: bool = bool(info.get("visible", true))
+		var mite_visible: bool = bool(info.get("visible", true))
 
-		root.visible = visible
-		if not visible:
+		root.visible = mite_visible
+		if not mite_visible:
 			continue
 
 		root.global_position = spore_cloud.global_position.lerp(node_ref.global_position, route_t)
@@ -883,15 +884,115 @@ func _input(event: InputEvent) -> void:
 
 	for e in _node_list:
 		var node: Node2D = e["node"]
+		var node_id: String = str(e["id"])
+		var state := _get_node_world_state(node_id)
+		if not bool(state.get("is_visible", true)):
+			continue
+
 		var node_screen := canvas_xform * node.global_position
-		if node_screen.distance_to(screen_pos) <= NODE_HIT_RADIUS:
-			node_title.text = e["name"]
-			_selected_node_id = str(e["id"])
-			_select_node(node)
-			_open(node_panel)
-			_refresh_nodepanel_all()
-			get_viewport().set_input_as_handled()
-			return
+		if node_screen.distance_to(screen_pos) > NODE_HIT_RADIUS:
+			continue
+
+		if not bool(state.get("is_unlocked", true)):
+			if game_state != null and game_state.has_method("try_unlock_node"):
+				var unlocked: bool = bool(game_state.call("try_unlock_node", node_id))
+				if unlocked:
+					_refresh_currency_ui()
+					_refresh_node_world_state()
+					node_title.text = str(e["name"])
+					_selected_node_id = node_id
+					_select_node(node)
+					_open(node_panel)
+					_refresh_nodepanel_all()
+					get_viewport().set_input_as_handled()
+					return
+			continue
+
+		node_title.text = str(e["name"])
+		_selected_node_id = node_id
+		_select_node(node)
+		_open(node_panel)
+		_refresh_nodepanel_all()
+		get_viewport().set_input_as_handled()
+		return
+
+
+func _build_node_registry() -> void:
+	_node_list.clear()
+	_node_lookup.clear()
+	_line_lookup.clear()
+
+	if game_state == null or not game_state.has_method("get_all_node_defs"):
+		return
+
+	var defs = game_state.call("get_all_node_defs")
+	if typeof(defs) != TYPE_ARRAY:
+		return
+
+	for def_variant in defs:
+		var def: Dictionary = def_variant as Dictionary
+		var node_id: String = str(def.get("id", ""))
+		var node_name: String = str(def.get("name", node_id))
+		var scene_node_name: String = str(def.get("scene_node_name", ""))
+		if node_id == "" or scene_node_name == "":
+			continue
+
+		var node_ref := nodes_container.get_node_or_null(scene_node_name) as Node2D
+		if node_ref == null:
+			continue
+
+		var entry := {
+			"id": node_id,
+			"name": node_name,
+			"node": node_ref
+		}
+		_node_list.append(entry)
+		_node_lookup[node_id] = entry
+
+		var line_node_name: String = str(def.get("line_node_name", ""))
+		if line_node_name != "":
+			var line_ref := lines_container.get_node_or_null(line_node_name) as CanvasItem
+			if line_ref != null:
+				_line_lookup[node_id] = line_ref
+
+
+func _get_node_world_state(node_id: String) -> Dictionary:
+	if game_state != null and game_state.has_method("get_node_state_ui"):
+		var state = game_state.call("get_node_state_ui", node_id)
+		if typeof(state) == TYPE_DICTIONARY:
+			return state
+	return {
+		"is_visible": true,
+		"is_unlocked": true,
+		"is_connected": true
+	}
+
+
+func _refresh_node_world_state() -> void:
+	for e in _node_list:
+		var node_id: String = str(e.get("id", ""))
+		var node_ref: Node2D = e.get("node", null) as Node2D
+		if node_ref == null:
+			continue
+
+		var state := _get_node_world_state(node_id)
+		var node_visible: bool = bool(state.get("is_visible", true))
+		var node_unlocked: bool = bool(state.get("is_unlocked", true))
+		var node_connected: bool = bool(state.get("is_connected", true))
+
+		node_ref.visible = node_visible
+		if node_visible:
+			node_ref.modulate = Color(1, 1, 1, 1.0 if node_unlocked else 0.40)
+
+		if _line_lookup.has(node_id):
+			var line_ref: CanvasItem = _line_lookup[node_id] as CanvasItem
+			if line_ref != null:
+				line_ref.visible = node_visible and node_connected
+
+		if _selected_node_id == node_id and (not node_visible or not node_unlocked):
+			selection_ring.visible = false
+			if _open_panel == node_panel:
+				_close_current()
 
 
 func _select_node(node: Node2D) -> void:
@@ -935,6 +1036,9 @@ func _refresh_currency_ui() -> void:
 # ---------------- Formatting helpers ----------------
 
 func _get_node_name(node_id: String) -> String:
+	if game_state != null and game_state.has_method("get_node_display_name"):
+		return str(game_state.call("get_node_display_name", node_id))
+
 	for e in _node_list:
 		if str(e["id"]) == node_id:
 			return str(e["name"])
@@ -942,6 +1046,11 @@ func _get_node_name(node_id: String) -> String:
 
 
 func _pretty_res(res_id: String) -> String:
+	if game_state != null and game_state.has_method("get_resource_name"):
+		var pretty := str(game_state.call("get_resource_name", res_id))
+		if pretty != "":
+			return pretty
+
 	match res_id:
 		"spores": return "Spores"
 		"hyphae": return "Hyphae"

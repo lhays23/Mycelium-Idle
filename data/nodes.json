@@ -1,73 +1,129 @@
 {
-  "version": 1,
+  "version": 3,
   "nodes": [
-    {
-      "id": "damp_soil",
-      "name": "Damp Soil",
-      "base_rate_total": 0.25,
-      "pool_cap": 50,
-      "outputs": [
-        {
-          "res": "spores",
-          "weight": 1.0,
-          "amount_per_unit": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 0,
-        "node_speed_level": 0
-      }
-    },
-    {
-      "id": "rotting_log",
-      "name": "Rotting Log",
-      "base_rate_total": 0.18,
-      "pool_cap": 50,
-      "outputs": [
-        {
-          "res": "hyphae",
-          "weight": 1.0,
-          "amount_per_unit": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 0,
-        "node_speed_level": 0
-      }
-    },
-    {
-      "id": "compost_heap",
-      "name": "Compost Heap",
-      "base_rate_total": 0.12,
-      "pool_cap": 50,
-      "outputs": [
-        {
-          "res": "cellulose",
-          "weight": 1.0,
-          "amount_per_unit": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 0,
-        "node_speed_level": 0
-      }
-    },
-    {
-      "id": "root_cluster",
-      "name": "Root Cluster",
-      "base_rate_total": 0.08,
-      "pool_cap": 50,
-      "outputs": [
-        {
-          "res": "mycelium",
-          "weight": 1.0,
-          "amount_per_unit": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 0,
-        "node_speed_level": 0
-      }
-    }
+	{
+	  "id": "damp_soil",
+	  "name": "Damp Soil",
+	  "scene_node_name": "Node_DampSoil",
+	  "line_node_name": "Line_DampSoil",
+	  "primary_resource": "spores",
+	  "secondary_resource": "",
+	  "unlock_cost": 75,
+	  "distance_px": 360,
+	  "ring": 1,
+	  "reveal_rule": "starter",
+	  "reveal_total_nutrients": 0,
+	  "is_starter": true,
+	  "starts_visible": true,
+	  "starts_unlocked": true,
+	  "starts_connected": true,
+	  "base_rate_total": 0.25,
+	  "pool_cap": 50,
+	  "outputs": [
+		{
+		  "res": "spores",
+		  "weight": 1.0,
+		  "amount_per_unit": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"node_speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "rotting_log",
+	  "name": "Rotting Log",
+	  "scene_node_name": "Node_RottingLog",
+	  "line_node_name": "Line_RottingLog",
+	  "primary_resource": "hyphae",
+	  "secondary_resource": "",
+	  "unlock_cost": 160,
+	  "distance_px": 420,
+	  "ring": 1,
+	  "reveal_rule": "starter",
+	  "reveal_total_nutrients": 0,
+	  "is_starter": true,
+	  "starts_visible": true,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "base_rate_total": 0.18,
+	  "pool_cap": 50,
+	  "outputs": [
+		{
+		  "res": "hyphae",
+		  "weight": 1.0,
+		  "amount_per_unit": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"node_speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "root_cluster",
+	  "name": "Root Cluster",
+	  "scene_node_name": "Node_RootCluster",
+	  "line_node_name": "Line_RootCluster",
+	  "primary_resource": "mycelium",
+	  "secondary_resource": "",
+	  "unlock_cost": 400,
+	  "distance_px": 580,
+	  "ring": 1,
+	  "reveal_rule": "aura",
+	  "reveal_total_nutrients": 3000,
+	  "is_starter": true,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "base_rate_total": 0.08,
+	  "pool_cap": 50,
+	  "outputs": [
+		{
+		  "res": "mycelium",
+		  "weight": 1.0,
+		  "amount_per_unit": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"node_speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "compost_heap",
+	  "name": "Compost Heap",
+	  "scene_node_name": "Node_CompostHeap",
+	  "line_node_name": "Line_CompostHeap",
+	  "primary_resource": "cellulose",
+	  "secondary_resource": "",
+	  "unlock_cost": 1100,
+	  "distance_px": 500,
+	  "ring": 1,
+	  "reveal_rule": "aura",
+	  "reveal_total_nutrients": 9000,
+	  "is_starter": true,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "base_rate_total": 0.12,
+	  "pool_cap": 50,
+	  "outputs": [
+		{
+		  "res": "cellulose",
+		  "weight": 1.0,
+		  "amount_per_unit": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"node_speed_level": 1,
+		"carry_level": 1
+	  }
+	}
   ]
 }

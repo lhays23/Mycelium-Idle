@@ -263,7 +263,7 @@ layout_mode = 2
 [node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/UpgradesPanel/MarginContainer" unique_id=1345802335]
 layout_mode = 2
 
-[node name="Upgrades (V0)" type="Label" parent="PanelHost/PanelContainer/UpgradesPanel/MarginContainer/VBoxContainer" unique_id=637498209]
+[node name="Upgrades" type="Label" parent="PanelHost/PanelContainer/UpgradesPanel/MarginContainer/VBoxContainer" unique_id=637498209]
 layout_mode = 2
 
 [node name="DiscoveriesPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=1189599567]
@@ -283,7 +283,7 @@ layout_mode = 2
 [node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/DiscoveriesPanel/MarginContainer" unique_id=83199086]
 layout_mode = 2
 
-[node name="Discoveries (V0)" type="Label" parent="PanelHost/PanelContainer/DiscoveriesPanel/MarginContainer/VBoxContainer" unique_id=1093818918]
+[node name="Discoveries" type="Label" parent="PanelHost/PanelContainer/DiscoveriesPanel/MarginContainer/VBoxContainer" unique_id=1093818918]
 layout_mode = 2
 
 [node name="RefineryPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=334278723]
@@ -303,7 +303,7 @@ layout_mode = 2
 [node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/RefineryPanel/MarginContainer" unique_id=1439437106]
 layout_mode = 2
 
-[node name="Refinery (V0)" type="Label" parent="PanelHost/PanelContainer/RefineryPanel/MarginContainer/VBoxContainer" unique_id=948251880]
+[node name="Refinery" type="Label" parent="PanelHost/PanelContainer/RefineryPanel/MarginContainer/VBoxContainer" unique_id=948251880]
 layout_mode = 2
 
 [node name="DigestPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=368915363]
@@ -323,7 +323,7 @@ layout_mode = 2
 [node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer" unique_id=1576011733]
 layout_mode = 2
 
-[node name="Digest (V0)" type="Label" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer/VBoxContainer" unique_id=683456915]
+[node name="Digest" type="Label" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer/VBoxContainer" unique_id=683456915]
 layout_mode = 2
 
 [node name="LblDigestTitle" type="Label" parent="PanelHost/PanelContainer/DigestPanel/MarginContainer/VBoxContainer" unique_id=392183218]
@@ -360,7 +360,7 @@ layout_mode = 2
 [node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/SettingsPanel/MarginContainer" unique_id=1232511566]
 layout_mode = 2
 
-[node name="Settings (V0)" type="Label" parent="PanelHost/PanelContainer/SettingsPanel/MarginContainer/VBoxContainer" unique_id=1632078930]
+[node name="Settings" type="Label" parent="PanelHost/PanelContainer/SettingsPanel/MarginContainer/VBoxContainer" unique_id=1632078930]
 layout_mode = 2
 
 [node name="NodePanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=1678375330]
@@ -379,18 +379,18 @@ layout_mode = 2
 [node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer" unique_id=1048735519]
 layout_mode = 2
 
-[node name="Header row" type="HBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer" unique_id=121854815]
+[node name="HeaderRow" type="HBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer" unique_id=121854815]
 layout_mode = 2
 
-[node name="Name" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/Header row" unique_id=271303743]
+[node name="Name" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/HeaderRow" unique_id=271303743]
 layout_mode = 2
 text = "Damp Soil"
 
-[node name="Spacer" type="Control" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/Header row" unique_id=1470480958]
+[node name="Spacer" type="Control" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/HeaderRow" unique_id=1470480958]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Close" type="Button" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/Header row" unique_id=98272117]
+[node name="Close" type="Button" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/HeaderRow" unique_id=98272117]
 layout_mode = 2
 text = "X"
 
