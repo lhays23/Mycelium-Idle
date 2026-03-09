@@ -1,0 +1,219 @@
+{
+  "version": 1,
+  "rules": {
+    "value_multiplier": 1.45,
+    "unlock_multiplier": 1.25,
+    "default_output_qty": 1
+  },
+  "solutions": [
+    {
+      "id": "spore_resin",
+      "name": "Spore Resin",
+      "phase": 1,
+      "inputs": [
+        {
+          "id": "spore_composite",
+          "qty": 1
+        },
+        {
+          "id": "hyphal_thread",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "fiber_broth",
+      "name": "Fiber Broth",
+      "phase": 1,
+      "inputs": [
+        {
+          "id": "cellulose_weave",
+          "qty": 1
+        },
+        {
+          "id": "growth_gel",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "gel_tonic",
+      "name": "Gel Tonic",
+      "phase": 1,
+      "inputs": [
+        {
+          "id": "growth_gel",
+          "qty": 1
+        },
+        {
+          "id": "sporoplasm_slurry",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "chitin_sap",
+      "name": "Chitin Sap",
+      "phase": 1,
+      "inputs": [
+        {
+          "id": "chitin_plate",
+          "qty": 1
+        },
+        {
+          "id": "crystal_bloom",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "weave_serum",
+      "name": "Weave Serum",
+      "phase": 2,
+      "inputs": [
+        {
+          "id": "spore_weave",
+          "qty": 1
+        },
+        {
+          "id": "spore_composite",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "living_extract",
+      "name": "Living Extract",
+      "phase": 2,
+      "inputs": [
+        {
+          "id": "living_fiber",
+          "qty": 1
+        },
+        {
+          "id": "growth_gel",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "carapace_infusion",
+      "name": "Carapace Infusion",
+      "phase": 2,
+      "inputs": [
+        {
+          "id": "carapace_gel",
+          "qty": 1
+        },
+        {
+          "id": "chitin_plate",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "bloom_tincture",
+      "name": "Bloom Tincture",
+      "phase": 2,
+      "inputs": [
+        {
+          "id": "bloom_matrix",
+          "qty": 1
+        },
+        {
+          "id": "crystal_bloom",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "mycelial_elixir",
+      "name": "Mycelial Elixir",
+      "phase": 3,
+      "inputs": [
+        {
+          "id": "carapace_gel",
+          "qty": 1
+        },
+        {
+          "id": "bloom_tincture",
+          "qty": 1
+        },
+        {
+          "id": "gel_tonic",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "expansion_draft",
+      "name": "Expansion Draft",
+      "phase": 3,
+      "inputs": [
+        {
+          "id": "weave_serum",
+          "qty": 1
+        },
+        {
+          "id": "living_extract",
+          "qty": 1
+        },
+        {
+          "id": "fiber_broth",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    },
+    {
+      "id": "root_catalyst",
+      "name": "Root Catalyst",
+      "phase": 3,
+      "inputs": [
+        {
+          "id": "living_fiber",
+          "qty": 1
+        },
+        {
+          "id": "crystal_bloom",
+          "qty": 1
+        },
+        {
+          "id": "spore_resin",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1,
+      "special_use": "milestone_node_unlocks_after_node_16"
+    },
+    {
+      "id": "bloom_ascendant",
+      "name": "Bloom Ascendant",
+      "phase": 3,
+      "inputs": [
+        {
+          "id": "bloom_matrix",
+          "qty": 1
+        },
+        {
+          "id": "mycelial_elixir",
+          "qty": 1
+        },
+        {
+          "id": "expansion_draft",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1
+    }
+  ]
+}

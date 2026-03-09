@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "simulation": {
+    "tick_dt": 0.1
+  },
+  "transport": {
+    "base_mite_speed_px_per_sec": 150.0,
+    "base_carry_capacity": 4,
+    "load_unload_sec": 0.25,
+    "default_distance_px": 360.0
+  },
+  "digestion": {
+    "base_modifier": 0.8
+  },
+  "upgrade_formulas": {
+    "yield_curve": {
+      "base": 0.2,
+      "linear": 0.08,
+      "quadratic": 0.02,
+      "baseline_level": 1
+    },
+    "root_pulse_speed_curve": {
+      "base": 0.9,
+      "linear": 0.18,
+      "quadratic": 0.015,
+      "baseline_level": 1
+    },
+    "root_pulse_capacity_curve": {
+      "base": 4.0,
+      "linear": 1.8,
+      "quadratic": 0.12,
+      "baseline_level": 1
+    }
+  },
+  "upgrade_costs": {
+    "yield_level": {
+      "base_cost": 25,
+      "cost_mult": 1.3,
+      "label": "Yield"
+    },
+    "node_speed_level": {
+      "base_cost": 35,
+      "cost_mult": 1.3,
+      "label": "Root Pulse Speed"
+    },
+    "carry_level": {
+      "base_cost": 50,
+      "cost_mult": 1.3,
+      "label": "Root Pulse Capacity"
+    }
+  },
+  "starting_resources": {
+    "nutrients": 12500.0,
+    "glowcaps": 0.0,
+    "strain_points": 0.0
+  },
+  "refinery_slots": [
+    0,
+    50000,
+    250000,
+    2500000,
+    250000000,
+    10000000000
+  ],
+  "synth_slots": [
+    0,
+    125000,
+    1250000,
+    125000000,
+    5000000000
+  ],
+  "discovery_tiers": [
+    {
+      "id": 0,
+      "min_nev": 0,
+      "max_nev": 399
+    },
+    {
+      "id": 1,
+      "min_nev": 400,
+      "max_nev": 1999
+    },
+    {
+      "id": 2,
+      "min_nev": 2000,
+      "max_nev": 14999
+    },
+    {
+      "id": 3,
+      "min_nev": 15000,
+      "max_nev": 99999
+    },
+    {
+      "id": 4,
+      "min_nev": 100000,
+      "max_nev": 1499999
+    },
+    {
+      "id": 5,
+      "min_nev": 1500000,
+      "max_nev": 29999999
+    },
+    {
+      "id": 6,
+      "min_nev": 30000000,
+      "max_nev": 749999999
+    },
+    {
+      "id": 7,
+      "min_nev": 750000000,
+      "max_nev": 999999999999
+    }
+  ]
+}

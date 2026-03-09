@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "rules": {
+    "base_value_multiplier": 1.35,
+    "base_unlock_multiplier": 1.2,
+    "base_recipe_rule": "1000 raw -> 1 compound",
+    "composite_recipe_rule": "5 + 5 -> 1 compound"
+  },
+  "compounds": [
+    {
+      "id": "spore_composite",
+      "name": "Spore Composite",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "spores",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "previous_recipe_required": null
+    },
+    {
+      "id": "hyphal_thread",
+      "name": "Hyphal Thread",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "hyphae",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "previous_recipe_required": "spore_composite"
+    },
+    {
+      "id": "cellulose_weave",
+      "name": "Cellulose Weave",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "cellulose",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "previous_recipe_required": "hyphal_thread"
+    },
+    {
+      "id": "growth_gel",
+      "name": "Growth Gel",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "mycelium",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "previous_recipe_required": "cellulose_weave"
+    },
+    {
+      "id": "sporoplasm_slurry",
+      "name": "Sporoplasm Slurry",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "sporoplasm",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "previous_recipe_required": "growth_gel"
+    },
+    {
+      "id": "chitin_plate",
+      "name": "Chitin Plate",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "chitin",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "previous_recipe_required": "sporoplasm_slurry"
+    },
+    {
+      "id": "crystal_bloom",
+      "name": "Crystal Bloom",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "crystal_mold",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "previous_recipe_required": "chitin_plate"
+    },
+    {
+      "id": "void_mesh",
+      "name": "Void Mesh",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "voidspore",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "previous_recipe_required": "crystal_bloom"
+    },
+    {
+      "id": "spore_weave",
+      "name": "Spore Weave",
+      "type": "composite",
+      "inputs": [
+        {
+          "id": "spore_composite",
+          "qty": 5
+        },
+        {
+          "id": "hyphal_thread",
+          "qty": 5
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "composite_tier",
+      "previous_recipe_required": null,
+      "discovery_requirement": "expanded_refinery"
+    },
+    {
+      "id": "living_fiber",
+      "name": "Living Fiber",
+      "type": "composite",
+      "inputs": [
+        {
+          "id": "cellulose_weave",
+          "qty": 5
+        },
+        {
+          "id": "growth_gel",
+          "qty": 5
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "composite_tier",
+      "previous_recipe_required": "spore_weave",
+      "discovery_requirement": "expanded_refinery"
+    },
+    {
+      "id": "carapace_gel",
+      "name": "Carapace Gel",
+      "type": "composite",
+      "inputs": [
+        {
+          "id": "sporoplasm_slurry",
+          "qty": 5
+        },
+        {
+          "id": "chitin_plate",
+          "qty": 5
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "composite_tier",
+      "previous_recipe_required": "living_fiber",
+      "discovery_requirement": "expanded_refinery"
+    },
+    {
+      "id": "bloom_matrix",
+      "name": "Bloom Matrix",
+      "type": "composite",
+      "inputs": [
+        {
+          "id": "crystal_bloom",
+          "qty": 5
+        },
+        {
+          "id": "void_mesh",
+          "qty": 5
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "composite_tier",
+      "previous_recipe_required": "carapace_gel",
+      "discovery_requirement": "expanded_refinery"
+    }
+  ]
+}
