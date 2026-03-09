@@ -181,7 +181,7 @@ func _ready() -> void:
 		_nutrients_base_scale = lbl_nutrients.scale
 
 	_refresh_currency_ui()
-
+	get_tree().root.print_tree_pretty()
 
 func _process(dt: float) -> void:
 	if selection_ring.visible and _selected_node != null:
