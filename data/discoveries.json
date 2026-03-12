@@ -139,7 +139,7 @@
       ],
       "requires_connected_nodes": 0,
       "requires_discovery": "primitive_refinery",
-      "active_in_pass1": false
+      "active_in_pass1": true
     },
     {
       "id": "refinery_speed_2",
