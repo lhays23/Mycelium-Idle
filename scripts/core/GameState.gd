@@ -21,7 +21,7 @@ const RAW_BASE_VALUES := {
 }
 const BASE_DIGEST_MODIFIER: float = 1.0
 const DEFAULT_DISCOVERY_BASE_DIGESTION_MODIFIER: float = 0.8
-const PASS1_DISCOVERY_IDS := ["mycelial_insight", "primitive_refinery", "aura_activation", "excess_fertilizer", "nutrient_efficiency_1"]
+const PASS1_DISCOVERY_IDS := ["mycelial_insight", "primitive_refinery", "synthesis", "aura_activation", "excess_fertilizer", "nutrient_efficiency_1"]
 const DEFAULT_REFINERY_PASS1_RECIPE_IDS := ["spore_composite", "hyphal_thread", "cellulose_weave", "growth_gel"]
 const DEFAULT_REFINERY_BASE_CRAFT_SEC := 4.0
 
@@ -31,7 +31,7 @@ var compound_defs: Dictionary = {}
 var compound_order: Array[String] = []
 var solutions_meta: Dictionary = {}
 var solution_defs: Dictionary = {}
-var solution_order: Array[String] = []
+var solution_order: Array[String] = ["mycelial_resin", "spore_resin", "weave_serum", "root_catalyst"]
 var raw_resource_order: Array[String] = []
 
 var resource_defs: Dictionary = {}   # res_id -> metadata
@@ -674,6 +674,12 @@ func get_solution_unlock_cost(recipe_id: String) -> int:
 	match recipe_id:
 		"mycelial_resin":
 			return 0
+		"spore_resin":
+			return 50000
+		"weave_serum":
+			return 150000
+		"root_catalyst":
+			return 500000
 		_:
 			return -1
 
@@ -688,9 +694,35 @@ func is_solution_unlocked(recipe_id: String) -> bool:
 	match recipe_id:
 		"mycelial_resin":
 			return true
+		"spore_resin", "weave_serum", "root_catalyst":
+			return bool(paid_solution_unlocks.get(recipe_id, false))
 		_:
 			return false
 
+func get_visible_solution_unlock_ids() -> Array[String]:
+	if not is_synth_unlocked():
+		return []
+
+	var ordered: Array[String] = []
+	for recipe_id_variant in solution_order:
+		var recipe_id := str(recipe_id_variant)
+
+		if not solution_defs.has(recipe_id):
+			continue
+
+		if is_solution_unlocked(recipe_id):
+			continue
+
+		var cost := get_solution_unlock_cost(recipe_id)
+		if cost < 0:
+			continue
+
+		ordered.append(recipe_id)
+
+	if ordered.is_empty():
+		return []
+
+	return [ordered[0]]
 
 func can_unlock_solution_recipe(recipe_id: String) -> Dictionary:
 	var out := {
@@ -726,7 +758,6 @@ func can_unlock_solution_recipe(recipe_id: String) -> Dictionary:
 	out["reason"] = ""
 	return out
 
-
 func unlock_solution_recipe(recipe_id: String) -> Dictionary:
 	var check := can_unlock_solution_recipe(recipe_id)
 	if not bool(check.get("ok", false)):
@@ -734,13 +765,12 @@ func unlock_solution_recipe(recipe_id: String) -> Dictionary:
 
 	var cost := int(check.get("cost", 0))
 	if cost > 0:
-		resources["nutrients"] = max(0.0, float(resources.get("nutrients", 0.0)) - float(cost))
+		add_amount("nutrients", -cost)
 
 	paid_solution_unlocks[recipe_id] = true
 	check["ok"] = true
 	check["reason"] = ""
 	return check
-	
 	
 func get_digest_efficiency() -> float:
 	return get_current_digestion_modifier()
@@ -1189,19 +1219,30 @@ func get_discovery_ui_entries() -> Array:
 	var out: Array = []
 	if not can_show_discoveries_tab():
 		return out
-	for discovery_id in PASS1_DISCOVERY_IDS:
+
+	var ordered_ids: Array[String] = _get_pass1_discovery_display_order()
+
+	for discovery_id in ordered_ids:
+
 		if not discovery_defs.has(discovery_id):
 			continue
-		# Visibility rules for first pass
+
+		var d: Dictionary = discovery_defs[discovery_id] as Dictionary
+
+		if not _is_discovery_visible_in_panel(discovery_id, d):
+			continue
+
 		if discovery_id != "mycelial_insight" and not has_discovery("mycelial_insight"):
 			continue
+
 		if discovery_id == "nutrient_efficiency_1" and not has_discovery("excess_fertilizer"):
 			continue
-		var d: Dictionary = discovery_defs[discovery_id] as Dictionary
+
 		var level: int = get_discovery_level(discovery_id)
 		var costs: Array = get_discovery_costs_for_next_level(discovery_id)
 		var check: Dictionary = can_buy_discovery(discovery_id)
 		var max_level: int = int(d.get("max_level", 1))
+
 		out.append({
 			"id": discovery_id,
 			"name": str(d.get("name", discovery_id)),
@@ -1218,6 +1259,7 @@ func get_discovery_ui_entries() -> Array:
 			"status_text": str(check.get("reason", "")),
 			"complete": has_discovery(discovery_id) and (not bool(d.get("repeatable", false)) or level >= max_level)
 		})
+
 	return out
 
 
@@ -1227,6 +1269,35 @@ func get_current_run_discovery_progress() -> Dictionary:
 		"discovery_levels": discovery_levels.duplicate(true)
 	}
 
+func _get_pass1_discovery_display_order() -> Array[String]:
+	return [
+		"mycelial_insight",
+		"primitive_refinery",
+		"synthesis",
+		"aura_activation",
+		"excess_fertilizer",
+		"nutrient_efficiency_1"
+	]
+
+func _is_discovery_visible_in_panel(discovery_id: String, d: Dictionary) -> bool:
+	if not bool(d.get("active_in_pass1", false)):
+		return false
+
+	# Already completed discoveries should always remain visible
+	if has_discovery(discovery_id):
+		return true
+
+	# Treat missing / null / empty parent as "no parent requirement"
+	var requires_value = d.get("requires_discovery", null)
+	if requires_value == null:
+		return true
+
+	var requires_discovery := str(requires_value).strip_edges()
+	if requires_discovery == "" or requires_discovery == "null" or requires_discovery == "<null>":
+		return true
+
+	# Otherwise only show after the parent discovery is completed
+	return has_discovery(requires_discovery)
 
 # ---------------- Refinery ----------------
 
@@ -1633,7 +1704,7 @@ func get_available_solution_recipe_ids() -> Array[String]:
 		return []
 
 	var out: Array[String] = []
-	for recipe_id in _get_synth_pass1_recipe_ids():
+	for recipe_id in solution_order:
 		if is_solution_unlocked(recipe_id):
 			out.append(recipe_id)
 	return out
@@ -1893,11 +1964,6 @@ func _load_all() -> void:
 	refinery_slot_costs.clear()
 	refinery_slots.clear()
 	unlocked_refinery_slots = 0
-	paid_compound_unlocks.clear()
-	paid_solution_unlocks.clear()
-	synth_slot_costs.clear()
-	synth_slots.clear()
-	unlocked_synth_slots = 0
 	paid_compound_unlocks.clear()
 	paid_solution_unlocks.clear()
 	synth_slot_costs.clear()

@@ -1049,6 +1049,22 @@ func _refresh_refinery_panel() -> void:
 				refinery_feedback.text = "Requires Synthesis."
 			return
 
+		var visible_solution_unlock_ids: Array = []
+		if game_state.has_method("get_visible_solution_unlock_ids"):
+			visible_solution_unlock_ids = game_state.call("get_visible_solution_unlock_ids")
+
+		if not visible_solution_unlock_ids.is_empty():
+			var recipe_header := Label.new()
+			recipe_header.text = "Solution Unlock"
+			refinery_list.add_child(recipe_header)
+
+			for recipe_id_variant in visible_solution_unlock_ids:
+				var recipe_id := str(recipe_id_variant)
+				refinery_list.add_child(_make_synth_recipe_unlock_card(recipe_id))
+
+		var spacer2 := HSeparator.new()
+		refinery_list.add_child(spacer2)
+
 		var slot_header2 := Label.new()
 		slot_header2.text = "Solutions"
 		refinery_list.add_child(slot_header2)
@@ -1064,7 +1080,6 @@ func _refresh_refinery_panel() -> void:
 		var placeholder := Label.new()
 		placeholder.text = "Synthesis logic not wired yet."
 		refinery_list.add_child(placeholder)
-
 
 func _make_refinery_progress_bar(pct: int, width: int = 10) -> String:
 	var clamped := clampi(pct, 0, 100)
@@ -1289,6 +1304,66 @@ func _make_refinery_unlock_card(entry: Dictionary) -> Control:
 	return box
 
 
+func _make_synth_recipe_unlock_card(recipe_id: String) -> Control:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 4)
+
+	var solution_defs: Dictionary = game_state.get("solution_defs")
+	var recipe_def: Dictionary = solution_defs.get(recipe_id, {}) as Dictionary
+	var recipe_name := str(recipe_def.get("name", recipe_id))
+
+	var title := Label.new()
+	title.text = recipe_name
+	box.add_child(title)
+
+	var cost_value := -1
+	if game_state.has_method("get_solution_unlock_cost"):
+		cost_value = int(game_state.call("get_solution_unlock_cost", recipe_id))
+
+	var status := Label.new()
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+	var check := {}
+	if game_state.has_method("can_unlock_solution_recipe"):
+		check = game_state.call("can_unlock_solution_recipe", recipe_id) as Dictionary
+
+	if cost_value <= 0:
+		status.text = "Cost: --"
+	else:
+		status.text = "Cost: %s Nutrients" % _fmt_int(cost_value)
+
+	if not check.is_empty():
+		var reason := str(check.get("reason", ""))
+		if reason != "":
+			if bool(check.get("ok", false)):
+				status.text += " • Ready"
+			elif reason != "Already unlocked.":
+				status.text += " • %s" % reason
+
+	box.add_child(status)
+
+	var btn := Button.new()
+	if cost_value > 0:
+		btn.text = "Unlock (%s)" % _fmt_int(cost_value)
+	else:
+		btn.text = "Unlock"
+
+	var can_unlock := false
+	if game_state.has_method("can_unlock_solution_recipe"):
+		var check2: Dictionary = game_state.call("can_unlock_solution_recipe", recipe_id) as Dictionary
+		can_unlock = bool(check2.get("ok", false))
+
+	btn.disabled = not can_unlock
+	btn.pressed.connect(func() -> void:
+		_on_refinery_unlock_solution_pressed(recipe_id)
+	)
+
+	box.add_child(btn)
+
+	return box
+
+
 func _on_refinery_cycle_recipe_pressed(slot_number: int) -> void:
 	if game_state == null or not game_state.has_method("cycle_refinery_recipe"):
 		return
@@ -1340,6 +1415,34 @@ func _on_refinery_unlock_compound_pressed(recipe_id: String) -> void:
 		if ok:
 			var compound_defs: Dictionary = game_state.get("compound_defs")
 			var recipe_def: Dictionary = compound_defs.get(recipe_id, {}) as Dictionary
+			var recipe_name := str(recipe_def.get("name", recipe_id))
+			refinery_feedback.text = "Unlocked %s." % recipe_name
+		else:
+			refinery_feedback.text = reason
+
+	_refresh_currency_ui()
+	_refresh_refinery_panel()
+
+	if _open_panel == digest_panel:
+		_refresh_digest_panel()
+
+
+func _on_refinery_unlock_solution_pressed(recipe_id: String) -> void:
+	if game_state == null or not game_state.has_method("unlock_solution_recipe"):
+		return
+
+	var result = game_state.call("unlock_solution_recipe", recipe_id)
+	var ok := false
+	var reason := "Unable to unlock recipe."
+
+	if typeof(result) == TYPE_DICTIONARY:
+		ok = bool((result as Dictionary).get("ok", false))
+		reason = str((result as Dictionary).get("reason", reason))
+
+	if refinery_feedback != null:
+		if ok:
+			var solution_defs: Dictionary = game_state.get("solution_defs")
+			var recipe_def: Dictionary = solution_defs.get(recipe_id, {}) as Dictionary
 			var recipe_name := str(recipe_def.get("name", recipe_id))
 			refinery_feedback.text = "Unlocked %s." % recipe_name
 		else:
