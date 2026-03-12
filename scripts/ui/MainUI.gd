@@ -95,6 +95,13 @@ var refinery_tab_compounds: Button = null
 var refinery_tab_solutions: Button = null
 var _refinery_active_category: String = "compound"
 
+# Settings panel widgets
+var settings_list: VBoxContainer = null
+var settings_feedback: Label = null
+var settings_btn_save: Button = null
+var settings_btn_load: Button = null
+var settings_btn_new_game: Button = null
+var _settings_confirm_action: String = ""
 var _last_refinery_inventory_signature: String = ""
 var _last_discovery_signature: String = ""
 
@@ -193,6 +200,7 @@ func _ready() -> void:
 	_bind_digest_panel()
 	_bind_discoveries_panel()
 	_bind_refinery_panel()
+	_bind_settings_panel()
 	_bind_nodepanel_top_table()
 	_bind_nodepanel_production()
 	_bind_nodepanel_upgrades()
@@ -202,7 +210,7 @@ func _ready() -> void:
 
 	_refresh_panel_access_ui()
 	_refresh_currency_ui()
-	get_tree().root.print_tree_pretty()
+	#get_tree().root.print_tree_pretty()
 
 func _process(dt: float) -> void:
 	if selection_ring.visible and _selected_node != null:
@@ -1074,12 +1082,16 @@ func _refresh_refinery_panel() -> void:
 			if typeof(synth_entries) == TYPE_ARRAY:
 				for entry_variant in synth_entries:
 					var entry: Dictionary = entry_variant as Dictionary
-					refinery_list.add_child(_make_synthesis_slot_card(entry))
+					if str(entry.get("type", "")) == "slot":
+						refinery_list.add_child(_make_synthesis_slot_card(entry))
+					else:
+						refinery_list.add_child(_make_synth_unlock_card(entry))
 				return
 
 		var placeholder := Label.new()
 		placeholder.text = "Synthesis logic not wired yet."
 		refinery_list.add_child(placeholder)
+
 
 func _make_refinery_progress_bar(pct: int, width: int = 10) -> String:
 	var clamped := clampi(pct, 0, 100)
@@ -1272,6 +1284,34 @@ func _make_synthesis_slot_card(entry: Dictionary) -> Control:
 	clear_btn.text = "Clear"
 	clear_btn.pressed.connect(func(): _on_synthesis_clear_recipe_pressed(slot_number))
 	row.add_child(clear_btn)
+
+	return box
+
+
+func _make_synth_unlock_card(entry: Dictionary) -> Control:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 4)
+
+	var title := Label.new()
+	title.text = "Unlock Synthesis Slot %s" % str(entry.get("slot_number", 0))
+	box.add_child(title)
+
+	var cost := Label.new()
+	cost.text = "Cost: %s Nutrients" % _fmt_int(int(entry.get("cost", 0)))
+	box.add_child(cost)
+
+	var status := Label.new()
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status.text = str(entry.get("status", ""))
+	box.add_child(status)
+
+	var btn := Button.new()
+	btn.text = "Unlock Slot"
+	btn.disabled = not bool(entry.get("can_unlock", false))
+	var slot_number: int = int(entry.get("slot_number", 0))
+	btn.pressed.connect(func(): _on_synth_unlock_slot_pressed(slot_number))
+	box.add_child(btn)
 
 	return box
 
@@ -1476,10 +1516,10 @@ func _on_synthesis_toggle_repeat_pressed(slot_number: int) -> void:
 	if game_state == null or not game_state.has_method("toggle_synth_repeat"):
 		return
 
-	game_state.call("toggle_synth_repeat", slot_number)
+	var enabled: bool = bool(game_state.call("toggle_synth_repeat", slot_number))
 
 	if refinery_feedback != null:
-		refinery_feedback.text = "Updated repeat for synthesis slot %s." % slot_number
+		refinery_feedback.text = "Synthesis slot %s repeat: %s" % [slot_number, "On" if enabled else "Off"]
 	_refresh_refinery_panel()
 
 
@@ -1506,6 +1546,139 @@ func _on_refinery_unlock_slot_pressed(slot_number: int) -> void:
 	_refresh_currency_ui()
 	_refresh_refinery_panel()
 
+func _on_synth_unlock_slot_pressed(slot_number: int) -> void:
+	if game_state == null or not game_state.has_method("unlock_synth_slot"):
+		return
+
+	var result = game_state.call("unlock_synth_slot", slot_number)
+
+	if refinery_feedback != null:
+		if typeof(result) == TYPE_DICTIONARY and bool((result as Dictionary).get("ok", false)):
+			refinery_feedback.text = "Unlocked Synthesis Slot %s" % slot_number
+		else:
+			refinery_feedback.text = str((result as Dictionary).get("reason", "Unable to unlock slot."))
+
+	_refresh_currency_ui()
+	_refresh_refinery_panel()
+
+
+# ---------------- SettingsPanel ----------------
+
+func _bind_settings_panel() -> void:
+	settings_list = settings_panel.find_child("VBoxContainer", true, false) as VBoxContainer
+	if settings_list == null:
+		return
+
+	settings_feedback = Label.new()
+	settings_feedback.name = "SettingsFeedback"
+	settings_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	settings_feedback.text = "Manage save data for this run."
+	settings_list.add_child(settings_feedback)
+
+	settings_btn_save = Button.new()
+	settings_btn_save.text = "Save Now"
+	settings_btn_save.pressed.connect(_on_settings_save_pressed)
+	settings_list.add_child(settings_btn_save)
+
+	settings_btn_load = Button.new()
+	settings_btn_load.text = "Load Save"
+	settings_btn_load.pressed.connect(_on_settings_load_pressed)
+	settings_list.add_child(settings_btn_load)
+
+	settings_btn_new_game = Button.new()
+	settings_btn_new_game.text = "New Game"
+	settings_btn_new_game.pressed.connect(_on_settings_new_game_pressed)
+	settings_list.add_child(settings_btn_new_game)
+
+	_refresh_settings_panel()
+
+
+func _refresh_settings_panel() -> void:
+	if settings_btn_load != null:
+		var has_save := false
+		if game_state != null and game_state.has_method("has_save_data"):
+			has_save = bool(game_state.call("has_save_data"))
+		settings_btn_load.disabled = not has_save
+
+	if settings_btn_new_game != null:
+		settings_btn_new_game.text = "Confirm New Game" if _settings_confirm_action == "new_game" else "New Game"
+
+	if settings_feedback != null and settings_feedback.text == "":
+		settings_feedback.text = "Manage save data for this run."
+
+
+func _clear_settings_confirmation() -> void:
+	_settings_confirm_action = ""
+	_refresh_settings_panel()
+
+
+func _handle_runtime_state_reload() -> void:
+	_selected_node = null
+	_selected_node_id = ""
+	selection_ring.visible = false
+
+	_register_transport_positions()
+	_setup_transport_fx()
+
+	_refresh_panel_access_ui()
+	_refresh_currency_ui()
+	_refresh_node_world_state()
+	_refresh_digest_panel()
+	_refresh_discoveries_panel()
+	_refresh_refinery_panel()
+	_refresh_settings_panel()
+
+	_last_refinery_inventory_signature = _get_refinery_inventory_signature()
+	_last_discovery_signature = _get_discovery_signature()
+
+
+func _on_settings_save_pressed() -> void:
+	_clear_settings_confirmation()
+
+	if game_state == null or not game_state.has_method("save_game"):
+		return
+
+	var ok: bool = bool(game_state.call("save_game"))
+	if settings_feedback != null:
+		settings_feedback.text = "Game saved." if ok else "Save failed."
+	_refresh_settings_panel()
+
+
+func _on_settings_load_pressed() -> void:
+	_clear_settings_confirmation()
+
+	if game_state == null or not game_state.has_method("load_game"):
+		return
+
+	var ok: bool = bool(game_state.call("load_game"))
+	if ok:
+		_handle_runtime_state_reload()
+
+	if settings_feedback != null:
+		settings_feedback.text = "Save loaded." if ok else "No valid save found."
+	_refresh_settings_panel()
+
+
+func _on_settings_new_game_pressed() -> void:
+	if _settings_confirm_action != "new_game":
+		_settings_confirm_action = "new_game"
+		if settings_feedback != null:
+			settings_feedback.text = "Press New Game again to confirm. Current run progress will be erased."
+		_refresh_settings_panel()
+		return
+
+	_clear_settings_confirmation()
+
+	if game_state == null or not game_state.has_method("start_new_run"):
+		return
+
+	game_state.call("start_new_run")
+	_handle_runtime_state_reload()
+
+	if settings_feedback != null:
+		settings_feedback.text = "Started a new game."
+	_refresh_settings_panel()
+	
 
 # ---------------- NodePanel (Top Table) ----------------
 
@@ -1777,6 +1950,8 @@ func _open(panel: Control) -> void:
 		_refresh_discoveries_panel()
 	if panel == refinery_panel:
 		_refresh_refinery_panel()
+	if panel == settings_panel:
+		_refresh_settings_panel()
 	if panel == node_panel:
 		_refresh_nodepanel_all()
 
