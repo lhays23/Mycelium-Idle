@@ -1678,7 +1678,7 @@ func _on_settings_new_game_pressed() -> void:
 	if settings_feedback != null:
 		settings_feedback.text = "Started a new game."
 	_refresh_settings_panel()
-	
+
 
 # ---------------- NodePanel (Top Table) ----------------
 
@@ -1853,7 +1853,7 @@ func _refresh_nodepanel_upgrades() -> void:
 
 	# Yield row
 	if yield_name != null:
-		yield_name.text = "Yield"
+		yield_name.text = str(ui.get("yield_label", "Yield"))
 	if yield_lvl != null:
 		yield_lvl.text = "Lv " + str(int(ui.get("yield_level", 1)))
 	if yield_val != null:
@@ -1868,7 +1868,7 @@ func _refresh_nodepanel_upgrades() -> void:
 
 	# Speed row
 	if travel_name != null:
-		travel_name.text = "Speed"
+		travel_name.text = str(ui.get("travel_label", "Speed"))
 	if travel_lvl != null:
 		travel_lvl.text = "Lv " + str(int(ui.get("travel_level", 1)))
 	if travel_val != null:
@@ -1878,7 +1878,7 @@ func _refresh_nodepanel_upgrades() -> void:
 
 	# Carry row
 	if carry_name != null:
-		carry_name.text = "Carry"
+		carry_name.text = str(ui.get("carry_label", "Carry"))
 	if carry_lvl != null:
 		carry_lvl.text = "Lv " + str(int(ui.get("carry_level", 1)))
 	if carry_val != null:

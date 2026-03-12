@@ -113,8 +113,7 @@ func _tick_node_production(dt: float) -> void:
 		var base_rate_total: float = float(n.get("base_rate_total", 0.0))
 		var up: Dictionary = _ensure_upgrade_keys(n)
 		var yield_level: int = int(up.get("yield_level", 1))
-		var yield_bonus_levels: int = max(0, yield_level - 1)
-		var yield_mult: float = 1.0 + float(yield_bonus_levels) * YIELD_STEP
+		var yield_mult: float = _get_yield_multiplier_for_level(yield_level)
 		var rate_total: float = base_rate_total * yield_mult
 
 		var outputs: Array = (n.get("outputs", []) as Array)
@@ -171,7 +170,8 @@ func _tick_transport(dt: float) -> void:
 		var transport: Dictionary = _ensure_transport_state(n, node_id)
 		var trip_sec: float = max(0.25, _get_node_trip_sec(node_id))
 		var leg_sec: float = max(0.01, _get_node_leg_sec(node_id))
-		var pickup_sec: float = leg_sec + LOAD_UNLOAD_SEC
+		var load_unload_sec: float = _get_transport_load_unload_sec()
+		var pickup_sec: float = leg_sec + load_unload_sec
 		var base_arrival_sec: float = pickup_sec + leg_sec
 
 		var progress_sec: float = float(transport.get("progress_sec", 0.0))
@@ -307,27 +307,30 @@ func _get_node_distance(node_id: String) -> float:
 		var node_pos: Vector2 = node_world_positions[node_id]
 		return max(1.0, node_pos.distance_to(spore_cloud_world_pos))
 	if node_defs.has(node_id):
-		return max(1.0, float((node_defs[node_id] as Dictionary).get("distance_px", DEFAULT_DISTANCE_PX)))
-	return DEFAULT_DISTANCE_PX
+		return max(1.0, float((node_defs[node_id] as Dictionary).get("distance_px", _get_transport_default_distance_px())))
+	return _get_transport_default_distance_px()
 
 
 func _get_node_speed_value(node_id: String) -> float:
 	if not nodes.has(node_id):
-		return BASE_MITE_SPEED
+		return _get_transport_base_mite_speed()
+
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var lvl: int = int(up.get("node_speed_level", 1))
-	var bonus_levels: int = max(0, lvl - 1)
-	return BASE_MITE_SPEED * (1.0 + float(bonus_levels) * NODE_SPEED_STEP)
+
+	return _get_transport_base_mite_speed() * _get_speed_multiplier_for_level(lvl)
 
 
 func _get_node_carry_capacity(node_id: String) -> int:
 	if not nodes.has(node_id):
-		return BASE_CARRY
+		return _get_carry_capacity_for_level(1)
+
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var lvl: int = int(up.get("carry_level", 1))
-	return max(1, BASE_CARRY + (max(0, lvl - 1) * CARRY_STEP))
+
+	return _get_carry_capacity_for_level(lvl)
 
 
 func _get_node_leg_sec(node_id: String) -> float:
@@ -338,33 +341,40 @@ func _get_node_leg_sec(node_id: String) -> float:
 
 func _get_node_trip_sec(node_id: String) -> float:
 	var leg_sec: float = _get_node_leg_sec(node_id)
-	return (2.0 * leg_sec) + (2.0 * LOAD_UNLOAD_SEC)
+	var load_unload_sec: float = _get_transport_load_unload_sec()
+	return (2.0 * leg_sec) + (2.0 * load_unload_sec)
 
 
 func _get_node_primary_production_rate(node_id: String) -> float:
 	if not nodes.has(node_id):
 		return 0.0
+
 	var n: Dictionary = nodes[node_id] as Dictionary
 	if not bool(n.get("is_connected", false)):
 		return 0.0
+
 	var outputs: Array = (n.get("outputs", []) as Array)
 	if outputs.is_empty():
 		return 0.0
+
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var yield_level: int = int(up.get("yield_level", 1))
-	var yield_bonus_levels: int = max(0, yield_level - 1)
-	var yield_mult: float = 1.0 + float(yield_bonus_levels) * YIELD_STEP
+	var yield_mult: float = _get_yield_multiplier_for_level(yield_level)
+
 	var base_rate_total: float = float(n.get("base_rate_total", 0.0))
 	var rate_total: float = base_rate_total * yield_mult
+
 	var sum_w: float = 0.0
 	for o_variant in outputs:
 		var od: Dictionary = o_variant as Dictionary
 		sum_w += float(od.get("weight", 1.0))
 	if sum_w <= 0.0:
 		sum_w = 1.0
+
 	var o0: Dictionary = outputs[0] as Dictionary
 	var w: float = float(o0.get("weight", 1.0))
 	var amount_per_unit: float = float(o0.get("amount_per_unit", 1.0))
+
 	return rate_total * (w / sum_w) * amount_per_unit
 
 
@@ -392,7 +402,7 @@ func get_node_mite_visual(node_id: String) -> Dictionary:
 	var transport: Dictionary = _ensure_transport_state(n, node_id)
 	var trip_sec: float = max(0.25, _get_node_trip_sec(node_id))
 	var leg_sec: float = max(0.01, _get_node_leg_sec(node_id))
-	var pickup_sec: float = leg_sec + LOAD_UNLOAD_SEC
+	var pickup_sec: float = leg_sec + _get_transport_load_unload_sec()
 	var return_end_sec: float = pickup_sec + leg_sec
 	var progress_sec: float = clamp(float(transport.get("progress_sec", 0.0)), 0.0, trip_sec)
 	var carrying_visual: bool = bool(transport.get("carrying_visual", false))
@@ -1206,6 +1216,131 @@ func is_digest_tab_unlocked(category: String) -> bool:
 		_:
 			return false
 
+# ---------------- Upgrade config helpers ----------------
+
+func _get_transport_cfg() -> Dictionary:
+	return (config.get("transport", {}) as Dictionary)
+
+
+func _get_transport_base_mite_speed() -> float:
+	var tcfg: Dictionary = _get_transport_cfg()
+	return float(tcfg.get("base_mite_speed_px_per_sec", BASE_MITE_SPEED))
+
+
+func _get_transport_load_unload_sec() -> float:
+	var tcfg: Dictionary = _get_transport_cfg()
+	return float(tcfg.get("load_unload_sec", LOAD_UNLOAD_SEC))
+
+
+func _get_transport_default_distance_px() -> float:
+	var tcfg: Dictionary = _get_transport_cfg()
+	return float(tcfg.get("default_distance_px", DEFAULT_DISTANCE_PX))
+
+
+func _get_upgrade_curve_cfg(curve_key: String) -> Dictionary:
+	var formulas: Dictionary = (config.get("upgrade_formulas", {}) as Dictionary)
+	var cfg: Dictionary = (formulas.get(curve_key, {}) as Dictionary)
+
+	if not cfg.is_empty():
+		return cfg
+
+	match curve_key:
+		"yield_curve":
+			return {
+				"base": 0.0,
+				"linear": YIELD_STEP,
+				"quadratic": 0.0,
+				"baseline_level": 1
+			}
+		"root_pulse_speed_curve":
+			return {
+				"base": 1.0,
+				"linear": NODE_SPEED_STEP,
+				"quadratic": 0.0,
+				"baseline_level": 1
+			}
+		"root_pulse_capacity_curve":
+			return {
+				"base": float(BASE_CARRY),
+				"linear": float(CARRY_STEP),
+				"quadratic": 0.0,
+				"baseline_level": 1
+			}
+		_:
+			return {
+				"base": 0.0,
+				"linear": 0.0,
+				"quadratic": 0.0,
+				"baseline_level": 1
+			}
+
+
+func _get_upgrade_cost_cfg(stat_key: String) -> Dictionary:
+	var costs: Dictionary = (config.get("upgrade_costs", {}) as Dictionary)
+	var cfg: Dictionary = (costs.get(stat_key, {}) as Dictionary)
+
+	if not cfg.is_empty():
+		return cfg
+
+	match stat_key:
+		"yield_level":
+			return {
+				"base_cost": 25,
+				"cost_mult": 1.3,
+				"label": "Yield"
+			}
+		"node_speed_level":
+			return {
+				"base_cost": 35,
+				"cost_mult": 1.3,
+				"label": "Speed"
+			}
+		"carry_level":
+			return {
+				"base_cost": 50,
+				"cost_mult": 1.3,
+				"label": "Carry"
+			}
+		_:
+			return {
+				"base_cost": 999999,
+				"cost_mult": 1.0,
+				"label": stat_key
+			}
+
+
+func _get_upgrade_label(stat_key: String) -> String:
+	var cfg: Dictionary = _get_upgrade_cost_cfg(stat_key)
+	return str(cfg.get("label", stat_key))
+
+
+func _evaluate_upgrade_curve(curve_key: String, level: int) -> float:
+	var cfg: Dictionary = _get_upgrade_curve_cfg(curve_key)
+	var baseline_level: int = max(1, int(cfg.get("baseline_level", 1)))
+	var x: int = max(0, level - baseline_level)
+
+	var base: float = float(cfg.get("base", 0.0))
+	var linear: float = float(cfg.get("linear", 0.0))
+	var quadratic: float = float(cfg.get("quadratic", 0.0))
+
+	return base + (linear * float(x)) + (quadratic * float(x * x))
+
+
+func _get_yield_bonus_for_level(level: int) -> float:
+	return maxf(0.0, _evaluate_upgrade_curve("yield_curve", level))
+
+
+func _get_yield_multiplier_for_level(level: int) -> float:
+	return 1.0 + _get_yield_bonus_for_level(level)
+
+
+func _get_speed_multiplier_for_level(level: int) -> float:
+	return maxf(0.01, _evaluate_upgrade_curve("root_pulse_speed_curve", level))
+
+
+func _get_carry_capacity_for_level(level: int) -> int:
+	var value: float = _evaluate_upgrade_curve("root_pulse_capacity_curve", level)
+	return max(1, int(round(value)))
 
 # ---------------- Upgrades ----------------
 
@@ -1218,15 +1353,10 @@ func _ensure_upgrade_keys(n: Dictionary) -> Dictionary:
 
 
 func _upgrade_cost(stat_key: String, level: int) -> int:
-	match stat_key:
-		"yield_level":
-			return int(floor(25.0 * pow(1.30, float(level - 1))))
-		"node_speed_level":
-			return int(floor(35.0 * pow(1.30, float(level - 1))))
-		"carry_level":
-			return int(floor(50.0 * pow(1.30, float(level - 1))))
-		_:
-			return 999999
+	var cfg: Dictionary = _get_upgrade_cost_cfg(stat_key)
+	var base_cost: float = float(cfg.get("base_cost", 999999))
+	var cost_mult: float = float(cfg.get("cost_mult", 1.0))
+	return int(floor(base_cost * pow(cost_mult, float(max(0, level - 1)))))
 
 
 func upgrade_node_stat(node_id: String, stat_key: String) -> bool:
@@ -1252,6 +1382,9 @@ func upgrade_node_stat(node_id: String, stat_key: String) -> bool:
 
 func get_node_upgrade_ui(node_id: String) -> Dictionary:
 	var out: Dictionary = {
+		"yield_label": _get_upgrade_label("yield_level"),
+		"travel_label": _get_upgrade_label("node_speed_level"),
+		"carry_label": _get_upgrade_label("carry_level"),
 		"yield_level": 1,
 		"yield_percent": "100%",
 		"yield_cost": 0,
@@ -1262,24 +1395,31 @@ func get_node_upgrade_ui(node_id: String) -> Dictionary:
 		"carry_value": "Cap 1",
 		"carry_cost": 0
 	}
+
 	if not nodes.has(node_id):
 		return out
+
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
+
 	var yl: int = int(up.get("yield_level", 1))
 	var tl: int = int(up.get("node_speed_level", 1))
 	var cl: int = int(up.get("carry_level", 1))
-	var bonus_levels: int = max(0, yl - 1)
-	var yield_percent: int = int(round((1.0 + float(bonus_levels) * YIELD_STEP) * 100.0))
+
+	var yield_percent: int = int(round(_get_yield_multiplier_for_level(yl) * 100.0))
+
 	out["yield_level"] = yl
 	out["yield_percent"] = str(yield_percent) + "%"
 	out["yield_cost"] = _upgrade_cost("yield_level", yl)
+
 	out["travel_level"] = tl
 	out["travel_value"] = str(snapped(_get_node_trip_sec(node_id), 0.1)) + "s/trip"
 	out["travel_cost"] = _upgrade_cost("node_speed_level", tl)
+
 	out["carry_level"] = cl
 	out["carry_value"] = "Cap " + str(_get_node_carry_capacity(node_id))
 	out["carry_cost"] = _upgrade_cost("carry_level", cl)
+
 	return out
 
 
@@ -1287,13 +1427,14 @@ func get_node_rate_ui(node_id: String) -> Dictionary:
 	var out: Dictionary = {"base_rate": 0.0, "effective_rate": 0.0, "delivered_rate": 0.0}
 	if not nodes.has(node_id):
 		return out
+
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var yield_level: int = int(up.get("yield_level", 1))
 	var base_rate_total: float = float(n.get("base_rate_total", 0.0))
-	var bonus_levels: int = max(0, yield_level - 1)
-	var yield_mult: float = 1.0 + float(bonus_levels) * YIELD_STEP
+	var yield_mult: float = _get_yield_multiplier_for_level(yield_level)
 	var effective: float = base_rate_total * yield_mult
+
 	out["base_rate"] = base_rate_total if bool(n.get("is_connected", false)) else 0.0
 	out["effective_rate"] = effective if bool(n.get("is_connected", false)) else 0.0
 	out["delivered_rate"] = _get_node_primary_delivered_rate(node_id)
