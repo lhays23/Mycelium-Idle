@@ -591,7 +591,6 @@ func _spend_nutrients(cost: int) -> void:
 		return
 	resources["nutrients"] = max(0.0, float(resources.get("nutrients", 0.0)) - float(cost))
 
-
 func _get_config_slot_costs(config_key: String, fallback: Array) -> Array:
 	var cfg_slots: Array = (config.get(config_key, []) as Array)
 	if cfg_slots.is_empty():
@@ -685,128 +684,6 @@ func _unlock_progressive_slot(slot_number: int, check: Dictionary) -> Dictionary
 
 	_spend_nutrients(int(check.get("cost", 0)))
 	check["new_unlocked_slots"] = slot_number
-	return check
-
-
-func _is_progressive_recipe_unlocked(
-	recipe_id: String,
-	defs: Dictionary,
-	station_unlocked: bool,
-	free_recipe_id: String,
-	paid_unlocks: Dictionary
-) -> bool:
-	if not defs.has(recipe_id):
-		return false
-
-	if not station_unlocked:
-		return false
-
-	if recipe_id == free_recipe_id:
-		return true
-
-	return bool(paid_unlocks.get(recipe_id, false))
-
-
-func _get_unlocked_recipe_ids_in_order(
-	order: Array[String],
-	defs: Dictionary,
-	station_unlocked: bool,
-	free_recipe_id: String,
-	paid_unlocks: Dictionary
-) -> Array[String]:
-	var out: Array[String] = []
-
-	if not station_unlocked:
-		return out
-
-	for recipe_id in order:
-		if _is_progressive_recipe_unlocked(recipe_id, defs, station_unlocked, free_recipe_id, paid_unlocks):
-			out.append(recipe_id)
-
-	return out
-
-
-func _get_visible_progressive_recipe_unlock_ids(
-	order: Array[String],
-	defs: Dictionary,
-	station_unlocked: bool,
-	free_recipe_id: String,
-	paid_unlocks: Dictionary,
-	cost_lookup: Callable
-) -> Array[String]:
-	if not station_unlocked:
-		return []
-
-	var ordered: Array[String] = []
-	for recipe_id in order:
-		if not defs.has(recipe_id):
-			continue
-		if _is_progressive_recipe_unlocked(recipe_id, defs, station_unlocked, free_recipe_id, paid_unlocks):
-			continue
-
-		var cost := int(cost_lookup.call(recipe_id))
-		if cost < 0:
-			continue
-
-		ordered.append(recipe_id)
-
-	if ordered.is_empty():
-		return []
-
-	return [ordered[0]]
-
-
-func _can_unlock_progressive_recipe(
-	recipe_id: String,
-	defs: Dictionary,
-	station_unlocked: bool,
-	station_reason: String,
-	free_recipe_id: String,
-	paid_unlocks: Dictionary,
-	cost_lookup: Callable
-) -> Dictionary:
-	var out := {
-		"ok": false,
-		"reason": "Unavailable.",
-		"cost": 0
-	}
-
-	if not defs.has(recipe_id):
-		out["reason"] = "Unknown recipe."
-		return out
-
-	if not station_unlocked:
-		out["reason"] = station_reason
-		return out
-
-	if _is_progressive_recipe_unlocked(recipe_id, defs, station_unlocked, free_recipe_id, paid_unlocks):
-		out["reason"] = "Already unlocked."
-		return out
-
-	var cost := int(cost_lookup.call(recipe_id))
-	out["cost"] = cost
-
-	if cost < 0:
-		out["reason"] = "No unlock path set."
-		return out
-
-	if get_amount("nutrients") < cost:
-		out["reason"] = "Not enough Nutrients."
-		return out
-
-	out["ok"] = true
-	out["reason"] = ""
-	return out
-
-
-func _unlock_progressive_recipe(recipe_id: String, check: Dictionary, paid_unlocks: Dictionary) -> Dictionary:
-	if not bool(check.get("ok", false)):
-		return check
-
-	_spend_nutrients(int(check.get("cost", 0)))
-	paid_unlocks[recipe_id] = true
-	check["ok"] = true
-	check["reason"] = ""
 	return check
 
 
@@ -1030,18 +907,217 @@ func _get_machine_ui_entries(
 	return out
 
 
+func _get_recipe_unlock_cost(defs: Dictionary, recipe_id: String) -> int:
+	if not defs.has(recipe_id):
+		return -1
+	var d: Dictionary = defs[recipe_id] as Dictionary
+	return int(d.get("unlock_cost_nutrients", -1))
+
+
+func _recipe_starts_unlocked(defs: Dictionary, recipe_id: String) -> bool:
+	if not defs.has(recipe_id):
+		return false
+	var d: Dictionary = defs[recipe_id] as Dictionary
+	return bool(d.get("starts_unlocked", false))
+
+
+func _recipe_is_active_in_pass1(defs: Dictionary, recipe_id: String) -> bool:
+	if not defs.has(recipe_id):
+		return false
+	var d: Dictionary = defs[recipe_id] as Dictionary
+	return bool(d.get("active_in_pass1", false))
+
+
+func _get_recipe_previous_required(defs: Dictionary, recipe_id: String) -> String:
+	if not defs.has(recipe_id):
+		return ""
+	var d: Dictionary = defs[recipe_id] as Dictionary
+	var value = d.get("previous_recipe_required", null)
+	if value == null:
+		return ""
+	return str(value).strip_edges()
+
+
+func _get_recipe_discovery_requirement(defs: Dictionary, recipe_id: String) -> String:
+	if not defs.has(recipe_id):
+		return ""
+	var d: Dictionary = defs[recipe_id] as Dictionary
+	var value = d.get("discovery_requirement", null)
+	if value == null:
+		return ""
+	return str(value).strip_edges()
+
+
+func _get_recipe_display_name(defs: Dictionary, recipe_id: String) -> String:
+	if defs.has(recipe_id):
+		return str((defs[recipe_id] as Dictionary).get("name", recipe_id))
+	return recipe_id
+
+
+func _get_discovery_display_name(discovery_id: String) -> String:
+	if discovery_defs.has(discovery_id):
+		return str((discovery_defs[discovery_id] as Dictionary).get("name", discovery_id))
+	return discovery_id
+
+
+func _recipe_meets_discovery_requirement(defs: Dictionary, recipe_id: String) -> bool:
+	var req := _get_recipe_discovery_requirement(defs, recipe_id)
+	if req == "" or req == "null" or req == "<null>":
+		return true
+	return has_discovery(req)
+
+
+func _is_progressive_recipe_unlocked(
+	recipe_id: String,
+	defs: Dictionary,
+	station_unlocked: bool,
+	paid_unlocks: Dictionary
+) -> bool:
+	if not defs.has(recipe_id):
+		return false
+
+	if not station_unlocked:
+		return false
+
+	if not _recipe_is_active_in_pass1(defs, recipe_id):
+		return false
+
+	if not _recipe_meets_discovery_requirement(defs, recipe_id):
+		return false
+
+	if _recipe_starts_unlocked(defs, recipe_id):
+		return true
+
+	return bool(paid_unlocks.get(recipe_id, false))
+
+
+func _get_unlocked_recipe_ids_in_order(
+	order: Array[String],
+	defs: Dictionary,
+	station_unlocked: bool,
+	paid_unlocks: Dictionary
+) -> Array[String]:
+	var out: Array[String] = []
+
+	if not station_unlocked:
+		return out
+
+	for recipe_id in order:
+		if _is_progressive_recipe_unlocked(recipe_id, defs, station_unlocked, paid_unlocks):
+			out.append(recipe_id)
+
+	return out
+
+
+func _get_visible_progressive_recipe_unlock_ids(
+	order: Array[String],
+	defs: Dictionary,
+	station_unlocked: bool,
+	paid_unlocks: Dictionary
+) -> Array[String]:
+	if not station_unlocked:
+		return []
+
+	var ordered: Array[String] = []
+	for recipe_id in order:
+		if not defs.has(recipe_id):
+			continue
+
+		if not _recipe_is_active_in_pass1(defs, recipe_id):
+			continue
+
+		if _is_progressive_recipe_unlocked(recipe_id, defs, station_unlocked, paid_unlocks):
+			continue
+
+		if not _recipe_meets_discovery_requirement(defs, recipe_id):
+			continue
+
+		var previous_recipe_id := _get_recipe_previous_required(defs, recipe_id)
+		if previous_recipe_id != "" and previous_recipe_id != "null" and previous_recipe_id != "<null>":
+			if not _is_progressive_recipe_unlocked(previous_recipe_id, defs, station_unlocked, paid_unlocks):
+				continue
+
+		var cost := _get_recipe_unlock_cost(defs, recipe_id)
+		if cost < 0:
+			continue
+
+		ordered.append(recipe_id)
+
+	if ordered.is_empty():
+		return []
+
+	return [ordered[0]]
+
+
+func _can_unlock_progressive_recipe(
+	recipe_id: String,
+	defs: Dictionary,
+	station_unlocked: bool,
+	station_reason: String,
+	paid_unlocks: Dictionary
+) -> Dictionary:
+	var out := {
+		"ok": false,
+		"reason": "Unavailable.",
+		"cost": 0
+	}
+
+	if not defs.has(recipe_id):
+		out["reason"] = "Unknown recipe."
+		return out
+
+	if not station_unlocked:
+		out["reason"] = station_reason
+		return out
+
+	if not _recipe_is_active_in_pass1(defs, recipe_id):
+		out["reason"] = "Not active in this pass."
+		return out
+
+	if _is_progressive_recipe_unlocked(recipe_id, defs, station_unlocked, paid_unlocks):
+		out["reason"] = "Already unlocked."
+		return out
+
+	if not _recipe_meets_discovery_requirement(defs, recipe_id):
+		var discovery_id := _get_recipe_discovery_requirement(defs, recipe_id)
+		out["reason"] = "Requires %s." % _get_discovery_display_name(discovery_id)
+		return out
+
+	var previous_recipe_id := _get_recipe_previous_required(defs, recipe_id)
+	if previous_recipe_id != "" and previous_recipe_id != "null" and previous_recipe_id != "<null>":
+		if not _is_progressive_recipe_unlocked(previous_recipe_id, defs, station_unlocked, paid_unlocks):
+			out["reason"] = "Requires %s." % _get_recipe_display_name(defs, previous_recipe_id)
+			return out
+
+	var cost := _get_recipe_unlock_cost(defs, recipe_id)
+	out["cost"] = cost
+
+	if cost < 0:
+		out["reason"] = "No unlock path set."
+		return out
+
+	if get_amount("nutrients") < cost:
+		out["reason"] = "Not enough Nutrients."
+		return out
+
+	out["ok"] = true
+	out["reason"] = ""
+	return out
+
+
+func _unlock_progressive_recipe(recipe_id: String, check: Dictionary, paid_unlocks: Dictionary) -> Dictionary:
+	if not bool(check.get("ok", false)):
+		return check
+
+	_spend_nutrients(int(check.get("cost", 0)))
+	paid_unlocks[recipe_id] = true
+	check["ok"] = true
+	check["reason"] = ""
+	return check
+
+
 func get_compound_unlock_cost(recipe_id: String) -> int:
-	match recipe_id:
-		"spore_composite":
-			return 0
-		"hyphal_thread":
-			return 3000
-		"cellulose_weave":
-			return 10000
-		"growth_gel":
-			return 25000
-		_:
-			return -1
+	return _get_recipe_unlock_cost(compound_defs, recipe_id)
 
 
 func is_compound_unlocked(recipe_id: String) -> bool:
@@ -1049,19 +1125,16 @@ func is_compound_unlocked(recipe_id: String) -> bool:
 		recipe_id,
 		compound_defs,
 		is_refinery_unlocked(),
-		"spore_composite",
 		paid_compound_unlocks
 	)
 
 
 func get_visible_compound_unlock_ids() -> Array[String]:
 	return _get_visible_progressive_recipe_unlock_ids(
-		_get_refinery_pass1_recipe_ids(),
+		compound_order,
 		compound_defs,
 		is_refinery_unlocked(),
-		"spore_composite",
-		paid_compound_unlocks,
-		Callable(self, "get_compound_unlock_cost")
+		paid_compound_unlocks
 	)
 
 
@@ -1071,9 +1144,7 @@ func can_unlock_compound_recipe(recipe_id: String) -> Dictionary:
 		compound_defs,
 		is_refinery_unlocked(),
 		"Requires Primitive Refinery.",
-		"spore_composite",
-		paid_compound_unlocks,
-		Callable(self, "get_compound_unlock_cost")
+		paid_compound_unlocks
 	)
 
 
@@ -1083,17 +1154,7 @@ func unlock_compound_recipe(recipe_id: String) -> Dictionary:
 
 
 func get_solution_unlock_cost(recipe_id: String) -> int:
-	match recipe_id:
-		"spore_resin":
-			return 0
-		"fiber_broth":
-			return 50000
-		"gel_tonic":
-			return 150000
-		"chitin_sap":
-			return 500000
-		_:
-			return -1
+	return _get_recipe_unlock_cost(solution_defs, recipe_id)
 
 
 func is_solution_unlocked(recipe_id: String) -> bool:
@@ -1101,7 +1162,6 @@ func is_solution_unlocked(recipe_id: String) -> bool:
 		recipe_id,
 		solution_defs,
 		is_synth_unlocked(),
-		"spore_resin",
 		paid_solution_unlocks
 	)
 
@@ -1111,9 +1171,7 @@ func get_visible_solution_unlock_ids() -> Array[String]:
 		solution_order,
 		solution_defs,
 		is_synth_unlocked(),
-		"spore_resin",
-		paid_solution_unlocks,
-		Callable(self, "get_solution_unlock_cost")
+		paid_solution_unlocks
 	)
 
 
@@ -1123,17 +1181,13 @@ func can_unlock_solution_recipe(recipe_id: String) -> Dictionary:
 		solution_defs,
 		is_synth_unlocked(),
 		"Requires Synthesis.",
-		"spore_resin",
-		paid_solution_unlocks,
-		Callable(self, "get_solution_unlock_cost")
+		paid_solution_unlocks
 	)
 
 
 func unlock_solution_recipe(recipe_id: String) -> Dictionary:
 	var check := can_unlock_solution_recipe(recipe_id)
 	return _unlock_progressive_recipe(recipe_id, check, paid_solution_unlocks)
-
-
 
 
 
@@ -1738,10 +1792,9 @@ func unlock_refinery_slot(slot_number: int) -> Dictionary:
 
 func get_available_compound_recipe_ids() -> Array[String]:
 	return _get_unlocked_recipe_ids_in_order(
-		_get_refinery_pass1_recipe_ids(),
+		compound_order,
 		compound_defs,
 		is_refinery_unlocked(),
-		"spore_composite",
 		paid_compound_unlocks
 	)
 
@@ -1964,7 +2017,6 @@ func get_available_solution_recipe_ids() -> Array[String]:
 		solution_order,
 		solution_defs,
 		is_synth_unlocked(),
-		"spore_resin",
 		paid_solution_unlocks
 	)
 
@@ -2538,7 +2590,7 @@ func _load_all() -> void:
 			nodes[nid] = _build_runtime_node(static_def)
 	else:
 		_seed_defaults()
-		
+
 	_sync_meta_state_into_resources()
 
 func _build_runtime_node(static_def: Dictionary) -> Dictionary:

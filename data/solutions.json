@@ -20,7 +20,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": true,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true
     },
     {
       "id": "fiber_broth",
@@ -36,7 +41,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "spore_resin",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 50000,
+      "active_in_pass1": true
     },
     {
       "id": "gel_tonic",
@@ -52,7 +62,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "fiber_broth",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 150000,
+      "active_in_pass1": true
     },
     {
       "id": "chitin_sap",
@@ -68,7 +83,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "gel_tonic",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 500000,
+      "active_in_pass1": true
     },
     {
       "id": "weave_serum",
@@ -84,7 +104,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "chitin_sap",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "living_extract",
@@ -100,7 +125,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "weave_serum",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "carapace_infusion",
@@ -116,7 +146,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "living_extract",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "bloom_tincture",
@@ -132,7 +167,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "carapace_infusion",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "mycelial_elixir",
@@ -152,7 +192,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "bloom_tincture",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "expansion_draft",
@@ -172,7 +217,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "mycelial_elixir",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "root_catalyst",
@@ -193,7 +243,12 @@
         }
       ],
       "output_qty": 1,
-      "special_use": "milestone_node_unlocks_after_node_16"
+      "special_use": "milestone_node_unlocks_after_node_16",
+      "previous_recipe_required": "expansion_draft",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "bloom_ascendant",
@@ -213,7 +268,12 @@
           "qty": 1
         }
       ],
-      "output_qty": 1
+      "output_qty": 1,
+      "previous_recipe_required": "root_catalyst",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     }
   ]
 }

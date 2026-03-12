@@ -19,7 +19,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": null
+      "previous_recipe_required": null,
+      "discovery_requirement": "primitive_refinery",
+      "starts_unlocked": true,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true
     },
     {
       "id": "hyphal_thread",
@@ -33,7 +37,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "spore_composite"
+      "previous_recipe_required": "spore_composite",
+      "discovery_requirement": "primitive_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 3000,
+      "active_in_pass1": true
     },
     {
       "id": "cellulose_weave",
@@ -47,7 +55,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "hyphal_thread"
+      "previous_recipe_required": "hyphal_thread",
+      "discovery_requirement": "primitive_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 10000,
+      "active_in_pass1": true
     },
     {
       "id": "growth_gel",
@@ -61,7 +73,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "cellulose_weave"
+      "previous_recipe_required": "cellulose_weave",
+      "discovery_requirement": "primitive_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 25000,
+      "active_in_pass1": true
     },
     {
       "id": "sporoplasm_slurry",
@@ -75,7 +91,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "growth_gel"
+      "previous_recipe_required": "growth_gel",
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "chitin_plate",
@@ -89,7 +109,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "sporoplasm_slurry"
+      "previous_recipe_required": "sporoplasm_slurry",
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "crystal_bloom",
@@ -103,7 +127,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "chitin_plate"
+      "previous_recipe_required": "chitin_plate",
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "void_mesh",
@@ -117,7 +145,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "crystal_bloom"
+      "previous_recipe_required": "crystal_bloom",
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "spore_weave",
@@ -136,7 +168,10 @@
       "output_qty": 1,
       "unlock_tier": "composite_tier",
       "previous_recipe_required": null,
-      "discovery_requirement": "expanded_refinery"
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "living_fiber",
@@ -155,7 +190,10 @@
       "output_qty": 1,
       "unlock_tier": "composite_tier",
       "previous_recipe_required": "spore_weave",
-      "discovery_requirement": "expanded_refinery"
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "carapace_gel",
@@ -174,7 +212,10 @@
       "output_qty": 1,
       "unlock_tier": "composite_tier",
       "previous_recipe_required": "living_fiber",
-      "discovery_requirement": "expanded_refinery"
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     },
     {
       "id": "bloom_matrix",
@@ -193,7 +234,10 @@
       "output_qty": 1,
       "unlock_tier": "composite_tier",
       "previous_recipe_required": "carapace_gel",
-      "discovery_requirement": "expanded_refinery"
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false
     }
   ]
 }
