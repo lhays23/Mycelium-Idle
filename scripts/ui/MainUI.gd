@@ -75,10 +75,23 @@ var _ui_accum: float = 0.0
 var digest_lbl_selected: Label = null
 var digest_btn_1: Button = null
 var digest_btn_all: Button = null
+var digest_tabs_row: HBoxContainer = null
+var digest_tab_resources: Button = null
+var digest_tab_compounds: Button = null
+var digest_tab_solutions: Button = null
+var digest_inventory_list: VBoxContainer = null
+var digest_feedback: Label = null
+var _digest_active_category: String = "resource"
+var _last_refinery_inventory_signature: String = ""
+var _last_discovery_signature: String = ""
 
 # Discoveries panel widgets
 var discoveries_list: VBoxContainer = null
 var discoveries_feedback: Label = null
+
+# Refinery panel widgets
+var refinery_list: VBoxContainer = null
+var refinery_feedback: Label = null
 
 # Nutrients flash
 var _nutrients_base_scale: Vector2 = Vector2.ONE
@@ -174,6 +187,7 @@ func _ready() -> void:
 
 	_bind_digest_panel()
 	_bind_discoveries_panel()
+	_bind_refinery_panel()
 	_bind_nodepanel_top_table()
 	_bind_nodepanel_production()
 	_bind_nodepanel_upgrades()
@@ -202,13 +216,29 @@ func _process(dt: float) -> void:
 		if _open_panel == node_panel and _selected_node_id != "":
 			_refresh_nodepanel_all()
 
+	var new_signature := _get_refinery_inventory_signature()
+	if new_signature != _last_refinery_inventory_signature:
+		_last_refinery_inventory_signature = new_signature
+
 		if _open_panel == digest_panel:
-			_refresh_digest_panel_selected()
+			_refresh_digest_panel()
+
+		if _open_panel == refinery_panel:
+			_refresh_refinery_panel()
+
+	var new_discovery_signature := _get_discovery_signature()
+	if new_discovery_signature != _last_discovery_signature:
+		_last_discovery_signature = new_discovery_signature
+
+		_refresh_panel_access_ui()
 
 		if _open_panel == discoveries_panel:
 			_refresh_discoveries_panel()
 
-
+		if _open_panel == refinery_panel:
+			_refresh_refinery_panel()
+							
+			
 func _register_transport_positions() -> void:
 	if game_state == null:
 		return
@@ -480,85 +510,222 @@ func _spawn_transport_popup(
 # ---------------- DigestPanel ----------------
 
 func _bind_digest_panel() -> void:
+	var root_box: VBoxContainer = digest_panel.find_child("VBoxContainer", true, false) as VBoxContainer
+	if root_box == null:
+		return
+
+	var title_lbl: Label = digest_panel.find_child("LblDigestTitle", true, false) as Label
 	digest_lbl_selected = digest_panel.find_child("LblDigestSelected", true, false) as Label
 	digest_btn_1 = digest_panel.find_child("BtnDigest1", true, false) as Button
 	digest_btn_all = digest_panel.find_child("BtnDigestAll", true, false) as Button
 
+	if title_lbl != null:
+		title_lbl.text = "Digest Inventory"
+	if digest_lbl_selected != null:
+		digest_lbl_selected.visible = false
 	if digest_btn_1 != null:
-		digest_btn_1.pressed.connect(_on_digest_panel_1_pressed)
+		digest_btn_1.visible = false
 	if digest_btn_all != null:
-		digest_btn_all.pressed.connect(_on_digest_panel_all_pressed)
+		digest_btn_all.visible = false
+
+	digest_tabs_row = HBoxContainer.new()
+	digest_tabs_row.name = "DigestTabsRow"
+	digest_tabs_row.add_theme_constant_override("separation", 8)
+	root_box.add_child(digest_tabs_row)
+	root_box.move_child(digest_tabs_row, root_box.get_child_count() - 1)
+
+	digest_tab_resources = Button.new()
+	digest_tab_resources.text = "Resources"
+	digest_tab_resources.pressed.connect(func(): _set_digest_active_category("resource"))
+	digest_tabs_row.add_child(digest_tab_resources)
+
+	digest_tab_compounds = Button.new()
+	digest_tab_compounds.text = "Compounds"
+	digest_tab_compounds.pressed.connect(func(): _set_digest_active_category("compound"))
+	digest_tabs_row.add_child(digest_tab_compounds)
+
+	digest_tab_solutions = Button.new()
+	digest_tab_solutions.text = "Solutions"
+	digest_tab_solutions.pressed.connect(func(): _set_digest_active_category("solution"))
+	digest_tabs_row.add_child(digest_tab_solutions)
+
+	digest_feedback = Label.new()
+	digest_feedback.name = "DigestFeedback"
+	digest_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	digest_feedback.text = ""
+	root_box.add_child(digest_feedback)
+
+	digest_inventory_list = VBoxContainer.new()
+	digest_inventory_list.name = "DigestInventoryList"
+	digest_inventory_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	digest_inventory_list.add_theme_constant_override("separation", 6)
+	root_box.add_child(digest_inventory_list)
+
+	_set_digest_active_category("resource")
 
 
-func _on_digest_panel_1_pressed() -> void:
-	_digest_selected_node_at_cloud(1)
+func _set_digest_active_category(category: String) -> void:
+	_digest_active_category = category
+	_refresh_digest_panel()
 
 
-func _on_digest_panel_all_pressed() -> void:
-	_digest_selected_node_at_cloud(-1)
+func _clear_digest_rows() -> void:
+	if digest_inventory_list == null:
+		return
+	for child in digest_inventory_list.get_children():
+		child.queue_free()
 
 
-func _digest_selected_node_at_cloud(amount: int) -> void:
+func _refresh_digest_tab_buttons() -> void:
+	if digest_tab_resources == null or digest_tab_compounds == null or digest_tab_solutions == null:
+		return
+	var compounds_unlocked: bool = false
+	var solutions_unlocked: bool = false
+	if game_state != null:
+		if game_state.has_method("is_refinery_unlocked"):
+			compounds_unlocked = bool(game_state.call("is_refinery_unlocked"))
+		if game_state.has_method("is_synth_unlocked"):
+			solutions_unlocked = bool(game_state.call("is_synth_unlocked"))
+
+	digest_tab_resources.disabled = false
+	digest_tab_compounds.disabled = not compounds_unlocked
+	digest_tab_solutions.disabled = not solutions_unlocked
+
+	if not compounds_unlocked and _digest_active_category == "compound":
+		_digest_active_category = "resource"
+	if not solutions_unlocked and _digest_active_category == "solution":
+		_digest_active_category = "resource"
+
+	digest_tab_resources.modulate = Color.WHITE if _digest_active_category == "resource" else Color(0.86, 0.86, 0.86, 1.0)
+	digest_tab_compounds.modulate = Color.WHITE if _digest_active_category == "compound" else Color(0.86, 0.86, 0.86, 1.0)
+	digest_tab_solutions.modulate = Color.WHITE if _digest_active_category == "solution" else Color(0.86, 0.86, 0.86, 1.0)
+
+
+func _make_digest_entry_row(entry: Dictionary) -> Control:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 2)
+
+	var title := Label.new()
+	title.text = "%s • %s" % [str(entry.get("name", "")), _fmt_int(int(entry.get("amount", 0)))]
+	box.add_child(title)
+
+	var details := Label.new()
+	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var digest_each: float = float(entry.get("digest_each", 0.0))
+	var digest_total: float = float(entry.get("digest_total", 0.0))
+	details.text = "Digest each: %s Nutrients • Total: %s" % [_fmt_int(int(round(digest_each))), _fmt_int(int(round(digest_total)))]
+	details.modulate = Color(0.88, 0.92, 0.88, 1.0)
+	box.add_child(details)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+
+	var btn_one := Button.new()
+	btn_one.text = "Digest 1"
+	var item_id: String = str(entry.get("id", ""))
+	btn_one.pressed.connect(func(): _on_digest_inventory_amount_pressed(item_id, 1))
+	row.add_child(btn_one)
+
+	var btn_all := Button.new()
+	btn_all.text = "Digest All"
+	btn_all.pressed.connect(func(): _on_digest_inventory_amount_pressed(item_id, -1))
+	row.add_child(btn_all)
+
+	return box
+
+
+func _on_digest_inventory_amount_pressed(item_id: String, amount: int) -> void:
 	if game_state == null:
 		return
-	if _selected_node_id == "":
-		return
-	if not game_state.has_method("digest_node_primary") or not game_state.has_method("digest_all_node_primary"):
-		return
-
 	var digested: int = 0
-	if amount == -1:
-		digested = int(game_state.call("digest_all_node_primary", _selected_node_id))
+	if amount < 0:
+		if game_state.has_method("digest_all_inventory_item"):
+			digested = int(game_state.call("digest_all_inventory_item", item_id))
 	else:
-		digested = int(game_state.call("digest_node_primary", _selected_node_id, amount))
-
+		if game_state.has_method("digest_inventory_item"):
+			digested = int(game_state.call("digest_inventory_item", item_id, amount))
 	if digested > 0:
 		_flash_nutrients()
-
+		if digest_feedback != null:
+			digest_feedback.text = "Digested %s %s." % [_fmt_int(digested), _pretty_res(item_id)]
+	else:
+		if digest_feedback != null:
+			digest_feedback.text = "Nothing to digest."
 	_refresh_panel_access_ui()
 	_refresh_currency_ui()
-	_refresh_digest_panel_selected()
+	_refresh_digest_panel()
 	_refresh_nodepanel_all()
 
 
-func _refresh_digest_panel_selected() -> void:
-	if digest_lbl_selected == null:
+func _on_digest_panel_1_pressed() -> void:
+	pass
+
+
+func _on_digest_panel_all_pressed() -> void:
+	pass
+
+
+func _digest_selected_node_at_cloud(amount: int) -> void:
+	pass
+
+
+func _refresh_digest_panel() -> void:
+	if digest_inventory_list == null:
 		return
-	if _selected_node_id == "":
-		digest_lbl_selected.text = "Selected: None"
+	_refresh_digest_tab_buttons()
+	_clear_digest_rows()
+
+	if digest_feedback != null and digest_feedback.text == "":
+		digest_feedback.text = "Digest owned inventory into Nutrients."
+
+	if _digest_active_category == "compound":
+		if game_state == null or not game_state.has_method("is_refinery_unlocked") or not bool(game_state.call("is_refinery_unlocked")):
+			if digest_feedback != null:
+				digest_feedback.text = "Unlock Primitive Refinery to digest compounds."
+			return
+	elif _digest_active_category == "solution":
+		if game_state == null or not game_state.has_method("is_synth_unlocked") or not bool(game_state.call("is_synth_unlocked")):
+			if digest_feedback != null:
+				digest_feedback.text = "Unlock Synthesis to digest solutions."
+			return
+
+	if game_state == null or not game_state.has_method("get_digest_inventory_entries"):
+		return
+	var entries_variant = game_state.call("get_digest_inventory_entries", _digest_active_category)
+	if typeof(entries_variant) != TYPE_ARRAY:
+		return
+	var entries: Array = entries_variant as Array
+	if entries.is_empty():
+		var empty := Label.new()
+		empty.text = "No %s available." % (_digest_active_category + "s")
+		empty.modulate = Color(0.82, 0.82, 0.82, 1.0)
+		digest_inventory_list.add_child(empty)
 		return
 
-	var res_id: String = ""
-	var cloud_amt: int = 0
-
-	if game_state != null and game_state.has_method("get_node_primary_res_id"):
-		res_id = str(game_state.call("get_node_primary_res_id", _selected_node_id))
-
-	if game_state != null and game_state.has_method("get_node_primary_cloud_amount"):
-		cloud_amt = int(game_state.call("get_node_primary_cloud_amount", _selected_node_id))
-
-	digest_lbl_selected.text = "Selected: %s • %s at cloud: %s" % [
-		_get_node_name(_selected_node_id),
-		_pretty_res(res_id),
-		_fmt_int(cloud_amt)
-	]
+	for entry_variant in entries:
+		var entry: Dictionary = entry_variant as Dictionary
+		digest_inventory_list.add_child(_make_digest_entry_row(entry))
 
 
 func _flash_nutrients() -> void:
 	if lbl_nutrients == null:
 		return
 
-	if _nutrients_flash_tween != null and _nutrients_flash_tween.is_running():
+	if _nutrients_flash_tween != null:
 		_nutrients_flash_tween.kill()
-		_nutrients_flash_tween = null
 
-	lbl_nutrients.scale = _nutrients_base_scale
+	lbl_nutrients.scale = _nutrients_base_scale * 1.15
 
-	_nutrients_flash_tween = create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	_nutrients_flash_tween.tween_property(lbl_nutrients, "scale", _nutrients_base_scale * 1.12, 0.07)
-	_nutrients_flash_tween.tween_property(lbl_nutrients, "scale", _nutrients_base_scale, 0.10)
-
-
+	_nutrients_flash_tween = create_tween()
+	_nutrients_flash_tween.tween_property(
+		lbl_nutrients,
+		"scale",
+		_nutrients_base_scale,
+		0.18
+	)
+	
 # ---------------- DiscoveriesPanel ----------------
 
 func _bind_discoveries_panel() -> void:
@@ -676,21 +843,396 @@ func _make_discovery_card(entry: Dictionary) -> Control:
 func _on_discovery_buy_pressed(discovery_id: String) -> void:
 	if game_state == null or not game_state.has_method("buy_discovery"):
 		return
+
 	var result = game_state.call("buy_discovery", discovery_id)
+	var ok := false
+	var reason := "Unable to buy discovery."
+
+	if typeof(result) == TYPE_DICTIONARY:
+		ok = bool((result as Dictionary).get("ok", false))
+		reason = str((result as Dictionary).get("reason", reason))
+
 	if discoveries_feedback != null:
-		if typeof(result) == TYPE_DICTIONARY and bool((result as Dictionary).get("ok", false)):
+		if ok:
 			discoveries_feedback.text = "Unlocked %s" % discovery_id
 		else:
-			var reason := "Unable to buy discovery."
-			if typeof(result) == TYPE_DICTIONARY:
-				reason = str((result as Dictionary).get("reason", reason))
 			discoveries_feedback.text = reason
+
 	_refresh_panel_access_ui()
 	_refresh_currency_ui()
 	_refresh_node_world_state()
 	_refresh_discoveries_panel()
 
+	if ok:
+		if _open_panel == refinery_panel:
+			_refresh_refinery_panel()
 
+		if _open_panel == digest_panel:
+			_refresh_digest_panel()
+
+		var new_signature := _get_refinery_inventory_signature()
+		_last_refinery_inventory_signature = new_signature
+		
+
+# ---------------- RefineryPanel ----------------
+
+func _bind_refinery_panel() -> void:
+	refinery_list = refinery_panel.find_child("VBoxContainer", true, false) as VBoxContainer
+	if refinery_list == null:
+		return
+	refinery_feedback = Label.new()
+	refinery_feedback.name = "RefineryFeedback"
+	refinery_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	refinery_feedback.text = ""
+	refinery_list.add_child(refinery_feedback)
+
+
+func _clear_refinery_rows() -> void:
+	if refinery_list == null:
+		return
+	for child in refinery_list.get_children():
+		if child == refinery_feedback:
+			continue
+		child.queue_free()
+
+
+func _get_refinery_inventory_signature() -> String:
+	var parts: Array[String] = []
+
+	for compound_id in GameState.compound_defs.keys():
+		parts.append("%s:%s" % [compound_id, int(GameState.resources.get(compound_id, 0))])
+
+	for solution_id in GameState.solution_defs.keys():
+		parts.append("%s:%s" % [solution_id, int(GameState.resources.get(solution_id, 0))])
+
+	parts.sort()
+	return "|".join(parts)
+
+
+func _get_discovery_signature() -> String:
+	var parts: Array[String] = []
+
+	if game_state == null:
+		return ""
+
+	# Resource amounts affect whether discovery buttons can be afforded.
+	var resource_defs: Dictionary = game_state.get("resource_defs")
+	for item_id_variant in resource_defs.keys():
+		var item_id := str(item_id_variant)
+		parts.append("%s:%s" % [item_id, int(game_state.get_amount(item_id))])
+
+	# Unlocked discoveries affect visibility / completion / downstream systems.
+	var unlocked_discoveries: Dictionary = game_state.get("unlocked_discoveries")
+	for discovery_id_variant in unlocked_discoveries.keys():
+		var discovery_id := str(discovery_id_variant)
+		parts.append("u:%s:%s" % [discovery_id, str(bool(unlocked_discoveries[discovery_id]))])
+
+	# Discovery levels matter for repeatables / completion state / effects.
+	var discovery_levels: Dictionary = game_state.get("discovery_levels")
+	for discovery_id_variant in discovery_levels.keys():
+		var discovery_id := str(discovery_id_variant)
+		parts.append("lvl:%s:%s" % [discovery_id, int(discovery_levels[discovery_id])])
+
+	parts.sort()
+	return "|".join(parts)
+	
+	
+
+func _refresh_refinery_panel() -> void:
+	if refinery_list == null or game_state == null:
+		return
+
+	_clear_refinery_rows()
+
+	if refinery_feedback != null and refinery_feedback.get_parent() == null:
+		refinery_list.add_child(refinery_feedback)
+
+	if refinery_feedback != null and refinery_feedback.text == "":
+		refinery_feedback.text = "Assign recipes to refinery slots. Slots repeat automatically while ingredients are available."
+
+	if not game_state.has_method("is_refinery_unlocked") or not bool(game_state.call("is_refinery_unlocked")):
+		if refinery_feedback != null:
+			refinery_feedback.text = "Requires Primitive Refinery."
+		return
+
+	# Recipe unlock section
+	var visible_unlock_ids: Array = []
+	if game_state.has_method("get_visible_compound_unlock_ids"):
+		visible_unlock_ids = game_state.call("get_visible_compound_unlock_ids")
+
+	if not visible_unlock_ids.is_empty():
+		var recipe_header := Label.new()
+		recipe_header.text = "Recipe Unlock"
+		refinery_list.add_child(recipe_header)
+
+		for recipe_id_variant in visible_unlock_ids:
+			var recipe_id := str(recipe_id_variant)
+			refinery_list.add_child(_make_refinery_recipe_unlock_card(recipe_id))
+
+	var spacer := HSeparator.new()
+	refinery_list.add_child(spacer)
+
+	var slot_header := Label.new()
+	slot_header.text = "Refinery Slots"
+	refinery_list.add_child(slot_header)
+
+	if not game_state.has_method("get_refinery_ui_entries"):
+		return
+
+	var entries = game_state.call("get_refinery_ui_entries")
+	if typeof(entries) != TYPE_ARRAY:
+		return
+
+	for entry_variant in entries:
+		var entry: Dictionary = entry_variant as Dictionary
+		if str(entry.get("type", "")) == "slot":
+			refinery_list.add_child(_make_refinery_slot_card(entry))
+		else:
+			refinery_list.add_child(_make_refinery_unlock_card(entry))
+			
+
+func _make_refinery_progress_bar(pct: int, width: int = 10) -> String:
+	var clamped := clampi(pct, 0, 100)
+	var filled := int(round((float(clamped) / 100.0) * width))
+	filled = clampi(filled, 0, width)
+	return "█".repeat(filled) + "░".repeat(width - filled)
+
+
+func _refinery_recipe_cycle_label(recipe_name: String) -> String:
+	if recipe_name == "" or recipe_name == "Idle":
+		return "Cycle Recipe (Idle)"
+	return "Cycle Recipe (%s)" % recipe_name
+
+
+func _make_refinery_slot_card(entry: Dictionary) -> Control:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 4)
+
+	var title := Label.new()
+	title.text = "Refinery Slot %s" % str(entry.get("slot_number", 0))
+	box.add_child(title)
+
+	var recipe_name := str(entry.get("recipe_name", "Idle"))
+	var recipe := Label.new()
+	recipe.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	recipe.text = "Recipe: %s" % recipe_name
+	box.add_child(recipe)
+
+	var input_label := Label.new()
+	input_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	input_label.text = "Input: %s" % str(entry.get("input_summary", "—"))
+	box.add_child(input_label)
+
+	var output_label := Label.new()
+	output_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	output_label.text = "Output: %s" % str(entry.get("output_summary", "—"))
+	box.add_child(output_label)
+
+	var pct := int(entry.get("progress_pct", 0))
+	var progress_bar := Label.new()
+	progress_bar.text = "Progress: %s %s%%" % [_make_refinery_progress_bar(pct), pct]
+	box.add_child(progress_bar)
+
+	var status := Label.new()
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status.text = "Status: %s • Completed %s" % [
+		str(entry.get("status", "Idle")),
+		str(entry.get("completed_count", 0))
+	]
+	box.add_child(status)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+
+	var cycle_btn := Button.new()
+	cycle_btn.text = _refinery_recipe_cycle_label(recipe_name)
+	var slot_number: int = int(entry.get("slot_number", 0))
+	cycle_btn.pressed.connect(func(): _on_refinery_cycle_recipe_pressed(slot_number))
+	row.add_child(cycle_btn)
+
+	var repeat_btn := Button.new()
+	repeat_btn.text = "Repeat: %s" % ("On" if bool(entry.get("repeat_enabled", true)) else "Off")
+	repeat_btn.pressed.connect(func(): _on_refinery_toggle_repeat_pressed(slot_number))
+	row.add_child(repeat_btn)
+
+	var clear_btn := Button.new()
+	clear_btn.text = "Clear"
+	clear_btn.pressed.connect(func(): _on_refinery_clear_recipe_pressed(slot_number))
+	row.add_child(clear_btn)
+
+	return box
+	
+	
+func _make_refinery_unlock_card(entry: Dictionary) -> Control:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 4)
+
+	var title := Label.new()
+	title.text = "Unlock Refinery Slot %s" % str(entry.get("slot_number", 0))
+	box.add_child(title)
+
+	var cost := Label.new()
+	cost.text = "Cost: %s Nutrients" % _fmt_int(int(entry.get("cost", 0)))
+	box.add_child(cost)
+
+	var status := Label.new()
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status.text = str(entry.get("status", ""))
+	box.add_child(status)
+
+	var btn := Button.new()
+	btn.text = "Unlock Slot"
+	btn.disabled = not bool(entry.get("can_unlock", false))
+	var slot_number: int = int(entry.get("slot_number", 0))
+	btn.pressed.connect(func(): _on_refinery_unlock_slot_pressed(slot_number))
+	box.add_child(btn)
+
+	return box
+
+func _make_refinery_recipe_unlock_card(recipe_id: String) -> Control:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 4)
+
+	var compound_defs: Dictionary = game_state.get("compound_defs")
+	var recipe_def: Dictionary = compound_defs.get(recipe_id, {}) as Dictionary
+	var recipe_name := str(recipe_def.get("name", recipe_id))
+
+	var title := Label.new()
+	title.text = recipe_name
+	box.add_child(title)
+
+	var unlocked := false
+	if game_state.has_method("is_compound_unlocked"):
+		unlocked = bool(game_state.call("is_compound_unlocked", recipe_id))
+
+	var cost_value := -1
+	if game_state.has_method("get_compound_unlock_cost"):
+		cost_value = int(game_state.call("get_compound_unlock_cost", recipe_id))
+
+	var status := Label.new()
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+	var check := {}
+	if game_state.has_method("can_unlock_compound_recipe"):
+		check = game_state.call("can_unlock_compound_recipe", recipe_id) as Dictionary
+
+	if cost_value <= 0:
+		status.text = "Cost: --"
+	else:
+		status.text = "Cost: %s Nutrients" % _fmt_int(cost_value)
+
+	if not check.is_empty():
+		var reason := str(check.get("reason", ""))
+		if reason != "":
+			if bool(check.get("ok", false)):
+				status.text += " • Ready"
+			elif reason != "Already unlocked.":
+				status.text += " • %s" % reason
+
+	box.add_child(status)
+
+	var btn := Button.new()
+	
+	if cost_value > 0:
+		btn.text = "Unlock (%s)" % _fmt_int(cost_value)
+	else:
+		btn.text = "Unlock"
+
+	var can_unlock := false
+	if game_state.has_method("can_unlock_compound_recipe"):
+		var check2: Dictionary = game_state.call("can_unlock_compound_recipe", recipe_id) as Dictionary
+		can_unlock = bool(check2.get("ok", false))
+
+	btn.disabled = not can_unlock
+	btn.pressed.connect(func() -> void:
+		_on_refinery_unlock_compound_pressed(recipe_id)
+	)
+
+	box.add_child(btn)
+
+	return box
+	
+	
+func _on_refinery_cycle_recipe_pressed(slot_number: int) -> void:
+	if game_state == null or not game_state.has_method("cycle_refinery_recipe"):
+		return
+
+	var recipe_id: String = str(game_state.call("cycle_refinery_recipe", slot_number))
+	var recipe_name := "Idle"
+
+	if recipe_id != "":
+		var compound_defs: Dictionary = game_state.get("compound_defs")
+		var recipe_def: Dictionary = compound_defs.get(recipe_id, {}) as Dictionary
+		recipe_name = str(recipe_def.get("name", recipe_id))
+
+	if refinery_feedback != null:
+		refinery_feedback.text = "Slot %s recipe: %s" % [slot_number, recipe_name]
+
+	_refresh_refinery_panel()
+	
+
+func _on_refinery_toggle_repeat_pressed(slot_number: int) -> void:
+	if game_state == null or not game_state.has_method("toggle_refinery_repeat"):
+		return
+	var enabled: bool = bool(game_state.call("toggle_refinery_repeat", slot_number))
+	if refinery_feedback != null:
+		refinery_feedback.text = "Slot %s repeat: %s" % [slot_number, "On" if enabled else "Off"]
+	_refresh_refinery_panel()
+
+
+func _on_refinery_clear_recipe_pressed(slot_number: int) -> void:
+	if game_state == null or not game_state.has_method("clear_refinery_recipe"):
+		return
+	game_state.call("clear_refinery_recipe", slot_number)
+	if refinery_feedback != null:
+		refinery_feedback.text = "Cleared Slot %s." % slot_number
+	_refresh_refinery_panel()
+
+
+func _on_refinery_unlock_slot_pressed(slot_number: int) -> void:
+	if game_state == null or not game_state.has_method("unlock_refinery_slot"):
+		return
+	var result = game_state.call("unlock_refinery_slot", slot_number)
+	if refinery_feedback != null:
+		if typeof(result) == TYPE_DICTIONARY and bool((result as Dictionary).get("ok", false)):
+			refinery_feedback.text = "Unlocked Refinery Slot %s" % slot_number
+		else:
+			refinery_feedback.text = str((result as Dictionary).get("reason", "Unable to unlock slot."))
+	_refresh_currency_ui()
+	_refresh_refinery_panel()
+
+func _on_refinery_unlock_compound_pressed(recipe_id: String) -> void:
+	if game_state == null or not game_state.has_method("unlock_compound_recipe"):
+		return
+
+	var result = game_state.call("unlock_compound_recipe", recipe_id)
+	var ok := false
+	var reason := "Unable to unlock recipe."
+
+	if typeof(result) == TYPE_DICTIONARY:
+		ok = bool((result as Dictionary).get("ok", false))
+		reason = str((result as Dictionary).get("reason", reason))
+
+	if refinery_feedback != null:
+		if ok:
+			var compound_defs: Dictionary = game_state.get("compound_defs")
+			var recipe_def: Dictionary = compound_defs.get(recipe_id, {}) as Dictionary
+			var recipe_name := str(recipe_def.get("name", recipe_id))
+			refinery_feedback.text = "Unlocked %s." % recipe_name
+		else:
+			refinery_feedback.text = reason
+
+	_refresh_currency_ui()
+	_refresh_refinery_panel()
+
+	if _open_panel == digest_panel:
+		_refresh_digest_panel()
+		
+		
 # ---------------- NodePanel (Top Table) ----------------
 
 func _bind_nodepanel_top_table() -> void:
@@ -849,7 +1391,7 @@ func _try_upgrade(stat_key: String) -> void:
 		_refresh_panel_access_ui()
 		_refresh_currency_ui()
 		_refresh_nodepanel_all()
-		_refresh_digest_panel_selected()
+		_refresh_digest_panel()
 
 
 func _refresh_nodepanel_upgrades() -> void:
@@ -956,7 +1498,7 @@ func _open(panel: Control) -> void:
 	_set_panel_closed(panel)
 
 	if panel == digest_panel:
-		_refresh_digest_panel_selected()
+		_refresh_digest_panel()
 	if panel == discoveries_panel:
 		_refresh_discoveries_panel()
 	if panel == node_panel:

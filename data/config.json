@@ -110,5 +110,14 @@
       "min_nev": 750000000,
       "max_nev": 999999999999
     }
-  ]
+  ],
+  "refinery": {
+    "default_craft_time_sec": 4.0,
+    "pass1_recipe_ids": [
+      "spore_composite",
+      "hyphal_thread",
+      "cellulose_weave",
+      "growth_gel"
+    ]
+  }
 }

@@ -17,7 +17,7 @@
 	  "starts_visible": true,
 	  "starts_unlocked": true,
 	  "starts_connected": true,
-	  "base_rate_total": 0.25,
+	  "base_rate_total": 100,
 	  "pool_cap": 50,
 	  "outputs": [
 		{
@@ -48,7 +48,7 @@
 	  "starts_visible": true,
 	  "starts_unlocked": false,
 	  "starts_connected": false,
-	  "base_rate_total": 0.18,
+	  "base_rate_total": 100,
 	  "pool_cap": 50,
 	  "outputs": [
 		{
@@ -79,7 +79,7 @@
 	  "starts_visible": false,
 	  "starts_unlocked": false,
 	  "starts_connected": false,
-	  "base_rate_total": 0.08,
+	  "base_rate_total": 100,
 	  "pool_cap": 50,
 	  "outputs": [
 		{
@@ -110,7 +110,7 @@
 	  "starts_visible": false,
 	  "starts_unlocked": false,
 	  "starts_connected": false,
-	  "base_rate_total": 0.12,
+	  "base_rate_total": 100,
 	  "pool_cap": 50,
 	  "outputs": [
 		{

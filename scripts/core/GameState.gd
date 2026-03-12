@@ -9,7 +9,7 @@ const CARRY_STEP: int = 1
 
 # Transport tuning
 const BASE_MITE_SPEED: float = 150.0
-const BASE_CARRY: int = 1
+const BASE_CARRY: int = 500
 const LOAD_UNLOAD_SEC: float = 0.25
 const DEFAULT_DISTANCE_PX: float = 360.0
 
@@ -22,6 +22,17 @@ const RAW_BASE_VALUES := {
 const BASE_DIGEST_MODIFIER: float = 1.0
 const DEFAULT_DISCOVERY_BASE_DIGESTION_MODIFIER: float = 0.8
 const PASS1_DISCOVERY_IDS := ["mycelial_insight", "primitive_refinery", "aura_activation", "excess_fertilizer", "nutrient_efficiency_1"]
+const DEFAULT_REFINERY_PASS1_RECIPE_IDS := ["spore_composite", "hyphal_thread", "cellulose_weave", "growth_gel"]
+const DEFAULT_REFINERY_BASE_CRAFT_SEC := 4.0
+
+var config: Dictionary = {}
+var compounds_meta: Dictionary = {}
+var compound_defs: Dictionary = {}
+var compound_order: Array[String] = []
+var solutions_meta: Dictionary = {}
+var solution_defs: Dictionary = {}
+var solution_order: Array[String] = []
+var raw_resource_order: Array[String] = []
 
 var resource_defs: Dictionary = {}   # res_id -> metadata
 var node_defs: Dictionary = {}       # node_id -> static definition
@@ -35,6 +46,13 @@ var discovery_notes: Dictionary = {}
 var unlocked_discoveries: Dictionary = {}  # discovery_id -> bool
 var discovery_levels: Dictionary = {}      # discovery_id -> current level
 var total_nutrients_earned_run: float = 0.0
+
+var refinery_slot_costs: Array = []
+var unlocked_refinery_slots: int = 0
+var refinery_slots: Array = []
+var paid_compound_unlocks: Dictionary = {}   # recipe_id -> bool
+var paid_solution_unlocks: Dictionary = {}   # recipe_id -> bool
+
 var _accum: float = 0.0
 
 # World-space positions for transport calculations
@@ -58,6 +76,7 @@ func tick(dt: float) -> void:
 	_update_node_reveals()
 	_tick_node_production(dt)
 	_tick_transport(dt)
+	_tick_refinery(dt)
 
 
 # ---------------- Production ----------------
@@ -454,6 +473,310 @@ func digest_all_node_primary(node_id: String) -> int:
 	return digest_node_primary(node_id, available)
 
 
+func digest_inventory_item(item_id: String, amount: int) -> int:
+	if amount <= 0:
+		return 0
+	if item_id == "" or item_id == "nutrients" or item_id == "glowcaps" or item_id == "strain_points":
+		return 0
+	var available: int = int(floor(float(resources.get(item_id, 0.0))))
+	if available <= 0:
+		return 0
+	var take: int = min(amount, available)
+	resources[item_id] = max(0.0, float(resources.get(item_id, 0.0)) - float(take))
+	var gained: float = float(take) * _get_resource_base_value(item_id) * get_current_digestion_modifier()
+	resources["nutrients"] = float(resources.get("nutrients", 0.0)) + gained
+	total_nutrients_earned_run += gained
+	_update_node_reveals()
+	return take
+
+
+func digest_all_inventory_item(item_id: String) -> int:
+	var available: int = int(floor(float(resources.get(item_id, 0.0))))
+	return digest_inventory_item(item_id, available)
+
+
+func get_digest_inventory_entries(category: String) -> Array:
+	var out: Array = []
+	var ids: Array[String] = []
+
+	match category:
+		"resource":
+			ids = raw_resource_order.duplicate()
+		"compound":
+			ids = compound_order.duplicate()
+		"solution":
+			ids = solution_order.duplicate()
+		_:
+			ids = []
+
+	for item_id in ids:
+		if not resource_defs.has(item_id):
+			continue
+
+		var d: Dictionary = resource_defs[item_id] as Dictionary
+		if str(d.get("kind", "resource")) != category:
+			continue
+
+		match category:
+			"resource":
+				if not _is_digest_resource_visible(item_id):
+					continue
+			"compound":
+				if not is_compound_unlocked(item_id):
+					continue
+			"solution":
+				if not is_solution_unlocked(item_id):
+					continue
+
+		var amount: int = get_amount(item_id)
+		var base_value: float = _get_resource_base_value(item_id)
+		var digest_each: float = base_value * get_current_digestion_modifier()
+
+		out.append({
+			"id": item_id,
+			"name": str(d.get("name", item_id)),
+			"kind": category,
+			"amount": amount,
+			"digest_each": digest_each,
+			"digest_total": digest_each * float(amount)
+		})
+
+	return out
+		
+	
+func _is_digest_resource_visible(item_id: String) -> bool:
+	for node_id_variant in nodes.keys():
+		var node_id: String = str(node_id_variant)
+		var n: Dictionary = nodes[node_id] as Dictionary
+
+		if not bool(n.get("is_unlocked", false)):
+			continue
+
+		var outputs: Array = (n.get("outputs", []) as Array)
+		for output_variant in outputs:
+			var od: Dictionary = output_variant as Dictionary
+			if str(od.get("res", "")) == item_id:
+				return true
+
+	return false
+
+
+func get_compound_unlock_cost(recipe_id: String) -> int:
+	match recipe_id:
+		"spore_composite":
+			return 0
+		"hyphal_thread":
+			return 3000
+		"cellulose_weave":
+			return 10000
+		"growth_gel":
+			return 25000
+		_:
+			return -1
+
+
+func is_compound_unlocked(recipe_id: String) -> bool:
+	if not compound_defs.has(recipe_id):
+		return false
+
+	if not is_refinery_unlocked():
+		return false
+
+	match recipe_id:
+		"spore_composite":
+			return true
+		"hyphal_thread", "cellulose_weave", "growth_gel":
+			return bool(paid_compound_unlocks.get(recipe_id, false))
+		_:
+			return false
+
+func get_visible_compound_unlock_ids() -> Array[String]:
+	if not is_refinery_unlocked():
+		return []
+
+	var ordered: Array[String] = []
+	for recipe_id_variant in compound_order:
+		var recipe_id := str(recipe_id_variant)
+
+		# Only consider real refinery pass compounds for now.
+		if not compound_defs.has(recipe_id):
+			continue
+
+		# Skip already unlocked recipes.
+		if is_compound_unlocked(recipe_id):
+			continue
+
+		ordered.append(recipe_id)
+
+	# Progressive reveal:
+	# only show the next locked compound unlock
+	if ordered.is_empty():
+		return []
+
+	return [ordered[0]]
+	
+	
+func can_unlock_compound_recipe(recipe_id: String) -> Dictionary:
+	var out := {
+		"ok": false,
+		"reason": "Unavailable.",
+		"cost": 0
+	}
+
+	if not compound_defs.has(recipe_id):
+		out["reason"] = "Unknown recipe."
+		return out
+
+	if not is_refinery_unlocked():
+		out["reason"] = "Requires Primitive Refinery."
+		return out
+
+	if is_compound_unlocked(recipe_id):
+		out["reason"] = "Already unlocked."
+		return out
+
+	var cost := get_compound_unlock_cost(recipe_id)
+	out["cost"] = cost
+
+	if cost < 0:
+		out["reason"] = "No unlock path set."
+		return out
+
+	if get_amount("nutrients") < cost:
+		out["reason"] = "Not enough Nutrients."
+		return out
+
+	out["ok"] = true
+	out["reason"] = ""
+	return out
+
+
+func unlock_compound_recipe(recipe_id: String) -> Dictionary:
+	var check := can_unlock_compound_recipe(recipe_id)
+	if not bool(check.get("ok", false)):
+		return check
+
+	var cost := int(check.get("cost", 0))
+	if cost > 0:
+		resources["nutrients"] = max(0.0, float(resources.get("nutrients", 0.0)) - float(cost))
+
+	paid_compound_unlocks[recipe_id] = true
+	check["ok"] = true
+	check["reason"] = ""
+	return check
+
+
+func get_solution_unlock_cost(recipe_id: String) -> int:
+	if solution_order.is_empty():
+		return -1
+
+	var idx := solution_order.find(recipe_id)
+	if idx < 0:
+		return -1
+
+	# First solution is granted by Synthesis discovery
+	if idx == 0:
+		return 0
+
+	# Simple temporary nutrient curve for later solutions
+	match idx:
+		1:
+			return 50000
+		2:
+			return 150000
+		3:
+			return 500000
+		_:
+			return 1000000
+
+
+func is_solution_unlocked(recipe_id: String) -> bool:
+	if not solution_defs.has(recipe_id):
+		return false
+
+	if not is_synth_unlocked():
+		return false
+
+	if solution_order.is_empty():
+		return false
+
+	# First solution comes from Synthesis discovery
+	if recipe_id == solution_order[0]:
+		return true
+
+	return bool(paid_solution_unlocks.get(recipe_id, false))
+
+
+func can_unlock_solution_recipe(recipe_id: String) -> Dictionary:
+	var out := {
+		"ok": false,
+		"reason": "Unavailable.",
+		"cost": 0
+	}
+
+	if not solution_defs.has(recipe_id):
+		out["reason"] = "Unknown recipe."
+		return out
+
+	if not is_synth_unlocked():
+		out["reason"] = "Requires Synthesis."
+		return out
+
+	if is_solution_unlocked(recipe_id):
+		out["reason"] = "Already unlocked."
+		return out
+
+	var cost := get_solution_unlock_cost(recipe_id)
+	out["cost"] = cost
+
+	if cost < 0:
+		out["reason"] = "No unlock path set."
+		return out
+
+	if get_amount("nutrients") < cost:
+		out["reason"] = "Not enough Nutrients."
+		return out
+
+	out["ok"] = true
+	out["reason"] = ""
+	return out
+
+
+func unlock_solution_recipe(recipe_id: String) -> Dictionary:
+	var check := can_unlock_solution_recipe(recipe_id)
+	if not bool(check.get("ok", false)):
+		return check
+
+	var cost := int(check.get("cost", 0))
+	if cost > 0:
+		resources["nutrients"] = max(0.0, float(resources.get("nutrients", 0.0)) - float(cost))
+
+	paid_solution_unlocks[recipe_id] = true
+	check["ok"] = true
+	check["reason"] = ""
+	return check
+	
+	
+func get_digest_efficiency() -> float:
+	return get_current_digestion_modifier()
+
+
+func is_digest_tab_unlocked(category: String) -> bool:
+	match category:
+		"resource":
+			return true
+		"compound":
+			return is_refinery_unlocked()
+		"solution":
+			return is_synth_unlocked()
+		_:
+			return false
+
+
+func is_synth_unlocked() -> bool:
+	return has_discovery("synthesis")
+
+
 # ---------------- Upgrades ----------------
 
 func _ensure_upgrade_keys(n: Dictionary) -> Dictionary:
@@ -807,7 +1130,6 @@ func can_buy_discovery(discovery_id: String) -> Dictionary:
 	var parent_id := ""
 	if parent_variant != null:
 		parent_id = str(parent_variant)
-
 	if parent_id != "" and not has_discovery(parent_id):
 		var parent_name := parent_id
 		if discovery_defs.has(parent_id):
@@ -835,7 +1157,10 @@ func buy_discovery(discovery_id: String) -> Dictionary:
 	var new_level: int = get_discovery_level(discovery_id) + 1
 	discovery_levels[discovery_id] = new_level
 	unlocked_discoveries[discovery_id] = true
-	if discovery_id == "aura_activation":
+	if discovery_id == "primitive_refinery":
+		_ensure_refinery_slots_initialized()
+		unlocked_refinery_slots = max(unlocked_refinery_slots, 1)
+	elif discovery_id == "aura_activation":
 		_update_node_reveals()
 	check["ok"] = true
 	check["reason"] = ""
@@ -915,9 +1240,417 @@ func get_current_run_discovery_progress() -> Dictionary:
 	}
 
 
+# ---------------- Refinery ----------------
+
+func _ensure_refinery_slots_initialized() -> void:
+	if refinery_slot_costs.is_empty():
+		var cfg_slots: Array = (config.get("refinery_slots", []) as Array)
+		if cfg_slots.is_empty():
+			refinery_slot_costs = [0, 50000, 250000, 2500000, 250000000, 10000000000]
+		else:
+			refinery_slot_costs = cfg_slots.duplicate(true)
+	if refinery_slots.size() != refinery_slot_costs.size():
+		refinery_slots.clear()
+		for i in range(refinery_slot_costs.size()):
+			refinery_slots.append(_make_empty_refinery_slot(i + 1))
+
+
+func _make_empty_refinery_slot(slot_number: int) -> Dictionary:
+	return {
+		"slot_number": slot_number,
+		"recipe_id": "",
+		"repeat_enabled": true,
+		"in_progress": false,
+		"progress_sec": 0.0,
+		"craft_time_sec": _get_refinery_default_craft_time_sec(),
+		"status": "Idle",
+		"completed_count": 0
+	}
+
+
+func _get_refinery_default_craft_time_sec() -> float:
+	var refinery_cfg: Dictionary = (config.get("refinery", {}) as Dictionary)
+	return float(refinery_cfg.get("default_craft_time_sec", DEFAULT_REFINERY_BASE_CRAFT_SEC))
+
+
+func _get_refinery_pass1_recipe_ids() -> Array[String]:
+	var out: Array[String] = []
+	var refinery_cfg: Dictionary = (config.get("refinery", {}) as Dictionary)
+	var ids: Array = (refinery_cfg.get("pass1_recipe_ids", []) as Array)
+	if ids.is_empty():
+		ids = DEFAULT_REFINERY_PASS1_RECIPE_IDS
+	for id_variant in ids:
+		var rid := str(id_variant)
+		if rid != "" and compound_defs.has(rid):
+			out.append(rid)
+	return out
+
+
+func get_unlocked_refinery_slot_count() -> int:
+	return unlocked_refinery_slots
+
+
+func get_refinery_slot_cost(slot_number: int) -> int:
+	_ensure_refinery_slots_initialized()
+	if slot_number <= 0 or slot_number > refinery_slot_costs.size():
+		return -1
+	return int(refinery_slot_costs[slot_number - 1])
+
+
+func can_unlock_refinery_slot(slot_number: int) -> Dictionary:
+	var out := {"ok": false, "reason": "Unavailable.", "cost": 0}
+	if not is_refinery_unlocked():
+		out["reason"] = "Requires Primitive Refinery."
+		return out
+	_ensure_refinery_slots_initialized()
+	if slot_number <= 1:
+		out["reason"] = "Slot 1 is granted by Primitive Refinery."
+		return out
+	if slot_number != unlocked_refinery_slots + 1:
+		out["reason"] = "Unlock the previous slot first."
+		return out
+	if slot_number > refinery_slot_costs.size():
+		out["reason"] = "No more slots."
+		return out
+	var cost := get_refinery_slot_cost(slot_number)
+	out["cost"] = cost
+	if get_amount("nutrients") < cost:
+		out["reason"] = "Not enough Nutrients."
+		return out
+	out["ok"] = true
+	out["reason"] = ""
+	return out
+
+
+func unlock_refinery_slot(slot_number: int) -> Dictionary:
+	var check := can_unlock_refinery_slot(slot_number)
+	if not bool(check.get("ok", false)):
+		return check
+	resources["nutrients"] = max(0.0, float(resources.get("nutrients", 0.0)) - float(check.get("cost", 0)))
+	unlocked_refinery_slots = max(unlocked_refinery_slots, slot_number)
+	check["new_unlocked_slots"] = unlocked_refinery_slots
+	return check
+
+
+func get_available_compound_recipe_ids() -> Array[String]:
+	if not is_refinery_unlocked():
+		return []
+
+	var out: Array[String] = []
+	for recipe_id in _get_refinery_pass1_recipe_ids():
+		if is_compound_unlocked(recipe_id):
+			out.append(recipe_id)
+	return out
+	
+
+func get_compound_def(recipe_id: String) -> Dictionary:
+	return (compound_defs.get(recipe_id, {}) as Dictionary).duplicate(true)
+
+
+func _get_compound_recipe_inputs(recipe_id: String) -> Array:
+	if not compound_defs.has(recipe_id):
+		return []
+	return ((compound_defs[recipe_id] as Dictionary).get("inputs", []) as Array).duplicate(true)
+
+
+func _get_compound_recipe_output_qty(recipe_id: String) -> int:
+	if not compound_defs.has(recipe_id):
+		return 0
+	return int((compound_defs[recipe_id] as Dictionary).get("output_qty", 1))
+
+
+func _get_compound_recipe_craft_time_sec(recipe_id: String) -> float:
+	if compound_defs.has(recipe_id):
+		var d: Dictionary = compound_defs[recipe_id] as Dictionary
+		if d.has("craft_time_sec"):
+			return float(d.get("craft_time_sec", _get_refinery_default_craft_time_sec()))
+	return _get_refinery_default_craft_time_sec()
+
+
+func _can_afford_compound_inputs(recipe_id: String) -> bool:
+	for input_variant in _get_compound_recipe_inputs(recipe_id):
+		var c: Dictionary = input_variant as Dictionary
+		var res_id := str(c.get("id", ""))
+		var qty := int(c.get("qty", 0))
+		if res_id == "" or qty <= 0:
+			continue
+		if get_amount(res_id) < qty:
+			return false
+	return true
+
+
+func _spend_compound_inputs(recipe_id: String) -> void:
+	for input_variant in _get_compound_recipe_inputs(recipe_id):
+		var c: Dictionary = input_variant as Dictionary
+		var res_id := str(c.get("id", ""))
+		var qty := int(c.get("qty", 0))
+		if res_id == "" or qty <= 0:
+			continue
+		resources[res_id] = max(0.0, float(resources.get(res_id, 0.0)) - float(qty))
+
+
+func _grant_compound_output(recipe_id: String) -> void:
+	var qty := _get_compound_recipe_output_qty(recipe_id)
+	if qty <= 0:
+		return
+	if not resources.has(recipe_id):
+		resources[recipe_id] = 0.0
+	resources[recipe_id] = float(resources.get(recipe_id, 0.0)) + float(qty)
+
+
+func assign_refinery_recipe(slot_number: int, recipe_id: String) -> bool:
+	_ensure_refinery_slots_initialized()
+	if slot_number <= 0 or slot_number > unlocked_refinery_slots:
+		return false
+	var allowed := get_available_compound_recipe_ids()
+	if recipe_id != "" and not allowed.has(recipe_id):
+		return false
+	var slot: Dictionary = (refinery_slots[slot_number - 1] as Dictionary).duplicate(true)
+	slot["recipe_id"] = recipe_id
+	slot["in_progress"] = false
+	slot["progress_sec"] = 0.0
+	slot["craft_time_sec"] = _get_compound_recipe_craft_time_sec(recipe_id)
+	slot["status"] = "Idle" if recipe_id == "" else "Ready"
+	refinery_slots[slot_number - 1] = slot
+	return true
+
+
+func clear_refinery_recipe(slot_number: int) -> void:
+	assign_refinery_recipe(slot_number, "")
+
+
+func cycle_refinery_recipe(slot_number: int) -> String:
+	_ensure_refinery_slots_initialized()
+	if slot_number <= 0 or slot_number > unlocked_refinery_slots:
+		return ""
+	var allowed := get_available_compound_recipe_ids()
+	var order: Array[String] = [""]
+	for rid in allowed:
+		order.append(rid)
+	var current: String = str((refinery_slots[slot_number - 1] as Dictionary).get("recipe_id", ""))
+	var idx := order.find(current)
+	if idx < 0:
+		idx = 0
+	var next_id := order[(idx + 1) % order.size()]
+	assign_refinery_recipe(slot_number, next_id)
+	return next_id
+
+
+func toggle_refinery_repeat(slot_number: int) -> bool:
+	_ensure_refinery_slots_initialized()
+	if slot_number <= 0 or slot_number > unlocked_refinery_slots:
+		return false
+	var slot: Dictionary = (refinery_slots[slot_number - 1] as Dictionary).duplicate(true)
+	slot["repeat_enabled"] = not bool(slot.get("repeat_enabled", true))
+	refinery_slots[slot_number - 1] = slot
+	return bool(slot["repeat_enabled"])
+
+
+func _tick_refinery(dt: float) -> void:
+	if not is_refinery_unlocked():
+		return
+	_ensure_refinery_slots_initialized()
+	var speed_mult: float = maxf(0.01, float(get_current_refinery_speed_multiplier()))
+	for i in range(unlocked_refinery_slots):
+		var slot: Dictionary = (refinery_slots[i] as Dictionary).duplicate(true)
+		var recipe_id := str(slot.get("recipe_id", ""))
+		if recipe_id == "":
+			slot["status"] = "Idle"
+			slot["in_progress"] = false
+			slot["progress_sec"] = 0.0
+			refinery_slots[i] = slot
+			continue
+		if not bool(slot.get("in_progress", false)):
+			if _can_afford_compound_inputs(recipe_id):
+				_spend_compound_inputs(recipe_id)
+				slot["in_progress"] = true
+				slot["progress_sec"] = 0.0
+				slot["craft_time_sec"] = _get_compound_recipe_craft_time_sec(recipe_id)
+				slot["status"] = "Crafting"
+			else:
+				slot["status"] = "Missing inputs"
+				refinery_slots[i] = slot
+				continue
+		slot["progress_sec"] = float(slot.get("progress_sec", 0.0)) + (dt * speed_mult)
+		var craft_time: float = maxf(0.1, float(slot.get("craft_time_sec", _get_refinery_default_craft_time_sec())))
+		if float(slot.get("progress_sec", 0.0)) >= craft_time:
+			_grant_compound_output(recipe_id)
+			slot["completed_count"] = int(slot.get("completed_count", 0)) + 1
+			slot["progress_sec"] = 0.0
+			slot["in_progress"] = false
+			if bool(slot.get("repeat_enabled", true)):
+				slot["status"] = "Ready"
+			else:
+				slot["status"] = "Complete"
+				slot["recipe_id"] = ""
+		refinery_slots[i] = slot
+
+
+func get_refinery_ui_entries() -> Array:
+	var out: Array = []
+	if not is_refinery_unlocked():
+		return out
+
+	_ensure_refinery_slots_initialized()
+
+	var recipe_names: Dictionary = {}
+	for rid in get_available_compound_recipe_ids():
+		recipe_names[rid] = str((compound_defs.get(rid, {}) as Dictionary).get("name", rid))
+
+	for i in range(unlocked_refinery_slots):
+		var slot: Dictionary = refinery_slots[i] as Dictionary
+		var recipe_id := str(slot.get("recipe_id", ""))
+		var recipe_name := "Idle"
+		var input_summary := "—"
+		var output_summary := "—"
+
+		if recipe_id != "":
+			recipe_name = str(recipe_names.get(recipe_id, recipe_id))
+
+			var recipe_def: Dictionary = compound_defs.get(recipe_id, {}) as Dictionary
+			var inputs: Array = recipe_def.get("inputs", []) as Array
+			var output_qty: int = int(recipe_def.get("output_qty", 1))
+
+			var input_parts: Array[String] = []
+			for input_variant in inputs:
+				var c: Dictionary = input_variant as Dictionary
+				var res_id := str(c.get("id", ""))
+				var qty := int(c.get("qty", 0))
+				if res_id == "" or qty <= 0:
+					continue
+
+				var res_name := res_id
+				if resource_defs.has(res_id):
+					res_name = str((resource_defs.get(res_id, {}) as Dictionary).get("name", res_id))
+
+				var owned := get_amount(res_id)
+				input_parts.append("%s %s (%s)" % [qty, res_name, owned])
+
+			if not input_parts.is_empty():
+				input_summary = ", ".join(input_parts)
+
+			output_summary = "%s %s" % [output_qty, recipe_name]
+
+		var craft_time: float = maxf(0.1, float(slot.get("craft_time_sec", _get_refinery_default_craft_time_sec())))
+		var progress := float(slot.get("progress_sec", 0.0))
+		var pct := 0
+		if recipe_id != "":
+			pct = int(round(clamp(progress / craft_time, 0.0, 1.0) * 100.0))
+
+		out.append({
+			"type": "slot",
+			"slot_number": i + 1,
+			"recipe_id": recipe_id,
+			"recipe_name": recipe_name,
+			"repeat_enabled": bool(slot.get("repeat_enabled", true)),
+			"status": str(slot.get("status", "Idle")),
+			"progress_pct": pct,
+			"progress_sec": progress,
+			"craft_time_sec": craft_time,
+			"completed_count": int(slot.get("completed_count", 0)),
+			"input_summary": input_summary,
+			"output_summary": output_summary
+		})
+
+	if unlocked_refinery_slots < refinery_slot_costs.size():
+		var next_slot := unlocked_refinery_slots + 1
+		var check := can_unlock_refinery_slot(next_slot)
+		out.append({
+			"type": "unlock",
+			"slot_number": next_slot,
+			"cost": get_refinery_slot_cost(next_slot),
+			"can_unlock": bool(check.get("ok", false)),
+			"status": str(check.get("reason", ""))
+		})
+
+	return out
+	
+	
+func _register_compounds_as_resources() -> void:
+	for recipe_id in compound_order:
+		var d: Dictionary = compound_defs[recipe_id] as Dictionary
+		var base_value: float = _compute_compound_base_value(recipe_id, {})
+		resource_defs[recipe_id] = {
+			"id": recipe_id,
+			"name": str(d.get("name", recipe_id)),
+			"kind": "compound",
+			"format": "compact_int",
+			"base_value": base_value
+		}
+		if not resources.has(recipe_id):
+			resources[recipe_id] = 0.0
+
+
+func _register_solutions_as_resources() -> void:
+	for recipe_id in solution_order:
+		var d: Dictionary = solution_defs[recipe_id] as Dictionary
+		var base_value: float = _compute_solution_base_value(recipe_id, {})
+		resource_defs[recipe_id] = {
+			"id": recipe_id,
+			"name": str(d.get("name", recipe_id)),
+			"kind": "solution",
+			"format": "compact_int",
+			"base_value": base_value
+		}
+		if not resources.has(recipe_id):
+			resources[recipe_id] = 0.0
+
+
+func _compute_material_base_value(material_id: String, seen: Dictionary = {}) -> float:
+	if resource_defs.has(material_id):
+		var d: Dictionary = resource_defs[material_id] as Dictionary
+		if d.has("base_value"):
+			return float(d.get("base_value", 0.0))
+	if RAW_BASE_VALUES.has(material_id):
+		return float(RAW_BASE_VALUES[material_id])
+	if compound_defs.has(material_id):
+		return _compute_compound_base_value(material_id, seen)
+	if solution_defs.has(material_id):
+		return _compute_solution_base_value(material_id, seen)
+	return 0.0
+
+
+func _compute_compound_base_value(recipe_id: String, seen: Dictionary) -> float:
+	if seen.has(recipe_id):
+		return 0.0
+	if not compound_defs.has(recipe_id):
+		return 0.0
+	seen[recipe_id] = true
+	var d: Dictionary = compound_defs[recipe_id] as Dictionary
+	var total: float = 0.0
+	for input_variant in (d.get("inputs", []) as Array):
+		var c: Dictionary = input_variant as Dictionary
+		total += _compute_material_base_value(str(c.get("id", "")), seen.duplicate(true)) * float(c.get("qty", 0))
+	var mult: float = float((compounds_meta.get("rules", {}) as Dictionary).get("base_value_multiplier", 1.35))
+	return total * mult
+
+
+func _compute_solution_base_value(recipe_id: String, seen: Dictionary) -> float:
+	if seen.has(recipe_id):
+		return 0.0
+	if not solution_defs.has(recipe_id):
+		return 0.0
+	seen[recipe_id] = true
+	var d: Dictionary = solution_defs[recipe_id] as Dictionary
+	var total: float = 0.0
+	for input_variant in (d.get("inputs", []) as Array):
+		var c: Dictionary = input_variant as Dictionary
+		total += _compute_material_base_value(str(c.get("id", "")), seen.duplicate(true)) * float(c.get("qty", 0))
+	var mult: float = float((solutions_meta.get("rules", {}) as Dictionary).get("value_multiplier", 1.45))
+	return total * mult
+
+
 # ---------------- Loading ----------------
 
 func _load_all() -> void:
+	config.clear()
+	compounds_meta.clear()
+	compound_defs.clear()
+	compound_order.clear()
+	solutions_meta.clear()
+	solution_defs.clear()
+	solution_order.clear()
+	raw_resource_order.clear()
 	resource_defs.clear()
 	node_defs.clear()
 	node_order.clear()
@@ -931,6 +1664,17 @@ func _load_all() -> void:
 	node_world_positions.clear()
 	spore_cloud_world_pos = Vector2.ZERO
 	total_nutrients_earned_run = 0.0
+	refinery_slot_costs.clear()
+	refinery_slots.clear()
+	unlocked_refinery_slots = 0
+	paid_compound_unlocks.clear()
+	paid_solution_unlocks.clear()
+
+	var config_data = _load_json("res://data/config.json")
+	if config_data is Dictionary:
+		config = (config_data as Dictionary).duplicate(true)
+	else:
+		config = {}
 
 	var discoveries_data = _load_json("res://data/discoveries.json")
 	if discoveries_data is Dictionary:
@@ -956,13 +1700,40 @@ func _load_all() -> void:
 				continue
 			resource_defs[res_id] = r.duplicate(true)
 			resources[res_id] = 0.0
+			var kind: String = str(r.get("kind", "resource"))
+			if kind == "resource":
+				raw_resource_order.append(res_id)
+
+	var compounds_data = _load_json("res://data/compounds.json")
+	if compounds_data is Dictionary:
+		compounds_meta = (compounds_data as Dictionary).duplicate(true)
+		for c_variant in ((compounds_data as Dictionary).get("compounds", []) as Array):
+			var csrc: Dictionary = c_variant as Dictionary
+			var cid := str(csrc.get("id", ""))
+			if cid == "":
+				continue
+			compound_order.append(cid)
+			compound_defs[cid] = csrc.duplicate(true)
+
+	var solutions_data = _load_json("res://data/solutions.json")
+	if solutions_data is Dictionary:
+		solutions_meta = (solutions_data as Dictionary).duplicate(true)
+		for s_variant in ((solutions_data as Dictionary).get("solutions", []) as Array):
+			var ssrc: Dictionary = s_variant as Dictionary
+			var sid: String = str(ssrc.get("id", ""))
+			if sid == "":
+				continue
+			solution_order.append(sid)
+			solution_defs[sid] = ssrc.duplicate(true)
 
 	# seed starting amounts
-	resources["nutrients"] = 2900.0
-	resources["glowcaps"] = 0.0
-	resources["strain_points"] = 0.0
-	resources["spores"] = 15330.0
-	resources["hyphae"] = 15330.0
+	var starts: Dictionary = (config.get("starting_resources", {}) as Dictionary)
+	resources["nutrients"] = float(starts.get("nutrients", 12500.0))
+	resources["glowcaps"] = float(starts.get("glowcaps", 0.0))
+	resources["strain_points"] = float(starts.get("strain_points", 0.0))
+	_register_compounds_as_resources()
+	_register_solutions_as_resources()
+	_ensure_refinery_slots_initialized()
 
 	var nodes_data = _load_json("res://data/nodes.json")
 	if nodes_data is Dictionary:
@@ -1032,6 +1803,7 @@ func _seed_defaults() -> void:
 		"cellulose": 0.0,
 		"mycelium": 0.0
 	}
+	_ensure_refinery_slots_initialized()
 	var damp_def := {
 		"id": "damp_soil",
 		"name": "Damp Soil",
