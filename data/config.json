@@ -4,7 +4,7 @@
     "tick_dt": 0.1
   },
   "transport": {
-    "base_mite_speed_px_per_sec": 150.0,
+    "base_root_pulse_speed_px_per_sec": 150.0,
     "base_carry_capacity": 4,
     "load_unload_sec": 0.25,
     "default_distance_px": 360.0

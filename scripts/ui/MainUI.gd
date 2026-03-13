@@ -6,21 +6,17 @@ const PANEL_MARGIN := 8.0
 const NODE_HIT_RADIUS := 110.0
 const UI_REFRESH_DT := 0.20
 
-const MITE_DOT_SIZE_PX := 10
-const MITE_GLOW_SIZE_PX := 24
+const ROOT_PULSE_DOT_SIZE_PX := 10
+const ROOT_PULSE_GLOW_SIZE_PX := 24
 
-const MITE_OUTBOUND_COLOR := Color(0.58, 0.72, 0.56, 0.95)
-const MITE_CARRY_COLOR := Color(0.88, 1.00, 0.70, 1.00)
+const ROOT_PULSE_IDLE_COLOR := Color(0.50, 0.62, 0.48, 0.80)
+const ROOT_PULSE_ACTIVE_COLOR := Color(0.88, 1.00, 0.70, 1.00)
 
-const TRANSPORT_PICKUP_TEXT_COLOR := Color(0.97, 0.94, 0.78, 1.00)
-const TRANSPORT_CHEER_TEXT_COLOR := Color(0.90, 1.00, 0.78, 1.00)
-const TRANSPORT_TEXT_OUTLINE_COLOR := Color(0.11, 0.17, 0.10, 0.95)
-const TRANSPORT_PICKUP_FONT_SIZE := 22
-const TRANSPORT_CHEER_FONT_SIZE := 28
-const TRANSPORT_PICKUP_LIFT_PX := 34.0
-const TRANSPORT_CHEER_LIFT_PX := 44.0
-const TRANSPORT_PICKUP_DURATION := 0.50
-const TRANSPORT_CHEER_DURATION := 0.65
+const TRANSFER_TEXT_COLOR := Color(0.90, 1.00, 0.78, 1.00)
+const TRANSFER_TEXT_OUTLINE_COLOR := Color(0.11, 0.17, 0.10, 0.95)
+const TRANSFER_FONT_SIZE := 26
+const TRANSFER_LIFT_PX := 40.0
+const TRANSFER_DURATION := 0.60
 
 @onready var dimmer: ColorRect = $PanelHost/Dimmer
 @onready var bottom_bar: Control = $UILayer/HUD/BottomBar
@@ -109,15 +105,15 @@ var _last_discovery_signature: String = ""
 var _nutrients_base_scale: Vector2 = Vector2.ONE
 var _nutrients_flash_tween: Tween = null
 
-# Mite visuals
-var _mites_layer: Node2D = null
-var _mite_visuals: Dictionary = {}
-var _mite_dot_texture: Texture2D = null
-var _mite_glow_texture: Texture2D = null
+# Root pulse visuals
+var _root_pulse_layer: Node2D = null
+var _root_pulse_visuals: Dictionary = {}
+var _root_pulse_dot_texture: Texture2D = null
+var _root_pulse_glow_texture: Texture2D = null
 
-# Transport feedback
-var _transport_fx_layer: Node2D = null
-var _transport_event_seen: Dictionary = {}
+# Transfer feedback
+var _transfer_fx_layer: Node2D = null
+var _transfer_event_seen: Dictionary = {}
 
 # NodePanel top table widgets
 var cell_res_icon: TextureRect = null
@@ -167,9 +163,9 @@ func _ready() -> void:
 	_build_node_registry()
 	_refresh_node_world_state()
 
-	_register_transport_positions()
-	_setup_mites()
-	_setup_transport_fx()
+	_register_root_transfer_positions()
+	_setup_root_pulses()
+	_setup_transfer_fx()
 
 	selection_ring.visible = false
 
@@ -210,14 +206,14 @@ func _ready() -> void:
 
 	_refresh_panel_access_ui()
 	_refresh_currency_ui()
-	#get_tree().root.print_tree_pretty()
+	get_tree().root.print_tree_pretty()
 
 func _process(dt: float) -> void:
 	if selection_ring.visible and _selected_node != null:
 		selection_ring.global_position = _selected_node.global_position
 
-	_update_mite_visuals()
-	_poll_transport_feedback()
+	_update_root_pulse_visuals()
+	_poll_root_transfer_feedback()
 
 	_ui_accum += dt
 	if _ui_accum >= UI_REFRESH_DT:
@@ -228,6 +224,9 @@ func _process(dt: float) -> void:
 
 		if _open_panel == node_panel and _selected_node_id != "":
 			_refresh_nodepanel_all()
+
+		if _open_panel == digest_panel:
+			_refresh_digest_panel()
 
 	var new_signature := _get_refinery_inventory_signature()
 	if new_signature != _last_refinery_inventory_signature:
@@ -252,7 +251,7 @@ func _process(dt: float) -> void:
 			_refresh_refinery_panel()
 
 
-func _register_transport_positions() -> void:
+func _register_root_transfer_positions() -> void:
 	if game_state == null:
 		return
 
@@ -268,106 +267,6 @@ func _register_transport_positions() -> void:
 		if node_id == "" or node_ref == null:
 			continue
 		game_state.call("register_node_world_position", node_id, node_ref.global_position)
-
-
-func _setup_mites() -> void:
-	if has_node("MapLayer/MitesLayer"):
-		_mites_layer = $MapLayer/MitesLayer
-	else:
-		_mites_layer = Node2D.new()
-		_mites_layer.name = "MitesLayer"
-		$MapLayer.add_child(_mites_layer)
-
-	_mite_dot_texture = _make_circle_texture(MITE_DOT_SIZE_PX, false)
-	_mite_glow_texture = _make_circle_texture(MITE_GLOW_SIZE_PX, true)
-
-	_mite_visuals.clear()
-
-	for e in _node_list:
-		var node_id: String = str(e["id"])
-
-		var root := Node2D.new()
-		root.name = "Mite_" + node_id
-
-		var glow := Sprite2D.new()
-		glow.texture = _mite_glow_texture
-		glow.centered = true
-		glow.modulate = Color(
-			MITE_OUTBOUND_COLOR.r,
-			MITE_OUTBOUND_COLOR.g,
-			MITE_OUTBOUND_COLOR.b,
-			0.24
-		)
-
-		var dot := Sprite2D.new()
-		dot.texture = _mite_dot_texture
-		dot.centered = true
-		dot.modulate = MITE_OUTBOUND_COLOR
-
-		root.add_child(glow)
-		root.add_child(dot)
-		_mites_layer.add_child(root)
-
-		_mite_visuals[node_id] = {
-			"root": root,
-			"glow": glow,
-			"dot": dot
-		}
-
-
-func _update_mite_visuals() -> void:
-	if _mites_layer == null:
-		return
-	if game_state == null:
-		return
-	if not game_state.has_method("get_node_mite_visual"):
-		return
-
-	for e in _node_list:
-		var node_id: String = str(e["id"])
-		var node_ref: Node2D = e["node"] as Node2D
-
-		if not _mite_visuals.has(node_id):
-			continue
-
-		var mite: Dictionary = _mite_visuals[node_id] as Dictionary
-		var root: Node2D = mite["root"] as Node2D
-		var glow: Sprite2D = mite["glow"] as Sprite2D
-		var dot: Sprite2D = mite["dot"] as Sprite2D
-
-		var info = game_state.call("get_node_mite_visual", node_id)
-		if typeof(info) != TYPE_DICTIONARY:
-			root.visible = false
-			continue
-
-		var route_t: float = clamp(float(info.get("route_t", 0.0)), 0.0, 1.0)
-		var carrying: bool = bool(info.get("carrying", false))
-		var mite_visible: bool = bool(info.get("visible", true))
-
-		root.visible = mite_visible
-		if not mite_visible:
-			continue
-
-		root.global_position = spore_cloud.global_position.lerp(node_ref.global_position, route_t)
-
-		if carrying:
-			dot.modulate = MITE_CARRY_COLOR
-			glow.modulate = Color(
-				MITE_CARRY_COLOR.r,
-				MITE_CARRY_COLOR.g,
-				MITE_CARRY_COLOR.b,
-				0.38
-			)
-			root.scale = Vector2.ONE * 1.08
-		else:
-			dot.modulate = MITE_OUTBOUND_COLOR
-			glow.modulate = Color(
-				MITE_OUTBOUND_COLOR.r,
-				MITE_OUTBOUND_COLOR.g,
-				MITE_OUTBOUND_COLOR.b,
-				0.24
-			)
-			root.scale = Vector2.ONE
 
 
 func _make_circle_texture(size_px: int, soft_edge: bool) -> Texture2D:
@@ -393,102 +292,181 @@ func _make_circle_texture(size_px: int, soft_edge: bool) -> Texture2D:
 	return ImageTexture.create_from_image(img)
 
 
-func _setup_transport_fx() -> void:
-	if has_node("MapLayer/TransportFXLayer"):
-		_transport_fx_layer = $MapLayer/TransportFXLayer
+func _setup_root_pulses() -> void:
+	if has_node("MapLayer/RootPulseLayer"):
+		_root_pulse_layer = $MapLayer/RootPulseLayer
+	elif has_node("MapLayer/MitesLayer"):
+		_root_pulse_layer = $MapLayer/MitesLayer
+		_root_pulse_layer.name = "RootPulseLayer"
 	else:
-		_transport_fx_layer = Node2D.new()
-		_transport_fx_layer.name = "TransportFXLayer"
-		$MapLayer.add_child(_transport_fx_layer)
+		_root_pulse_layer = Node2D.new()
+		_root_pulse_layer.name = "RootPulseLayer"
+		$MapLayer.add_child(_root_pulse_layer)
 
-	_transport_event_seen.clear()
+	_root_pulse_dot_texture = _make_circle_texture(ROOT_PULSE_DOT_SIZE_PX, false)
+	_root_pulse_glow_texture = _make_circle_texture(ROOT_PULSE_GLOW_SIZE_PX, true)
+
+	for child in _root_pulse_layer.get_children():
+		child.queue_free()
+
+	_root_pulse_visuals.clear()
 
 	for e in _node_list:
 		var node_id: String = str(e["id"])
-		var seen: Dictionary = {
-			"pickup_event_id": 0,
-			"delivery_event_id": 0
+
+		var root := Node2D.new()
+		root.name = "RootPulse_" + node_id
+
+		var glow := Sprite2D.new()
+		glow.texture = _root_pulse_glow_texture
+		glow.centered = true
+		glow.modulate = Color(
+			ROOT_PULSE_IDLE_COLOR.r,
+			ROOT_PULSE_IDLE_COLOR.g,
+			ROOT_PULSE_IDLE_COLOR.b,
+			0.20
+		)
+
+		var dot := Sprite2D.new()
+		dot.texture = _root_pulse_dot_texture
+		dot.centered = true
+		dot.modulate = ROOT_PULSE_IDLE_COLOR
+
+		root.add_child(glow)
+		root.add_child(dot)
+		_root_pulse_layer.add_child(root)
+
+		_root_pulse_visuals[node_id] = {
+			"root": root,
+			"glow": glow,
+			"dot": dot
 		}
 
-		if game_state != null and game_state.has_method("get_node_transport_feedback"):
-			var info = game_state.call("get_node_transport_feedback", node_id)
-			if typeof(info) == TYPE_DICTIONARY:
-				seen["pickup_event_id"] = int(info.get("pickup_event_id", 0))
-				seen["delivery_event_id"] = int(info.get("delivery_event_id", 0))
 
-		_transport_event_seen[node_id] = seen
-
-
-func _poll_transport_feedback() -> void:
-	if _transport_fx_layer == null:
+func _update_root_pulse_visuals() -> void:
+	if _root_pulse_layer == null:
 		return
 	if game_state == null:
 		return
-	if not game_state.has_method("get_node_transport_feedback"):
+	if not game_state.has_method("get_node_root_pulse_visual"):
 		return
 
 	for e in _node_list:
 		var node_id: String = str(e["id"])
 		var node_ref: Node2D = e["node"] as Node2D
-		var info = game_state.call("get_node_transport_feedback", node_id)
+
+		if not _root_pulse_visuals.has(node_id):
+			continue
+
+		var pulse: Dictionary = _root_pulse_visuals[node_id] as Dictionary
+		var root: Node2D = pulse["root"] as Node2D
+		var glow: Sprite2D = pulse["glow"] as Sprite2D
+		var dot: Sprite2D = pulse["dot"] as Sprite2D
+
+		var info = game_state.call("get_node_root_pulse_visual", node_id)
+		if typeof(info) != TYPE_DICTIONARY:
+			root.visible = false
+			continue
+
+		var route_t: float = clamp(float(info.get("route_t", 0.0)), 0.0, 1.0)
+		var active: bool = bool(info.get("active", false))
+		var pulse_visible: bool = bool(info.get("visible", true))
+
+		root.visible = pulse_visible
+		if not pulse_visible:
+			continue
+
+		root.global_position = node_ref.global_position.lerp(spore_cloud.global_position, route_t)
+
+		if active:
+			dot.modulate = ROOT_PULSE_ACTIVE_COLOR
+			glow.modulate = Color(
+				ROOT_PULSE_ACTIVE_COLOR.r,
+				ROOT_PULSE_ACTIVE_COLOR.g,
+				ROOT_PULSE_ACTIVE_COLOR.b,
+				0.36
+			)
+			root.scale = Vector2.ONE * 1.06
+		else:
+			dot.modulate = ROOT_PULSE_IDLE_COLOR
+			glow.modulate = Color(
+				ROOT_PULSE_IDLE_COLOR.r,
+				ROOT_PULSE_IDLE_COLOR.g,
+				ROOT_PULSE_IDLE_COLOR.b,
+				0.18
+			)
+			root.scale = Vector2.ONE
+
+
+func _setup_transfer_fx() -> void:
+	if has_node("MapLayer/TransferFXLayer"):
+		_transfer_fx_layer = $MapLayer/TransferFXLayer
+	elif has_node("MapLayer/TransportFXLayer"):
+		_transfer_fx_layer = $MapLayer/TransportFXLayer
+		_transfer_fx_layer.name = "TransferFXLayer"
+	else:
+		_transfer_fx_layer = Node2D.new()
+		_transfer_fx_layer.name = "TransferFXLayer"
+		$MapLayer.add_child(_transfer_fx_layer)
+
+	_transfer_event_seen.clear()
+
+	for e in _node_list:
+		var node_id: String = str(e["id"])
+		var seen: Dictionary = {
+			"transfer_event_id": 0
+		}
+
+		if game_state != null and game_state.has_method("get_node_root_transfer_feedback"):
+			var info = game_state.call("get_node_root_transfer_feedback", node_id)
+			if typeof(info) == TYPE_DICTIONARY:
+				seen["transfer_event_id"] = int(info.get("transfer_event_id", 0))
+
+		_transfer_event_seen[node_id] = seen
+
+
+func _poll_root_transfer_feedback() -> void:
+	if _transfer_fx_layer == null:
+		return
+	if game_state == null:
+		return
+	if not game_state.has_method("get_node_root_transfer_feedback"):
+		return
+
+	for e in _node_list:
+		var node_id: String = str(e["id"])
+		var info = game_state.call("get_node_root_transfer_feedback", node_id)
 		if typeof(info) != TYPE_DICTIONARY:
 			continue
 
-		var seen: Dictionary = (_transport_event_seen.get(node_id, {
-			"pickup_event_id": 0,
-			"delivery_event_id": 0
+		var seen: Dictionary = (_transfer_event_seen.get(node_id, {
+			"transfer_event_id": 0
 		}) as Dictionary)
 
-		var pickup_event_id: int = int(info.get("pickup_event_id", 0))
-		var pickup_amount: int = int(info.get("pickup_amount", 0))
-		if pickup_event_id > int(seen.get("pickup_event_id", 0)):
-			if pickup_amount > 0:
-				_spawn_transport_popup(
-					node_ref.global_position + Vector2(0, -18),
-					"Pickup +" + str(pickup_amount),
-					TRANSPORT_PICKUP_TEXT_COLOR,
-					TRANSPORT_PICKUP_FONT_SIZE,
-					TRANSPORT_PICKUP_LIFT_PX,
-					TRANSPORT_PICKUP_DURATION,
-					false
-				)
-			seen["pickup_event_id"] = pickup_event_id
+		var transfer_event_id: int = int(info.get("transfer_event_id", 0))
+		var transfer_amount: int = int(info.get("transfer_amount", 0))
 
-		var delivery_event_id: int = int(info.get("delivery_event_id", 0))
-		var delivery_amount: int = int(info.get("delivery_amount", 0))
-		if delivery_event_id > int(seen.get("delivery_event_id", 0)):
-			if delivery_amount > 0:
-				var cheer_pos: Vector2 = spore_cloud.global_position
-				if _mite_visuals.has(node_id):
-					var mite: Dictionary = _mite_visuals[node_id] as Dictionary
-					var root: Node2D = mite.get("root", null) as Node2D
+		if transfer_event_id > int(seen.get("transfer_event_id", 0)):
+			if transfer_amount > 0:
+				var popup_pos: Vector2 = spore_cloud.global_position
+				if _root_pulse_visuals.has(node_id):
+					var pulse: Dictionary = _root_pulse_visuals[node_id] as Dictionary
+					var root: Node2D = pulse.get("root", null) as Node2D
 					if root != null:
-						cheer_pos = root.global_position
+						popup_pos = root.global_position
 
-				_spawn_transport_popup(
-					cheer_pos + Vector2(0, -16),
-					"Yay! +" + str(delivery_amount),
-					TRANSPORT_CHEER_TEXT_COLOR,
-					TRANSPORT_CHEER_FONT_SIZE,
-					TRANSPORT_CHEER_LIFT_PX,
-					TRANSPORT_CHEER_DURATION,
-					true
+				_spawn_transfer_popup(
+					popup_pos + Vector2(0, -16),
+					"Transfer +" + str(transfer_amount)
 				)
-			seen["delivery_event_id"] = delivery_event_id
 
-		_transport_event_seen[node_id] = seen
+			seen["transfer_event_id"] = transfer_event_id
+
+		_transfer_event_seen[node_id] = seen
 
 
-func _spawn_transport_popup(
-	world_pos: Vector2,
-	text: String,
-	text_color: Color,
-	font_size: int,
-	lift_px: float,
-	duration: float,
-	is_cheer: bool
-) -> void:
-	if _transport_fx_layer == null:
+func _spawn_transfer_popup(world_pos: Vector2, text: String) -> void:
+	if _transfer_fx_layer == null:
 		return
 
 	var label := Label.new()
@@ -496,29 +474,26 @@ func _spawn_transport_popup(
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.text = text
 	label.modulate = Color(1, 1, 1, 1)
-	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", text_color)
-	label.add_theme_color_override("font_outline_color", TRANSPORT_TEXT_OUTLINE_COLOR)
-	label.add_theme_constant_override("outline_size", 4 if is_cheer else 3)
+	label.add_theme_font_size_override("font_size", TRANSFER_FONT_SIZE)
+	label.add_theme_color_override("font_color", TRANSFER_TEXT_COLOR)
+	label.add_theme_color_override("font_outline_color", TRANSFER_TEXT_OUTLINE_COLOR)
+	label.add_theme_constant_override("outline_size", 4)
 
-	_transport_fx_layer.add_child(label)
+	_transfer_fx_layer.add_child(label)
 	label.reset_size()
 	label.pivot_offset = label.size * 0.5
 	label.global_position = world_pos - (label.size * 0.5)
-	label.scale = Vector2.ONE * (0.95 if is_cheer else 1.0)
 
-	var end_pos: Vector2 = label.global_position + Vector2(0, -lift_px)
-	var end_scale: Vector2 = Vector2.ONE * (1.12 if is_cheer else 1.04)
+	var end_pos: Vector2 = label.global_position + Vector2(0, -TRANSFER_LIFT_PX)
 
 	var tween: Tween = create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, "global_position", end_pos, duration)
-	tween.parallel().tween_property(label, "scale", end_scale, duration * 0.45)
-	tween.parallel().tween_property(label, "modulate:a", 0.0, duration)
+	tween.tween_property(label, "global_position", end_pos, TRANSFER_DURATION)
+	tween.parallel().tween_property(label, "scale", Vector2.ONE * 1.08, TRANSFER_DURATION * 0.45)
+	tween.parallel().tween_property(label, "modulate:a", 0.0, TRANSFER_DURATION)
 	tween.finished.connect(func():
 		if is_instance_valid(label):
 			label.queue_free()
 	)
-
 
 # ---------------- DigestPanel ----------------
 
@@ -1617,8 +1592,9 @@ func _handle_runtime_state_reload() -> void:
 	_selected_node_id = ""
 	selection_ring.visible = false
 
-	_register_transport_positions()
-	_setup_transport_fx()
+	_register_root_transfer_positions()
+	_setup_root_pulses()
+	_setup_transfer_fx()
 
 	_refresh_panel_access_ui()
 	_refresh_currency_ui()

@@ -8,7 +8,7 @@ const NODE_SPEED_STEP: float = 0.10
 const CARRY_STEP: int = 1
 
 # Transport tuning
-const BASE_MITE_SPEED: float = 150.0
+const BASE_ROOT_PULSE_SPEED: float = 150.0
 const BASE_CARRY: int = 500
 const LOAD_UNLOAD_SEC: float = 0.25
 const DEFAULT_DISTANCE_PX: float = 360.0
@@ -27,6 +27,8 @@ const DEFAULT_REFINERY_BASE_CRAFT_SEC := 4.0
 const SAVE_VERSION: int = 1
 const SAVE_FILE_PATH: String = "user://mycelium_idle_save_v1.json"
 const AUTOSAVE_SEC: float = 10.0
+const NODE_ROOT_TRANSFER_KEY: String = "root_transfer"
+const LEGACY_NODE_TRANSPORT_KEY: String = "transport"
 
 var config: Dictionary = {}
 var compounds_meta: Dictionary = {}
@@ -96,7 +98,7 @@ func _notification(what: int) -> void:
 func tick(dt: float) -> void:
 	_update_node_reveals()
 	_tick_node_production(dt)
-	_tick_transport(dt)
+	_tick_root_transfer(dt)
 	_tick_refinery(dt)
 	_tick_synth(dt)
 
@@ -145,7 +147,7 @@ func _tick_node_production(dt: float) -> void:
 		nodes[node_id] = n
 
 
-# ---------------- Transport ----------------
+# ---------------- Root Pulse Transfer ----------------
 
 func register_spore_cloud_world_position(pos: Vector2) -> void:
 	spore_cloud_world_pos = pos
@@ -155,99 +157,91 @@ func register_node_world_position(node_id: String, pos: Vector2) -> void:
 	node_world_positions[node_id] = pos
 
 
-func _tick_transport(dt: float) -> void:
+func _tick_root_transfer(dt: float) -> void:
 	for node_id_variant in nodes.keys():
 		var node_id: String = str(node_id_variant)
 		var n: Dictionary = nodes[node_id] as Dictionary
+
+		var transfer: Dictionary = _ensure_root_transfer_state(n, node_id)
+
 		if not bool(n.get("is_connected", false)):
-			var stopped_transport: Dictionary = _ensure_transport_state(n, node_id)
-			stopped_transport["carrying_visual"] = false
-			stopped_transport["cargo"] = {}
-			n["transport"] = stopped_transport
+			transfer["pulse_progress_sec"] = 0.0
+			transfer["in_flight"] = false
+			transfer["cargo"] = {}
+			transfer["active_visual"] = false
+			_write_node_root_transfer_dict(n, transfer)
 			nodes[node_id] = n
 			continue
 
-		var transport: Dictionary = _ensure_transport_state(n, node_id)
-		var trip_sec: float = max(0.25, _get_node_trip_sec(node_id))
-		var leg_sec: float = max(0.01, _get_node_leg_sec(node_id))
-		var load_unload_sec: float = _get_transport_load_unload_sec()
-		var pickup_sec: float = leg_sec + load_unload_sec
-		var base_arrival_sec: float = pickup_sec + leg_sec
+		var pulse_sec: float = maxf(0.05, _get_node_pulse_sec(node_id))
+		var progress_sec: float = float(transfer.get("pulse_progress_sec", 0.0))
+		var in_flight: bool = bool(transfer.get("in_flight", false))
+		var cargo: Dictionary = (transfer.get("cargo", {}) as Dictionary)
 
-		var progress_sec: float = float(transport.get("progress_sec", 0.0))
-		var pickup_checked: bool = bool(transport.get("pickup_checked", false))
-		var delivery_checked: bool = bool(transport.get("delivery_checked", false))
-		var cargo: Dictionary = (transport.get("cargo", {}) as Dictionary)
-		var pickup_event_id: int = int(transport.get("pickup_event_id", 0))
-		var delivery_event_id: int = int(transport.get("delivery_event_id", 0))
-		var pickup_amount: int = int(transport.get("pickup_amount", 0))
-		var delivery_amount: int = int(transport.get("delivery_amount", 0))
+		var delivered_this_tick: int = 0
+		var remaining_dt: float = dt
 
-		progress_sec += dt
+		while remaining_dt > 0.0:
+			if not in_flight:
+				cargo = _pickup_one_root_pulse(node_id)
+				if _root_pulse_cargo_total(cargo) <= 0:
+					break
 
-		while true:
-			if not pickup_checked and progress_sec >= pickup_sec:
-				cargo = _pickup_one_trip(node_id)
-				pickup_amount = _cargo_total(cargo)
-				if pickup_amount > 0:
-					pickup_event_id += 1
-				pickup_checked = true
+				in_flight = true
+				progress_sec = 0.0
 
-			if not delivery_checked and progress_sec >= base_arrival_sec:
-				delivery_amount = _deliver_cargo_to_base(cargo)
-				if delivery_amount > 0:
-					delivery_event_id += 1
+			var time_to_arrival: float = pulse_sec - progress_sec
+
+			if remaining_dt >= time_to_arrival:
+				progress_sec = pulse_sec
+				remaining_dt -= time_to_arrival
+
+				delivered_this_tick += _deliver_root_pulse_cargo_to_base(cargo)
 				cargo = {}
-				delivery_checked = true
+				in_flight = false
+				progress_sec = 0.0
+			else:
+				progress_sec += remaining_dt
+				remaining_dt = 0.0
 
-			if progress_sec < trip_sec:
-				break
+		if delivered_this_tick > 0:
+			transfer["transfer_event_id"] = int(transfer.get("transfer_event_id", 0)) + 1
+			transfer["transfer_amount"] = delivered_this_tick
+		else:
+			transfer["transfer_amount"] = 0
 
-			progress_sec -= trip_sec
-			pickup_checked = false
-			delivery_checked = false
-			cargo = {}
+		transfer["pulse_progress_sec"] = progress_sec
+		transfer["pulse_sec"] = pulse_sec
+		transfer["in_flight"] = in_flight
+		transfer["cargo"] = cargo
+		transfer["active_visual"] = in_flight and (_root_pulse_cargo_total(cargo) > 0)
 
-		transport["progress_sec"] = progress_sec
-		transport["pickup_checked"] = pickup_checked
-		transport["delivery_checked"] = delivery_checked
-		transport["cargo"] = cargo
-		transport["carrying_visual"] = _cargo_total(cargo) > 0
-		transport["pickup_event_id"] = pickup_event_id
-		transport["delivery_event_id"] = delivery_event_id
-		transport["pickup_amount"] = pickup_amount
-		transport["delivery_amount"] = delivery_amount
-		transport["remaining_sec"] = max(0.0, trip_sec - progress_sec)
-
-		n["transport"] = transport
+		_write_node_root_transfer_dict(n, transfer)
 		nodes[node_id] = n
 
 
-func _ensure_transport_state(n: Dictionary, node_id: String) -> Dictionary:
-	var transport: Dictionary = (n.get("transport", {}) as Dictionary)
-	if not transport.has("progress_sec"):
-		transport["progress_sec"] = 0.0
-	if not transport.has("pickup_checked"):
-		transport["pickup_checked"] = false
-	if not transport.has("delivery_checked"):
-		transport["delivery_checked"] = false
-	if not transport.has("cargo"):
-		transport["cargo"] = {}
-	if not transport.has("carrying_visual"):
-		transport["carrying_visual"] = false
-	if not transport.has("pickup_event_id"):
-		transport["pickup_event_id"] = 0
-	if not transport.has("delivery_event_id"):
-		transport["delivery_event_id"] = 0
-	if not transport.has("pickup_amount"):
-		transport["pickup_amount"] = 0
-	if not transport.has("delivery_amount"):
-		transport["delivery_amount"] = 0
-	transport["remaining_sec"] = max(0.0, _get_node_trip_sec(node_id) - float(transport.get("progress_sec", 0.0)))
-	return transport
+func _ensure_root_transfer_state(n: Dictionary, node_id: String) -> Dictionary:
+	var transfer: Dictionary = _read_node_root_transfer_dict(n)
+
+	if not transfer.has("pulse_progress_sec"):
+		transfer["pulse_progress_sec"] = 0.0
+	if not transfer.has("pulse_sec"):
+		transfer["pulse_sec"] = _get_node_pulse_sec(node_id)
+	if not transfer.has("in_flight"):
+		transfer["in_flight"] = false
+	if not transfer.has("cargo"):
+		transfer["cargo"] = {}
+	if not transfer.has("transfer_event_id"):
+		transfer["transfer_event_id"] = 0
+	if not transfer.has("transfer_amount"):
+		transfer["transfer_amount"] = 0
+	if not transfer.has("active_visual"):
+		transfer["active_visual"] = false
+
+	return transfer
 
 
-func _pickup_one_trip(node_id: String) -> Dictionary:
+func _pickup_one_root_pulse(node_id: String) -> Dictionary:
 	var cargo: Dictionary = {}
 	if not nodes.has(node_id):
 		return cargo
@@ -256,23 +250,28 @@ func _pickup_one_trip(node_id: String) -> Dictionary:
 	var pool: Dictionary = (n.get("pool", {}) as Dictionary)
 	var outputs: Array = (n.get("outputs", []) as Array)
 	var carry_left: int = _get_node_carry_capacity(node_id)
+
 	if carry_left <= 0:
 		return cargo
 
 	for o_variant in outputs:
 		if carry_left <= 0:
 			break
+
 		var od: Dictionary = o_variant as Dictionary
 		var res_id: String = str(od.get("res", ""))
 		if res_id == "":
 			continue
+
 		var available: int = int(floor(float(pool.get(res_id, 0.0))))
 		if available <= 0:
 			continue
+
 		var take: int = min(carry_left, available)
 		if take <= 0:
 			continue
-		pool[res_id] = max(0.0, float(pool.get(res_id, 0.0)) - float(take))
+
+		pool[res_id] = maxf(0.0, float(pool.get(res_id, 0.0)) - float(take))
 		cargo[res_id] = take
 		carry_left -= take
 
@@ -281,24 +280,41 @@ func _pickup_one_trip(node_id: String) -> Dictionary:
 	return cargo
 
 
-func _deliver_cargo_to_base(cargo: Dictionary) -> int:
+func _deliver_root_pulse_cargo_to_base(cargo: Dictionary) -> int:
 	var delivered_total: int = 0
+
 	for res_id_variant in cargo.keys():
 		var res_id: String = str(res_id_variant)
 		var amount: int = int(cargo[res_id_variant])
 		if amount <= 0:
 			continue
+
 		if not resources.has(res_id):
 			resources[res_id] = 0.0
+
 		resources[res_id] = float(resources.get(res_id, 0.0)) + float(amount)
 		delivered_total += amount
+
 	return delivered_total
 
 
-func _cargo_total(cargo: Dictionary) -> int:
+func _root_pulse_cargo_total(cargo: Dictionary) -> int:
 	var total: int = 0
 	for value_variant in cargo.values():
 		total += int(value_variant)
+	return total
+
+func _get_node_pool_total(node_id: String) -> float:
+	if not nodes.has(node_id):
+		return 0.0
+
+	var n: Dictionary = nodes[node_id] as Dictionary
+	var pool: Dictionary = (n.get("pool", {}) as Dictionary)
+
+	var total: float = 0.0
+	for value_variant in pool.values():
+		total += float(value_variant)
+
 	return total
 
 
@@ -313,13 +329,13 @@ func _get_node_distance(node_id: String) -> float:
 
 func _get_node_speed_value(node_id: String) -> float:
 	if not nodes.has(node_id):
-		return _get_transport_base_mite_speed()
+		return _get_root_pulse_base_speed()
 
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var lvl: int = int(up.get("node_speed_level", 1))
 
-	return _get_transport_base_mite_speed() * _get_speed_multiplier_for_level(lvl)
+	return _get_root_pulse_base_speed() * _get_speed_multiplier_for_level(lvl)
 
 
 func _get_node_carry_capacity(node_id: String) -> int:
@@ -333,16 +349,10 @@ func _get_node_carry_capacity(node_id: String) -> int:
 	return _get_carry_capacity_for_level(lvl)
 
 
-func _get_node_leg_sec(node_id: String) -> float:
+func _get_node_pulse_sec(node_id: String) -> float:
 	var distance_px: float = _get_node_distance(node_id)
-	var speed: float = max(1.0, _get_node_speed_value(node_id))
+	var speed: float = maxf(1.0, _get_node_speed_value(node_id))
 	return distance_px / speed
-
-
-func _get_node_trip_sec(node_id: String) -> float:
-	var leg_sec: float = _get_node_leg_sec(node_id)
-	var load_unload_sec: float = _get_transport_load_unload_sec()
-	return (2.0 * leg_sec) + (2.0 * load_unload_sec)
 
 
 func _get_node_primary_production_rate(node_id: String) -> float:
@@ -378,67 +388,70 @@ func _get_node_primary_production_rate(node_id: String) -> float:
 	return rate_total * (w / sum_w) * amount_per_unit
 
 
+func _get_node_root_transfer_rate(node_id: String) -> float:
+	var pulse_sec: float = maxf(0.05, _get_node_pulse_sec(node_id))
+	var carry: int = _get_node_carry_capacity(node_id)
+	return float(carry) / pulse_sec
+
+
 func _get_node_primary_delivered_rate(node_id: String) -> float:
 	if not nodes.has(node_id):
 		return 0.0
+
 	var n: Dictionary = nodes[node_id] as Dictionary
 	if not bool(n.get("is_connected", false)):
 		return 0.0
+
 	var prod_primary: float = _get_node_primary_production_rate(node_id)
-	var trip_sec: float = max(0.25, _get_node_trip_sec(node_id))
-	var carry: int = _get_node_carry_capacity(node_id)
-	var transport_capacity: float = float(carry) / trip_sec
-	return min(prod_primary, transport_capacity)
+	var transfer_capacity: float = _get_node_root_transfer_rate(node_id)
+
+	return minf(prod_primary, transfer_capacity)
 
 
-func get_node_mite_visual(node_id: String) -> Dictionary:
-	var out: Dictionary = {"route_t": 0.0, "carrying": false, "visible": false}
+func get_node_root_pulse_visual(node_id: String) -> Dictionary:
+	var out: Dictionary = {
+		"route_t": 0.0,
+		"active": false,
+		"visible": false
+	}
+
 	if not nodes.has(node_id):
 		return out
+
 	var n: Dictionary = nodes[node_id] as Dictionary
 	if not bool(n.get("is_connected", false)):
 		return out
+
+	var transfer: Dictionary = _ensure_root_transfer_state(n, node_id)
+	var in_flight: bool = bool(transfer.get("in_flight", false))
+	if not in_flight:
+		return out
+
+	var pulse_sec: float = maxf(0.05, _get_node_pulse_sec(node_id))
+	var progress_sec: float = clampf(float(transfer.get("pulse_progress_sec", 0.0)), 0.0, pulse_sec)
+
 	out["visible"] = true
-	var transport: Dictionary = _ensure_transport_state(n, node_id)
-	var trip_sec: float = max(0.25, _get_node_trip_sec(node_id))
-	var leg_sec: float = max(0.01, _get_node_leg_sec(node_id))
-	var pickup_sec: float = leg_sec + _get_transport_load_unload_sec()
-	var return_end_sec: float = pickup_sec + leg_sec
-	var progress_sec: float = clamp(float(transport.get("progress_sec", 0.0)), 0.0, trip_sec)
-	var carrying_visual: bool = bool(transport.get("carrying_visual", false))
-	if progress_sec < leg_sec:
-		out["route_t"] = progress_sec / leg_sec
-		out["carrying"] = false
-	elif progress_sec < pickup_sec:
-		out["route_t"] = 1.0
-		out["carrying"] = false
-	elif progress_sec < return_end_sec:
-		var return_t: float = (progress_sec - pickup_sec) / leg_sec
-		out["route_t"] = 1.0 - return_t
-		out["carrying"] = carrying_visual
-	else:
-		out["route_t"] = 0.0
-		out["carrying"] = carrying_visual
+	out["active"] = true
+	out["route_t"] = progress_sec / pulse_sec
+
 	return out
 
-
-func get_node_transport_feedback(node_id: String) -> Dictionary:
+func get_node_root_transfer_feedback(node_id: String) -> Dictionary:
 	var out: Dictionary = {
-		"pickup_event_id": 0,
-		"pickup_amount": 0,
-		"delivery_event_id": 0,
-		"delivery_amount": 0
+		"transfer_event_id": 0,
+		"transfer_amount": 0
 	}
+
 	if not nodes.has(node_id):
 		return out
-	var n: Dictionary = nodes[node_id] as Dictionary
-	var transport: Dictionary = _ensure_transport_state(n, node_id)
-	out["pickup_event_id"] = int(transport.get("pickup_event_id", 0))
-	out["pickup_amount"] = int(transport.get("pickup_amount", 0))
-	out["delivery_event_id"] = int(transport.get("delivery_event_id", 0))
-	out["delivery_amount"] = int(transport.get("delivery_amount", 0))
-	return out
 
+	var n: Dictionary = nodes[node_id] as Dictionary
+	var transfer: Dictionary = _ensure_root_transfer_state(n, node_id)
+
+	out["transfer_event_id"] = int(transfer.get("transfer_event_id", 0))
+	out["transfer_amount"] = int(transfer.get("transfer_amount", 0))
+
+	return out
 
 # ---------------- Digestion ----------------
 
@@ -1222,14 +1235,11 @@ func _get_transport_cfg() -> Dictionary:
 	return (config.get("transport", {}) as Dictionary)
 
 
-func _get_transport_base_mite_speed() -> float:
+func _get_root_pulse_base_speed() -> float:
 	var tcfg: Dictionary = _get_transport_cfg()
-	return float(tcfg.get("base_mite_speed_px_per_sec", BASE_MITE_SPEED))
-
-
-func _get_transport_load_unload_sec() -> float:
-	var tcfg: Dictionary = _get_transport_cfg()
-	return float(tcfg.get("load_unload_sec", LOAD_UNLOAD_SEC))
+	if tcfg.has("base_root_pulse_speed_px_per_sec"):
+		return float(tcfg.get("base_root_pulse_speed_px_per_sec", BASE_ROOT_PULSE_SPEED))
+	return float(tcfg.get("base_mite_speed_px_per_sec", BASE_ROOT_PULSE_SPEED))
 
 
 func _get_transport_default_distance_px() -> float:
@@ -1293,13 +1303,13 @@ func _get_upgrade_cost_cfg(stat_key: String) -> Dictionary:
 			return {
 				"base_cost": 35,
 				"cost_mult": 1.3,
-				"label": "Speed"
+				"label": "Root Pulse Speed"
 			}
 		"carry_level":
 			return {
 				"base_cost": 50,
 				"cost_mult": 1.3,
-				"label": "Carry"
+				"label": "Root Pulse Capacity"
 			}
 		_:
 			return {
@@ -1389,7 +1399,7 @@ func get_node_upgrade_ui(node_id: String) -> Dictionary:
 		"yield_percent": "100%",
 		"yield_cost": 0,
 		"travel_level": 1,
-		"travel_value": "5.0s/trip",
+		"travel_value": "0.0s/pulse",
 		"travel_cost": 0,
 		"carry_level": 1,
 		"carry_value": "Cap 1",
@@ -1413,7 +1423,7 @@ func get_node_upgrade_ui(node_id: String) -> Dictionary:
 	out["yield_cost"] = _upgrade_cost("yield_level", yl)
 
 	out["travel_level"] = tl
-	out["travel_value"] = str(snapped(_get_node_trip_sec(node_id), 0.1)) + "s/trip"
+	out["travel_value"] = str(snapped(_get_node_pulse_sec(node_id), 0.1)) + "s/pulse"
 	out["travel_cost"] = _upgrade_cost("node_speed_level", tl)
 
 	out["carry_level"] = cl
@@ -1421,7 +1431,6 @@ func get_node_upgrade_ui(node_id: String) -> Dictionary:
 	out["carry_cost"] = _upgrade_cost("carry_level", cl)
 
 	return out
-
 
 func get_node_rate_ui(node_id: String) -> Dictionary:
 	var out: Dictionary = {"base_rate": 0.0, "effective_rate": 0.0, "delivered_rate": 0.0}
@@ -2326,6 +2335,24 @@ func get_synth_ui_entries() -> Array:
 		Callable(self, "get_synth_slot_cost")
 	)
 
+# ---------------- Root transfer state helpers ----------------
+
+func _read_node_root_transfer_dict(n: Dictionary) -> Dictionary:
+	if n.has(NODE_ROOT_TRANSFER_KEY) and typeof(n.get(NODE_ROOT_TRANSFER_KEY, {})) == TYPE_DICTIONARY:
+		return (n.get(NODE_ROOT_TRANSFER_KEY, {}) as Dictionary)
+
+	if n.has(LEGACY_NODE_TRANSPORT_KEY) and typeof(n.get(LEGACY_NODE_TRANSPORT_KEY, {})) == TYPE_DICTIONARY:
+		return (n.get(LEGACY_NODE_TRANSPORT_KEY, {}) as Dictionary)
+
+	return {}
+
+
+func _write_node_root_transfer_dict(n: Dictionary, transfer: Dictionary) -> void:
+	n[NODE_ROOT_TRANSFER_KEY] = transfer.duplicate(true)
+
+	# Keep legacy shadow key for one stabilization pass so older assumptions don't break.
+	n[LEGACY_NODE_TRANSPORT_KEY] = transfer.duplicate(true)
+
 
 # ---------------- Save / Load ----------------
 
@@ -2346,9 +2373,12 @@ func _build_saved_node_state(node_id: String) -> Dictionary:
 		return {}
 
 	var n: Dictionary = nodes[node_id] as Dictionary
+	var root_transfer: Dictionary = _read_node_root_transfer_dict(n)
+
 	return {
 		"pool": (n.get("pool", {}) as Dictionary).duplicate(true),
-		"transport": (n.get("transport", {}) as Dictionary).duplicate(true),
+		"root_transfer": root_transfer.duplicate(true),
+		"transport": root_transfer.duplicate(true),
 		"upgrades": (n.get("upgrades", {}) as Dictionary).duplicate(true),
 		"is_visible": bool(n.get("is_visible", false)),
 		"is_unlocked": bool(n.get("is_unlocked", false)),
@@ -2487,8 +2517,13 @@ func _apply_loaded_nodes(loaded_nodes: Dictionary) -> void:
 		if saved_node.has("pool") and typeof(saved_node.get("pool", {})) == TYPE_DICTIONARY:
 			current["pool"] = (saved_node.get("pool", {}) as Dictionary).duplicate(true)
 
-		if saved_node.has("transport") and typeof(saved_node.get("transport", {})) == TYPE_DICTIONARY:
-			current["transport"] = (saved_node.get("transport", {}) as Dictionary).duplicate(true)
+		var loaded_root_transfer: Dictionary = {}
+		if saved_node.has("root_transfer") and typeof(saved_node.get("root_transfer", {})) == TYPE_DICTIONARY:
+			loaded_root_transfer = (saved_node.get("root_transfer", {}) as Dictionary).duplicate(true)
+		elif saved_node.has("transport") and typeof(saved_node.get("transport", {})) == TYPE_DICTIONARY:
+			loaded_root_transfer = (saved_node.get("transport", {}) as Dictionary).duplicate(true)
+
+		_write_node_root_transfer_dict(current, loaded_root_transfer)
 
 		if saved_node.has("upgrades") and typeof(saved_node.get("upgrades", {})) == TYPE_DICTIONARY:
 			var temp := {"upgrades": (saved_node.get("upgrades", {}) as Dictionary).duplicate(true)}
@@ -2498,7 +2533,7 @@ func _apply_loaded_nodes(loaded_nodes: Dictionary) -> void:
 		current["is_unlocked"] = bool(saved_node.get("is_unlocked", current.get("is_unlocked", false)))
 		current["is_connected"] = bool(saved_node.get("is_connected", current.get("is_connected", false)))
 
-		current["transport"] = _ensure_transport_state(current, node_id)
+		_write_node_root_transfer_dict(current, _ensure_root_transfer_state(current, node_id))
 		nodes[node_id] = current
 
 
@@ -2741,6 +2776,7 @@ func _build_runtime_node(static_def: Dictionary) -> Dictionary:
 		upgrades = {"yield_level": 1, "node_speed_level": 1, "carry_level": 1}
 	else:
 		upgrades = (up_src as Dictionary).duplicate(true)
+
 	var runtime: Dictionary = {
 		"id": str(static_def.get("id", "")),
 		"name": str(static_def.get("name", "")),
@@ -2758,14 +2794,16 @@ func _build_runtime_node(static_def: Dictionary) -> Dictionary:
 		"outputs": static_def.get("outputs", []),
 		"upgrades": upgrades,
 		"pool": {},
+		"root_transfer": {},
 		"transport": {},
 		"is_visible": bool(static_def.get("starts_visible", true)),
 		"is_unlocked": bool(static_def.get("starts_unlocked", true)),
 		"is_connected": bool(static_def.get("starts_connected", true))
 	}
+
 	runtime["upgrades"] = _ensure_upgrade_keys(runtime)
 	return runtime
-
+	
 
 func _seed_defaults() -> void:
 	resource_defs = {
