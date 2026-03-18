@@ -519,6 +519,23 @@ func get_node_primary_pool_amount(node_id: String) -> int:
 	return int(floor(float(pool.get(res_id, 0.0))))
 
 
+func get_node_pool_amounts(node_id: String) -> Dictionary:
+	# Returns {res_id: int} for every output resource this node produces
+	var out: Dictionary = {}
+	if not nodes.has(node_id):
+		return out
+	var n: Dictionary = nodes[node_id] as Dictionary
+	var pool: Dictionary = (n.get("pool", {}) as Dictionary)
+	var outputs: Array = (n.get("outputs", []) as Array)
+	for o_variant in outputs:
+		var o: Dictionary = o_variant as Dictionary
+		var res_id: String = str(o.get("res", ""))
+		if res_id == "":
+			continue
+		out[res_id] = int(floor(float(pool.get(res_id, 0.0))))
+	return out
+
+
 func get_node_primary_cloud_amount(node_id: String) -> int:
 	var res_id: String = _get_node_primary_res_id(node_id)
 	if res_id == "":

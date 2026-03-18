@@ -20,9 +20,9 @@ const TRANSFER_DURATION := 0.60
 
 # Camera / map pan & zoom
 const MAP_ZOOM_MIN       := 0.25
-const MAP_ZOOM_MAX       := 3.00
-const MAP_ZOOM_START     := 1.80
-const MAP_ZOOM_STEP      := 0.15   # scroll-wheel step
+const MAP_ZOOM_MAX       := 1.50
+const MAP_ZOOM_START     := 0.60
+const MAP_ZOOM_STEP      := 0.10   # scroll-wheel step
 const MAP_PAN_THRESHOLD  := 8.0    # px moved before drag is considered a pan
 
 @onready var dimmer: ColorRect = $PanelHost/Dimmer
@@ -48,8 +48,8 @@ const MAP_PAN_THRESHOLD  := 8.0    # px moved before drag is considered a pan
 @onready var btn_settings: BaseButton    = $UILayer/HUD/BottomBar/MarginContainer/HBoxContainer/BtnSettings
 
 # Map nodes
-@onready var nodes_container: Node = $MapLayer/Nodes
-@onready var lines_container: Node = $MapLayer/Lines
+var nodes_container: Node = null
+var lines_container: Node = null
 @onready var spore_cloud: Node2D = $MapLayer/SporeCloud
 
 @onready var selection_ring: Sprite2D = $MapLayer/SelectionRing
@@ -181,6 +181,7 @@ func _ready() -> void:
 
 	_bind_currency_labels()
 
+	_setup_map_containers()
 	_build_node_registry()
 	_setup_initial_camera()
 	_refresh_node_world_state()
@@ -330,7 +331,7 @@ func _setup_root_pulses() -> void:
 	_root_pulse_glow_texture = _make_circle_texture(ROOT_PULSE_GLOW_SIZE_PX, true)
 
 	for child in _root_pulse_layer.get_children():
-		child.queue_free()
+		child.free()
 
 	_root_pulse_visuals.clear()
 
@@ -480,7 +481,9 @@ func _poll_root_transfer_feedback() -> void:
 
 				_spawn_transfer_popup(
 					popup_pos + Vector2(0, -16),
-					"Transfer +" + str(transfer_amount)
+					"",
+					node_id,
+					transfer_amount
 				)
 
 			seen["transfer_event_id"] = transfer_event_id
@@ -488,34 +491,41 @@ func _poll_root_transfer_feedback() -> void:
 		_transfer_event_seen[node_id] = seen
 
 
-func _spawn_transfer_popup(world_pos: Vector2, text: String) -> void:
+func _spawn_transfer_popup(world_pos: Vector2, _text: String, node_id: String, amount: int = 0) -> void:
 	if _transfer_fx_layer == null:
 		return
 
-	var label := Label.new()
-	label.top_level = true
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.text = text
-	label.modulate = Color(1, 1, 1, 1)
-	label.add_theme_font_size_override("font_size", TRANSFER_FONT_SIZE)
-	label.add_theme_color_override("font_color", TRANSFER_TEXT_COLOR)
-	label.add_theme_color_override("font_outline_color", TRANSFER_TEXT_OUTLINE_COLOR)
-	label.add_theme_constant_override("outline_size", 4)
+	# Container node so icon + label move together
+	var container := Node2D.new()
+	container.top_level = true
+	_transfer_fx_layer.add_child(container)
+	container.global_position = world_pos
 
-	_transfer_fx_layer.add_child(label)
-	label.reset_size()
-	label.pivot_offset = label.size * 0.5
-	label.global_position = world_pos - (label.size * 0.5)
+	# Small colored circle matching the node's visual
+	var spr := Sprite2D.new()
+	spr.texture = _make_circle_texture(14, false)
+	spr.modulate = _node_color_for_id(node_id)
+	spr.position = Vector2.ZERO
+	container.add_child(spr)
 
-	var end_pos: Vector2 = label.global_position + Vector2(0, -TRANSFER_LIFT_PX)
+	# Amount label to the right of the icon
+	var lbl := Label.new()
+	lbl.text = "+" + _fmt_int(amount) if amount > 0 else ""
+	lbl.position = Vector2(12, -8)
+	lbl.add_theme_font_size_override("font_size", TRANSFER_FONT_SIZE - 4)
+	lbl.add_theme_color_override("font_color", TRANSFER_TEXT_COLOR)
+	lbl.add_theme_color_override("font_outline_color", TRANSFER_TEXT_OUTLINE_COLOR)
+	lbl.add_theme_constant_override("outline_size", 3)
+	container.add_child(lbl)
+
+	var end_pos: Vector2 = world_pos + Vector2(0, -TRANSFER_LIFT_PX)
 
 	var tween: Tween = create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, "global_position", end_pos, TRANSFER_DURATION)
-	tween.parallel().tween_property(label, "scale", Vector2.ONE * 1.08, TRANSFER_DURATION * 0.45)
-	tween.parallel().tween_property(label, "modulate:a", 0.0, TRANSFER_DURATION)
+	tween.tween_property(container, "global_position", end_pos, TRANSFER_DURATION)
+	tween.parallel().tween_property(container, "modulate:a", 0.0, TRANSFER_DURATION)
 	tween.finished.connect(func():
-		if is_instance_valid(label):
-			label.queue_free()
+		if is_instance_valid(container):
+			container.queue_free()
 	)
 
 # ---------------- DigestPanel ----------------
@@ -1682,53 +1692,127 @@ func _on_settings_new_game_pressed() -> void:
 # ---------------- NodePanel (Top Table) ----------------
 
 func _bind_nodepanel_top_table() -> void:
+	# Dynamic resource rows are built in _refresh_nodepanel_top_table.
+	# We only need to hide the static grid since we'll build rows in code.
 	var grid: Control = node_panel.find_child("GridContainer", true, false) as Control
-	if grid == null:
-		push_warning("NodePanel: GridContainer not found.")
-		return
+	if grid != null:
+		grid.visible = false
 
-	cell_res_icon = grid.find_child("ResIcon", true, false) as TextureRect
-	cell_res_name = grid.find_child("ResName", true, false) as Label
-	cell_yield = grid.find_child("Cell_Yield", true, false) as Label
-	cell_rate = grid.find_child("Cell_Rate", true, false) as Label
-	cell_harvested = grid.find_child("Cell_Harvested", true, false) as Label
 
-	if cell_res_icon == null or cell_res_name == null:
-		push_warning("NodePanel: ResIcon/ResName not found under GridContainer (check names).")
+var _resource_rows_container: VBoxContainer = null
+
+func _get_or_create_resource_rows() -> VBoxContainer:
+	if is_instance_valid(_resource_rows_container):
+		return _resource_rows_container
+	# Insert a VBoxContainer right after the GridContainer (or header)
+	var vbox: Control = node_panel.find_child("VBoxContainer", true, false) as Control
+	if vbox == null:
+		return null
+	var container := VBoxContainer.new()
+	container.name = "ResourceRows"
+	# Find grid position and insert after it
+	var grid: Control = node_panel.find_child("GridContainer", true, false) as Control
+	var insert_pos: int = 0
+	if grid != null:
+		insert_pos = grid.get_index() + 1
+	vbox.add_child(container)
+	vbox.move_child(container, insert_pos)
+	_resource_rows_container = container
+	return container
 
 
 func _refresh_nodepanel_top_table() -> void:
-	if _selected_node_id == "":
-		return
-	if game_state == null:
+	if _selected_node_id == "" or game_state == null:
 		return
 
-	var res_id: String = ""
-	if game_state.has_method("get_node_primary_res_id"):
-		res_id = str(game_state.call("get_node_primary_res_id", _selected_node_id))
+	var container := _get_or_create_resource_rows()
+	if container == null:
+		return
 
-	if cell_res_name != null:
-		cell_res_name.text = _pretty_res(res_id)
+	# Clear previous rows
+	for child in container.get_children():
+		child.free()
 
-	if cell_res_icon != null:
-		cell_res_icon.texture = _get_res_icon_texture(res_id)
+	# Get node definition for outputs
+	var def: Dictionary = {}
+	if game_state.has_method("get_node_definition"):
+		var d = game_state.call("get_node_definition", _selected_node_id)
+		if typeof(d) == TYPE_DICTIONARY:
+			def = d
 
-	# Yield %
-	if cell_yield != null and game_state.has_method("get_node_upgrade_ui"):
+	var outputs: Array = (def.get("outputs", []) as Array)
+	if outputs.is_empty():
+		# Fallback: show primary resource only
+		var res_id: String = ""
+		if game_state.has_method("get_node_primary_res_id"):
+			res_id = str(game_state.call("get_node_primary_res_id", _selected_node_id))
+		if res_id != "":
+			outputs = [{"res": res_id, "weight": 1.0}]
+
+	var yield_level: int = 1
+	if game_state.has_method("get_node_upgrade_ui"):
 		var u = game_state.call("get_node_upgrade_ui", _selected_node_id)
 		if typeof(u) == TYPE_DICTIONARY:
-			cell_yield.text = str(u.get("yield_percent", "100%"))
+			yield_level = int(u.get("yield_level", 1))
 
-	# Rate (/s) = delivered/sec once transport exists
-	if cell_rate != null and game_state.has_method("get_node_rate_ui"):
-		var rui = game_state.call("get_node_rate_ui", _selected_node_id)
-		if typeof(rui) == TYPE_DICTIONARY:
-			var delivered: float = float(rui.get("delivered_rate", 0.0))
-			cell_rate.text = _fmt_rate(delivered) + "/s"
+	# Pool amounts
+	var pool_amounts: Dictionary = {}
+	if game_state.has_method("get_node_pool_amounts"):
+		var pa = game_state.call("get_node_pool_amounts", _selected_node_id)
+		if typeof(pa) == TYPE_DICTIONARY:
+			pool_amounts = pa
 
-	# Harvested = node pool backlog
-	if cell_harvested != null and game_state.has_method("get_node_primary_pool_amount"):
-		cell_harvested.text = str(int(game_state.call("get_node_primary_pool_amount", _selected_node_id)))
+	var sum_w: float = 0.0
+	for o in outputs:
+		sum_w += float((o as Dictionary).get("weight", 1.0))
+	if sum_w <= 0.0:
+		sum_w = 1.0
+
+	for o_variant in outputs:
+		var o: Dictionary = o_variant as Dictionary
+		var res_id: String = str(o.get("res", ""))
+		if res_id == "":
+			continue
+		var weight: float = float(o.get("weight", 1.0))
+		var pct: int = int(round(weight / sum_w * 100.0))
+		var pool_val: int = int(pool_amounts.get(res_id, 0))
+
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+
+		# Color dot (node-color-like but keyed to resource id)
+		var dot_tex := _make_circle_texture(14, false)
+		var dot_spr := TextureRect.new()
+		dot_spr.texture = dot_tex
+		dot_spr.modulate = _node_color_for_id(res_id)
+		dot_spr.custom_minimum_size = Vector2(14, 14)
+		dot_spr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		row.add_child(dot_spr)
+
+		# Resource name
+		var lbl_name := Label.new()
+		lbl_name.text = _pretty_res(res_id)
+		lbl_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		lbl_name.add_theme_font_size_override("font_size", 13)
+		row.add_child(lbl_name)
+
+		# Split %
+		var lbl_pct := Label.new()
+		lbl_pct.text = str(pct) + "%"
+		lbl_pct.custom_minimum_size = Vector2(40, 0)
+		lbl_pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl_pct.add_theme_font_size_override("font_size", 12)
+		row.add_child(lbl_pct)
+
+		# Pool (backlog)
+		var lbl_pool := Label.new()
+		lbl_pool.text = _fmt_int(pool_val)
+		lbl_pool.custom_minimum_size = Vector2(50, 0)
+		lbl_pool.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl_pool.add_theme_font_size_override("font_size", 12)
+		row.add_child(lbl_pool)
+
+		container.add_child(row)
 
 
 func _get_res_icon_texture(res_id: String) -> Texture2D:
@@ -1786,11 +1870,6 @@ func _bind_nodepanel_upgrades() -> void:
 	row_frequency = upgrades_box.find_child("RowFrequency", true, false) as Control
 	row_travel    = upgrades_box.find_child("RowTravel",    true, false) as Control
 	row_carry     = upgrades_box.find_child("RowCarry",     true, false) as Control
-
-	print("DEBUG upgrades_box children: ", upgrades_box.get_child_count())
-	for c in upgrades_box.get_children():
-		print("  child: ", c.name, " visible=", c.visible)
-	print("DEBUG row_frequency found: ", row_frequency != null)
 
 	if row_yield != null:
 		yield_name = row_yield.find_child("LblName",    true, false) as Label
@@ -2139,14 +2218,28 @@ func _try_select_node(screen_pos: Vector2) -> void:
 		return
 
 
+func _setup_map_containers() -> void:
+	var map: Node2D = get_node_or_null("MapLayer") as Node2D
+	if map == null:
+		push_warning("MapLayer not found.")
+		return
+	nodes_container = map.get_node_or_null("Nodes") as Node
+	if nodes_container == null:
+		nodes_container = Node2D.new()
+		nodes_container.name = "Nodes"
+		map.add_child(nodes_container)
+	lines_container = map.get_node_or_null("Lines") as Node
+	if lines_container == null:
+		lines_container = Node2D.new()
+		lines_container.name = "Lines"
+		map.add_child(lines_container)
+		map.move_child(lines_container, nodes_container.get_index())
+
+
 func _build_node_registry() -> void:
 	_node_list.clear()
 	_node_lookup.clear()
 	_line_lookup.clear()
-
-	# Hide all static line children — lines are now drawn in code
-	for child in lines_container.get_children():
-		child.visible = false
 
 	if game_state == null or not game_state.has_method("get_all_node_defs"):
 		return
@@ -2155,30 +2248,36 @@ func _build_node_registry() -> void:
 	if typeof(defs) != TYPE_ARRAY:
 		return
 
-	# Clear any previously spawned runtime nodes
+	# Clear any previously spawned runtime nodes (keeps static scene children intact)
 	for child in nodes_container.get_children():
 		if child.get_meta("runtime_spawned", false):
 			child.queue_free()
 
 	for def_variant in defs:
 		var def: Dictionary = def_variant as Dictionary
-		var node_id: String   = str(def.get("id", ""))
+		var node_id: String  = str(def.get("id", ""))
 		var node_name: String = str(def.get("name", node_id))
 		if node_id == "":
 			continue
 
-		# Compute world position from ring distance + angle
+		# ── Compute world position from ring distance + angle ──────────────
 		var distance_px: float = float(def.get("distance_px", 100.0))
 		var angle_deg: float   = float(def.get("angle_deg",   0.0))
 		var angle_rad: float   = deg_to_rad(angle_deg)
-		var local_pos: Vector2 = Vector2(cos(angle_rad) * distance_px, sin(angle_rad) * distance_px)
+		var local_pos: Vector2 = Vector2(
+			cos(angle_rad) * distance_px,
+			sin(angle_rad) * distance_px
+		)
+		# Position is relative to SporeCloud which sits at the origin of nodes_container
 		var world_pos: Vector2 = spore_cloud.position + local_pos
 
-		# Spawn or reuse scene node
+		# ── Spawn or reuse scene node ──────────────────────────────────────
+		# First, check if a static scene node already exists with this id's name
 		var legacy_name: String = "Node_" + node_id.to_pascal_case()
 		var node_ref: Node2D = nodes_container.get_node_or_null(legacy_name) as Node2D
 
 		if node_ref == null:
+			# Runtime-spawn a simple Node2D with a visual Sprite placeholder
 			node_ref = Node2D.new()
 			node_ref.name = legacy_name
 			node_ref.set_meta("runtime_spawned", true)
@@ -2186,23 +2285,12 @@ func _build_node_registry() -> void:
 			_add_node_visual(node_ref, node_id, node_name)
 			nodes_container.add_child(node_ref)
 		else:
+			# Reposition the static scene node to the data-driven position
 			node_ref.position = world_pos
 
 		var entry := {"id": node_id, "name": node_name, "node": node_ref}
 		_node_list.append(entry)
 		_node_lookup[node_id] = entry
-
-		# Create a code-drawn Line2D from SporeCloud to this node
-		var line := Line2D.new()
-		line.name = "Line_" + node_id
-		line.set_meta("runtime_spawned", true)
-		line.add_point(spore_cloud.position)
-		line.add_point(world_pos)
-		line.width = 1.5
-		line.default_color = Color(0.4, 0.8, 0.5, 0.6)
-		line.visible = false  # hidden until node is connected
-		lines_container.add_child(line)
-		_line_lookup[node_id] = line
 
 
 func _add_node_visual(parent: Node2D, node_id: String, node_name: String) -> void:
