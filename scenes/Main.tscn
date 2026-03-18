@@ -3,7 +3,6 @@
 [ext_resource type="FontFile" uid="uid://c5luwff4qhsku" path="res://assets/fonts/verdanab.ttf" id="1_wp0k4"]
 [ext_resource type="Script" uid="uid://uobs8r4vhkco" path="res://scripts/ui/MainUI.gd" id="2_bjd11"]
 [ext_resource type="Texture2D" uid="uid://c4u30hp63lrx7" path="res://art/placeholder/background_1080x1920.png" id="2_nxtc6"]
-[ext_resource type="Texture2D" uid="uid://16jrpnytyt4c" path="res://art/placeholder/icon_damp_soil_256.png" id="3_jlsqs"]
 [ext_resource type="Texture2D" uid="uid://cv2l7rajy7ua5" path="res://art/placeholder/icon_rotting_log_256.png" id="4_q8u5g"]
 [ext_resource type="Texture2D" uid="uid://diasslnhor113" path="res://art/placeholder/icon_compost_heap_256.png" id="5_lhr70"]
 [ext_resource type="Texture2D" uid="uid://1qyhp1xksksv" path="res://art/placeholder/icon_root_cluster_256.png" id="6_wp0k4"]
@@ -47,6 +46,7 @@ position = Vector2(540, 960)
 texture = ExtResource("2_nxtc6")
 
 [node name="Lines" type="Node2D" parent="MapLayer" unique_id=865356276]
+visible = false
 
 [node name="Line_DampSoil" type="Line2D" parent="MapLayer/Lines" unique_id=1941104848]
 points = PackedVector2Array(540, 1050, 260, 520)
@@ -78,7 +78,7 @@ antialiased = true
 position = Vector2(260, 520)
 
 [node name="DampSoil" type="Sprite2D" parent="MapLayer/Nodes/Node_DampSoil" unique_id=1755272008]
-texture = ExtResource("3_jlsqs")
+visible = false
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="MapLayer/Nodes/Node_DampSoil" unique_id=1427346300]
 shape = SubResource("CircleShape2D_qmy6f")
@@ -87,6 +87,7 @@ shape = SubResource("CircleShape2D_qmy6f")
 position = Vector2(820, 520)
 
 [node name="RottingLog" type="Sprite2D" parent="MapLayer/Nodes/Node_RottingLog" unique_id=1065156365]
+visible = false
 texture = ExtResource("4_q8u5g")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="MapLayer/Nodes/Node_RottingLog" unique_id=256165073]
@@ -96,6 +97,7 @@ shape = SubResource("CircleShape2D_nxtc6")
 position = Vector2(260, 760)
 
 [node name="CompostHeap" type="Sprite2D" parent="MapLayer/Nodes/Node_CompostHeap" unique_id=388173951]
+visible = false
 texture = ExtResource("5_lhr70")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="MapLayer/Nodes/Node_CompostHeap" unique_id=413690655]
@@ -105,6 +107,7 @@ shape = SubResource("CircleShape2D_jlsqs")
 position = Vector2(820, 760)
 
 [node name="RootCluster" type="Sprite2D" parent="MapLayer/Nodes/Node_RootCluster" unique_id=81313284]
+visible = false
 texture = ExtResource("6_wp0k4")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="MapLayer/Nodes/Node_RootCluster" unique_id=374662136]
@@ -462,6 +465,21 @@ layout_mode = 2
 layout_mode = 2
 
 [node name="BtnUpgrade" type="Button" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowYield" unique_id=176805768]
+layout_mode = 2
+
+[node name="RowFrequency" type="HBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox" unique_id=456189314]
+layout_mode = 2
+
+[node name="LblName" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowFrequency" unique_id=650192781]
+layout_mode = 2
+
+[node name="LblLevel" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowFrequency" unique_id=1012292229]
+layout_mode = 2
+
+[node name="LblValue" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowFrequency" unique_id=587289795]
+layout_mode = 2
+
+[node name="BtnUpgrade" type="Button" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox/RowFrequency" unique_id=1658665343]
 layout_mode = 2
 
 [node name="RowTravel" type="HBoxContainer" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/UpgradesBox" unique_id=825038480]

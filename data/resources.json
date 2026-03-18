@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 4,
   "resources": [
 	{
 	  "id": "nutrients",
@@ -27,128 +27,180 @@
 	  "name": "Spores",
 	  "kind": "resource",
 	  "tier": 1,
+	  "index": 1,
 	  "base_value": 1,
 	  "format": "compact_int",
-	  "player_visible_value": true,
-	  "discovery_gate": "aura",
-	  "identity_note": "Starter bulk biomass.",
-	  "first_compound": "spore_composite",
-	  "advanced_uses": [
-		"spore_weave",
-        "spore_resin"
-	  ]
+	  "player_visible_value": true
 	},
 	{
 	  "id": "hyphae",
 	  "name": "Hyphae",
 	  "kind": "resource",
 	  "tier": 1,
+	  "index": 2,
 	  "base_value": 2,
 	  "format": "compact_int",
-	  "player_visible_value": true,
-	  "discovery_gate": "aura",
-	  "identity_note": "Threadlike transport tissue.",
-	  "first_compound": "hyphal_thread",
-	  "advanced_uses": [
-		"spore_weave",
-        "fiber_broth"
-	  ]
+	  "player_visible_value": true
 	},
 	{
 	  "id": "cellulose",
 	  "name": "Cellulose",
 	  "kind": "resource",
 	  "tier": 1,
+	  "index": 3,
 	  "base_value": 4,
 	  "format": "compact_int",
-	  "player_visible_value": true,
-	  "discovery_gate": "aura",
-	  "identity_note": "Fibrous structural matter.",
-	  "first_compound": "cellulose_weave",
-	  "advanced_uses": [
-		"living_fiber",
-        "fiber_broth"
-	  ]
+	  "player_visible_value": true
 	},
 	{
-	  "id": "mycelium",
-	  "name": "Mycelium",
+	  "id": "ichor",
+	  "name": "Ichor",
 	  "kind": "resource",
 	  "tier": 1,
-	  "base_value": 7,
+	  "index": 4,
+	  "base_value": 8,
 	  "format": "compact_int",
-	  "player_visible_value": true,
-	  "discovery_gate": "aura",
-	  "identity_note": "Dense colony mass.",
-	  "first_compound": "growth_gel",
-	  "advanced_uses": [
-		"living_fiber",
-        "gel_tonic"
-	  ]
+	  "player_visible_value": true
+	},
+	{
+	  "id": "ferment",
+	  "name": "Ferment",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 5,
+	  "base_value": 17,
+	  "format": "compact_int",
+	  "player_visible_value": true
+	},
+	{
+	  "id": "lignin",
+	  "name": "Lignin",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 6,
+	  "base_value": 36,
+	  "format": "compact_int",
+	  "player_visible_value": true
+	},
+	{
+	  "id": "rift_mold",
+	  "name": "Rift Mold",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 7,
+	  "base_value": 75,
+	  "format": "compact_int",
+	  "player_visible_value": true
 	},
 	{
 	  "id": "sporoplasm",
 	  "name": "Sporoplasm",
 	  "kind": "resource",
 	  "tier": 1,
-	  "base_value": 14,
+	  "index": 8,
+	  "base_value": 160,
 	  "format": "compact_int",
-	  "player_visible_value": true,
-	  "discovery_gate": "aura",
-	  "identity_note": "Active fungal slurry.",
-	  "first_compound": "sporoplasm_slurry",
-	  "advanced_uses": [
-		"carapace_gel",
-        "gel_tonic"
-	  ]
+	  "player_visible_value": true
 	},
 	{
-	  "id": "chitin",
-	  "name": "Chitin",
+	  "id": "gloomspore",
+	  "name": "Gloomspore",
 	  "kind": "resource",
 	  "tier": 1,
-	  "base_value": 29,
+	  "index": 9,
+	  "base_value": 340,
 	  "format": "compact_int",
-	  "player_visible_value": true,
-	  "discovery_gate": "aura",
-	  "identity_note": "Rigid fungal shell material.",
-	  "first_compound": "chitin_plate",
-	  "advanced_uses": [
-		"carapace_gel",
-        "chitin_sap"
-	  ]
+	  "player_visible_value": true
+	},
+	{
+	  "id": "mycelium",
+	  "name": "Mycelium",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 10,
+	  "base_value": 730,
+	  "format": "compact_int",
+	  "player_visible_value": true
+	},
+	{
+	  "id": "biolume",
+	  "name": "Biolume",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 11,
+	  "base_value": 1600,
+	  "format": "compact_int",
+	  "player_visible_value": true
 	},
 	{
 	  "id": "crystal_mold",
 	  "name": "Crystal Mold",
 	  "kind": "resource",
 	  "tier": 1,
-	  "base_value": 63,
+	  "index": 12,
+	  "base_value": 3500,
 	  "format": "compact_int",
-	  "player_visible_value": true,
-	  "discovery_gate": "aura",
-	  "identity_note": "Crystalline growth matter.",
-	  "first_compound": "crystal_bloom",
-	  "advanced_uses": [
-		"bloom_matrix",
-        "bloom_tincture"
-	  ]
+	  "player_visible_value": true
+	},
+	{
+	  "id": "chitin",
+	  "name": "Chitin",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 13,
+	  "base_value": 7800,
+	  "format": "compact_int",
+	  "player_visible_value": true
+	},
+	{
+	  "id": "null_fiber",
+	  "name": "Null Fiber",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 14,
+	  "base_value": 17500,
+	  "format": "compact_int",
+	  "player_visible_value": true
+	},
+	{
+	  "id": "deep_enzyme",
+	  "name": "Deep Enzyme",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 15,
+	  "base_value": 40000,
+	  "format": "compact_int",
+	  "player_visible_value": true
 	},
 	{
 	  "id": "voidspore",
 	  "name": "Voidspore",
 	  "kind": "resource",
 	  "tier": 1,
-	  "base_value": 140,
+	  "index": 16,
+	  "base_value": 92000,
 	  "format": "compact_int",
-	  "player_visible_value": true,
-	  "discovery_gate": "aura",
-	  "identity_note": "Late-run void-touched spores.",
-	  "first_compound": "void_mesh",
-	  "advanced_uses": [
-		"bloom_matrix",
-        "bloom_ascendant"
-	  ]
+	  "player_visible_value": true
+	},
+	{
+	  "id": "void_bloom",
+	  "name": "Void Bloom",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 17,
+	  "base_value": 215000,
+	  "format": "compact_int",
+	  "player_visible_value": true
+	},
+	{
+	  "id": "amber_dust",
+	  "name": "Amber Dust",
+	  "kind": "resource",
+	  "tier": 1,
+	  "index": 18,
+	  "base_value": 510000,
+	  "format": "compact_int",
+	  "player_visible_value": true
 	}
   ]
 }

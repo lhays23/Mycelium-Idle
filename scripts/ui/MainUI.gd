@@ -18,6 +18,13 @@ const TRANSFER_FONT_SIZE := 26
 const TRANSFER_LIFT_PX := 40.0
 const TRANSFER_DURATION := 0.60
 
+# Camera / map pan & zoom
+const MAP_ZOOM_MIN       := 0.25
+const MAP_ZOOM_MAX       := 3.00
+const MAP_ZOOM_START     := 1.80
+const MAP_ZOOM_STEP      := 0.15   # scroll-wheel step
+const MAP_PAN_THRESHOLD  := 8.0    # px moved before drag is considered a pan
+
 @onready var dimmer: ColorRect = $PanelHost/Dimmer
 @onready var bottom_bar: Control = $UILayer/HUD/BottomBar
 
@@ -46,6 +53,7 @@ const TRANSFER_DURATION := 0.60
 @onready var spore_cloud: Node2D = $MapLayer/SporeCloud
 
 @onready var selection_ring: Sprite2D = $MapLayer/SelectionRing
+@onready var map_layer: Node2D = $MapLayer
 
 # Currency labels
 var lbl_nutrients: Label = null
@@ -66,6 +74,13 @@ var _node_pop_tween: Tween = null
 
 var game_state: Node = null
 var _ui_accum: float = 0.0
+
+# Camera state
+var _map_zoom: float = MAP_ZOOM_START
+var _map_is_dragging: bool = false
+var _map_drag_start_screen: Vector2 = Vector2.ZERO
+var _map_drag_start_map_pos: Vector2 = Vector2.ZERO
+var _map_drag_has_moved: bool = false
 
 # DigestPanel widgets
 var digest_lbl_selected: Label = null
@@ -134,6 +149,12 @@ var yield_lvl: Label = null
 var yield_val: Label = null
 var yield_btn: Button = null
 
+var row_frequency: Control = null
+var frequency_name: Label = null
+var frequency_lvl: Label = null
+var frequency_val: Label = null
+var frequency_btn: Button = null
+
 var row_travel: Control = null
 var travel_name: Label = null
 var travel_lvl: Label = null
@@ -161,6 +182,7 @@ func _ready() -> void:
 	_bind_currency_labels()
 
 	_build_node_registry()
+	_setup_initial_camera()
 	_refresh_node_world_state()
 
 	_register_root_transfer_positions()
@@ -262,10 +284,11 @@ func _register_root_transfer_positions() -> void:
 		return
 
 	for e in _node_list:
-		var node_id: String = str(e.get("id", ""))
+		var node_id: String  = str(e.get("id", ""))
 		var node_ref: Node2D = e.get("node", null) as Node2D
 		if node_id == "" or node_ref == null:
 			continue
+		# Use global_position so map_layer scale/offset is correctly accounted for
 		game_state.call("register_node_world_position", node_id, node_ref.global_position)
 
 
@@ -1759,30 +1782,44 @@ func _bind_nodepanel_upgrades() -> void:
 		push_warning("NodePanel: UpgradesBox not found.")
 		return
 
-	row_yield = upgrades_box.find_child("RowYield", true, false) as Control
-	row_travel = upgrades_box.find_child("RowTravel", true, false) as Control
-	row_carry = upgrades_box.find_child("RowCarry", true, false) as Control
+	row_yield     = upgrades_box.find_child("RowYield",     true, false) as Control
+	row_frequency = upgrades_box.find_child("RowFrequency", true, false) as Control
+	row_travel    = upgrades_box.find_child("RowTravel",    true, false) as Control
+	row_carry     = upgrades_box.find_child("RowCarry",     true, false) as Control
+
+	print("DEBUG upgrades_box children: ", upgrades_box.get_child_count())
+	for c in upgrades_box.get_children():
+		print("  child: ", c.name, " visible=", c.visible)
+	print("DEBUG row_frequency found: ", row_frequency != null)
 
 	if row_yield != null:
-		yield_name = row_yield.find_child("LblName", true, false) as Label
-		yield_lvl  = row_yield.find_child("LblLevel", true, false) as Label
-		yield_val  = row_yield.find_child("LblValue", true, false) as Label
+		yield_name = row_yield.find_child("LblName",    true, false) as Label
+		yield_lvl  = row_yield.find_child("LblLevel",   true, false) as Label
+		yield_val  = row_yield.find_child("LblValue",   true, false) as Label
 		yield_btn  = row_yield.find_child("BtnUpgrade", true, false) as Button
 		if yield_btn != null and not yield_btn.pressed.is_connected(_on_upgrade_yield):
 			yield_btn.pressed.connect(_on_upgrade_yield)
 
+	if row_frequency != null:
+		frequency_name = row_frequency.find_child("LblName",    true, false) as Label
+		frequency_lvl  = row_frequency.find_child("LblLevel",   true, false) as Label
+		frequency_val  = row_frequency.find_child("LblValue",   true, false) as Label
+		frequency_btn  = row_frequency.find_child("BtnUpgrade", true, false) as Button
+		if frequency_btn != null and not frequency_btn.pressed.is_connected(_on_upgrade_frequency):
+			frequency_btn.pressed.connect(_on_upgrade_frequency)
+
 	if row_travel != null:
-		travel_name = row_travel.find_child("LblName", true, false) as Label
-		travel_lvl  = row_travel.find_child("LblLevel", true, false) as Label
-		travel_val  = row_travel.find_child("LblValue", true, false) as Label
+		travel_name = row_travel.find_child("LblName",    true, false) as Label
+		travel_lvl  = row_travel.find_child("LblLevel",   true, false) as Label
+		travel_val  = row_travel.find_child("LblValue",   true, false) as Label
 		travel_btn  = row_travel.find_child("BtnUpgrade", true, false) as Button
 		if travel_btn != null and not travel_btn.pressed.is_connected(_on_upgrade_travel):
 			travel_btn.pressed.connect(_on_upgrade_travel)
 
 	if row_carry != null:
-		carry_name = row_carry.find_child("LblName", true, false) as Label
-		carry_lvl  = row_carry.find_child("LblLevel", true, false) as Label
-		carry_val  = row_carry.find_child("LblValue", true, false) as Label
+		carry_name = row_carry.find_child("LblName",    true, false) as Label
+		carry_lvl  = row_carry.find_child("LblLevel",   true, false) as Label
+		carry_val  = row_carry.find_child("LblValue",   true, false) as Label
 		carry_btn  = row_carry.find_child("BtnUpgrade", true, false) as Button
 		if carry_btn != null and not carry_btn.pressed.is_connected(_on_upgrade_carry):
 			carry_btn.pressed.connect(_on_upgrade_carry)
@@ -1791,23 +1828,21 @@ func _bind_nodepanel_upgrades() -> void:
 func _on_upgrade_yield() -> void:
 	_try_upgrade("yield_level")
 
+func _on_upgrade_frequency() -> void:
+	_try_upgrade("frequency_level")
 
 func _on_upgrade_travel() -> void:
-	_try_upgrade("node_speed_level")
-
+	_try_upgrade("speed_level")
 
 func _on_upgrade_carry() -> void:
 	_try_upgrade("carry_level")
 
 
 func _try_upgrade(stat_key: String) -> void:
-	if game_state == null:
-		return
-	if _selected_node_id == "":
+	if game_state == null or _selected_node_id == "":
 		return
 	if not game_state.has_method("upgrade_node_stat"):
 		return
-
 	var ok: bool = bool(game_state.call("upgrade_node_stat", _selected_node_id, stat_key))
 	if ok:
 		_flash_nutrients()
@@ -1818,9 +1853,9 @@ func _try_upgrade(stat_key: String) -> void:
 
 
 func _refresh_nodepanel_upgrades() -> void:
-	if _selected_node_id == "":
+	if _selected_node_id == "" or game_state == null:
 		return
-	if game_state == null or not game_state.has_method("get_node_upgrade_ui"):
+	if not game_state.has_method("get_node_upgrade_ui"):
 		return
 
 	var ui = game_state.call("get_node_upgrade_ui", _selected_node_id)
@@ -1828,39 +1863,28 @@ func _refresh_nodepanel_upgrades() -> void:
 		return
 
 	# Yield row
-	if yield_name != null:
-		yield_name.text = str(ui.get("yield_label", "Yield"))
-	if yield_lvl != null:
-		yield_lvl.text = "Lv " + str(int(ui.get("yield_level", 1)))
-	if yield_val != null:
-		var eff := 0.0
-		if game_state.has_method("get_node_rate_ui"):
-			var rui = game_state.call("get_node_rate_ui", _selected_node_id)
-			if typeof(rui) == TYPE_DICTIONARY:
-				eff = float(rui.get("effective_rate", 0.0))
-		yield_val.text = _fmt_rate(eff) + "/s"
-	if yield_btn != null:
-		yield_btn.text = "UPGRADE • " + _fmt_int(int(ui.get("yield_cost", 0)))
+	if yield_name != null: yield_name.text = str(ui.get("yield_label", "Yield Rate"))
+	if yield_lvl  != null: yield_lvl.text  = "Lv " + str(int(ui.get("yield_level", 1)))
+	if yield_val  != null: yield_val.text  = str(ui.get("yield_value", "0.25/s"))
+	if yield_btn  != null: yield_btn.text  = "UPGRADE  " + _fmt_int(int(ui.get("yield_cost", 0)))
+
+	# Frequency row
+	if frequency_name != null: frequency_name.text = str(ui.get("frequency_label", "Pulse Frequency"))
+	if frequency_lvl  != null: frequency_lvl.text  = "Lv " + str(int(ui.get("frequency_level", 1)))
+	if frequency_val  != null: frequency_val.text  = str(ui.get("frequency_value", "1.0/s"))
+	if frequency_btn  != null: frequency_btn.text  = "UPGRADE  " + _fmt_int(int(ui.get("frequency_cost", 0)))
 
 	# Speed row
-	if travel_name != null:
-		travel_name.text = str(ui.get("travel_label", "Speed"))
-	if travel_lvl != null:
-		travel_lvl.text = "Lv " + str(int(ui.get("travel_level", 1)))
-	if travel_val != null:
-		travel_val.text = str(ui.get("travel_value", "5.0s/trip"))
-	if travel_btn != null:
-		travel_btn.text = "UPGRADE • " + _fmt_int(int(ui.get("travel_cost", 0)))
+	if travel_name != null: travel_name.text = str(ui.get("speed_label", "Pulse Speed"))
+	if travel_lvl  != null: travel_lvl.text  = "Lv " + str(int(ui.get("speed_level", 1)))
+	if travel_val  != null: travel_val.text  = str(ui.get("speed_value", "1.0×"))
+	if travel_btn  != null: travel_btn.text  = "UPGRADE  " + _fmt_int(int(ui.get("speed_cost", 0)))
 
 	# Carry row
-	if carry_name != null:
-		carry_name.text = str(ui.get("carry_label", "Carry"))
-	if carry_lvl != null:
-		carry_lvl.text = "Lv " + str(int(ui.get("carry_level", 1)))
-	if carry_val != null:
-		carry_val.text = str(ui.get("carry_value", "Cap 1"))
-	if carry_btn != null:
-		carry_btn.text = "UPGRADE • " + _fmt_int(int(ui.get("carry_cost", 0)))
+	if carry_name != null: carry_name.text = str(ui.get("carry_label", "Pulse Capacity"))
+	if carry_lvl  != null: carry_lvl.text  = "Lv " + str(int(ui.get("carry_level", 1)))
+	if carry_val  != null: carry_val.text  = str(ui.get("carry_value", "5"))
+	if carry_btn  != null: carry_btn.text  = "UPGRADE  " + _fmt_int(int(ui.get("carry_cost", 0)))
 
 
 func _refresh_nodepanel_all() -> void:
@@ -1969,38 +1993,120 @@ func _on_dimmer_gui_input(event: InputEvent) -> void:
 # ---------------- Node tap selection ----------------
 
 func _input(event: InputEvent) -> void:
+	# ESC always closes the open panel
 	if event.is_action_pressed("ui_cancel"):
 		if _open_panel != null:
 			_close_current()
 			get_viewport().set_input_as_handled()
 		return
 
+	# Block map interaction while a panel is showing
 	if _open_panel != null:
 		return
 
-	var pressed := false
-	var screen_pos := Vector2.ZERO
-
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		pressed = true
-		screen_pos = event.position
-	elif event is InputEventScreenTouch and event.pressed:
-		pressed = true
-		screen_pos = event.position
-
-	if not pressed:
+	# ── Pinch-to-zoom (native mobile gesture) ──────────────────────────────
+	if event is InputEventMagnifyGesture:
+		_map_apply_zoom(event.factor, event.position)
+		get_viewport().set_input_as_handled()
 		return
 
+	# ── Scroll-wheel zoom (desktop / testing) ──────────────────────────────
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_map_apply_zoom(1.0 + MAP_ZOOM_STEP, event.position)
+			get_viewport().set_input_as_handled()
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_map_apply_zoom(1.0 / (1.0 + MAP_ZOOM_STEP), event.position)
+			get_viewport().set_input_as_handled()
+			return
+
+	# ── Classify the event ─────────────────────────────────────────────────
+	var is_press_start := false
+	var is_press_end   := false
+	var is_motion      := false
+	var ev_pos         := Vector2.ZERO
+
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		ev_pos = event.position
+		if event.pressed: is_press_start = true
+		else:             is_press_end   = true
+	elif event is InputEventScreenTouch:
+		ev_pos = event.position
+		if event.pressed: is_press_start = true
+		else:             is_press_end   = true
+	elif event is InputEventMouseMotion:
+		ev_pos    = event.position
+		is_motion = true
+	elif event is InputEventScreenDrag:
+		ev_pos    = event.position
+		is_motion = true
+
+	# Ignore taps that land in the bottom bar
 	var vp_h := get_viewport_rect().size.y
-	if screen_pos.y >= vp_h - _bar_h:
+	if (is_press_start or is_press_end) and ev_pos.y >= vp_h - _bar_h:
 		return
 
+	# ── Press start: begin drag tracking ──────────────────────────────────
+	if is_press_start:
+		_map_drag_start_screen  = ev_pos
+		_map_drag_start_map_pos = map_layer.position
+		_map_is_dragging        = true
+		_map_drag_has_moved     = false
+		return
+
+	# ── Motion: pan if we've exceeded the threshold ───────────────────────
+	if is_motion and _map_is_dragging:
+		var delta := ev_pos - _map_drag_start_screen
+		if delta.length() > MAP_PAN_THRESHOLD:
+			_map_drag_has_moved = true
+		if _map_drag_has_moved:
+			map_layer.position = _map_drag_start_map_pos + delta
+			get_viewport().set_input_as_handled()
+		return
+
+	# ── Press end: tap fires node-select; drag does nothing extra ─────────
+	if is_press_end:
+		if _map_is_dragging and not _map_drag_has_moved:
+			_try_select_node(ev_pos)
+		_map_is_dragging = false
+		return
+
+
+# ── Camera helpers ────────────────────────────────────────────────────────────
+
+func _setup_initial_camera() -> void:
+	_map_zoom             = MAP_ZOOM_START
+	map_layer.scale       = Vector2(_map_zoom, _map_zoom)
+
+	# Place SporeCloud at 45% down the viewport so ring-1 nodes are comfortably visible
+	var vp_size := get_viewport_rect().size
+	var target  := Vector2(vp_size.x * 0.50, vp_size.y * 0.45)
+	map_layer.position = target - spore_cloud.position * _map_zoom
+
+
+func _map_apply_zoom(factor: float, screen_pivot: Vector2) -> void:
+	var old_zoom := _map_zoom
+	_map_zoom = clamp(_map_zoom * factor, MAP_ZOOM_MIN, MAP_ZOOM_MAX)
+	if is_equal_approx(_map_zoom, old_zoom):
+		return
+
+	# Keep the world-point under screen_pivot fixed while scaling
+	var pivot_local := (screen_pivot - map_layer.position) / old_zoom
+	map_layer.scale    = Vector2(_map_zoom, _map_zoom)
+	map_layer.position = screen_pivot - pivot_local * _map_zoom
+
+
+# ── Node tap selection (extracted from old _input) ────────────────────────────
+
+func _try_select_node(screen_pos: Vector2) -> void:
 	var canvas_xform := get_viewport().get_canvas_transform()
 
 	for e in _node_list:
-		var node: Node2D = e["node"]
+		var node: Node2D    = e["node"]
 		var node_id: String = str(e["id"])
-		var state := _get_node_world_state(node_id)
+		var state           := _get_node_world_state(node_id)
+
 		if not bool(state.get("is_visible", true)):
 			continue
 
@@ -2015,7 +2121,7 @@ func _input(event: InputEvent) -> void:
 					_refresh_panel_access_ui()
 					_refresh_currency_ui()
 					_refresh_node_world_state()
-					node_title.text = str(e["name"])
+					node_title.text  = str(e["name"])
 					_selected_node_id = node_id
 					_select_node(node)
 					_open(node_panel)
@@ -2024,7 +2130,7 @@ func _input(event: InputEvent) -> void:
 					return
 			continue
 
-		node_title.text = str(e["name"])
+		node_title.text   = str(e["name"])
 		_selected_node_id = node_id
 		_select_node(node)
 		_open(node_panel)
@@ -2038,6 +2144,10 @@ func _build_node_registry() -> void:
 	_node_lookup.clear()
 	_line_lookup.clear()
 
+	# Hide all static line children — lines are now drawn in code
+	for child in lines_container.get_children():
+		child.visible = false
+
 	if game_state == null or not game_state.has_method("get_all_node_defs"):
 		return
 
@@ -2045,31 +2155,81 @@ func _build_node_registry() -> void:
 	if typeof(defs) != TYPE_ARRAY:
 		return
 
+	# Clear any previously spawned runtime nodes
+	for child in nodes_container.get_children():
+		if child.get_meta("runtime_spawned", false):
+			child.queue_free()
+
 	for def_variant in defs:
 		var def: Dictionary = def_variant as Dictionary
-		var node_id: String = str(def.get("id", ""))
+		var node_id: String   = str(def.get("id", ""))
 		var node_name: String = str(def.get("name", node_id))
-		var scene_node_name: String = str(def.get("scene_node_name", ""))
-		if node_id == "" or scene_node_name == "":
+		if node_id == "":
 			continue
 
-		var node_ref := nodes_container.get_node_or_null(scene_node_name) as Node2D
+		# Compute world position from ring distance + angle
+		var distance_px: float = float(def.get("distance_px", 100.0))
+		var angle_deg: float   = float(def.get("angle_deg",   0.0))
+		var angle_rad: float   = deg_to_rad(angle_deg)
+		var local_pos: Vector2 = Vector2(cos(angle_rad) * distance_px, sin(angle_rad) * distance_px)
+		var world_pos: Vector2 = spore_cloud.position + local_pos
+
+		# Spawn or reuse scene node
+		var legacy_name: String = "Node_" + node_id.to_pascal_case()
+		var node_ref: Node2D = nodes_container.get_node_or_null(legacy_name) as Node2D
+
 		if node_ref == null:
-			continue
+			node_ref = Node2D.new()
+			node_ref.name = legacy_name
+			node_ref.set_meta("runtime_spawned", true)
+			node_ref.position = world_pos
+			_add_node_visual(node_ref, node_id, node_name)
+			nodes_container.add_child(node_ref)
+		else:
+			node_ref.position = world_pos
 
-		var entry := {
-			"id": node_id,
-			"name": node_name,
-			"node": node_ref
-		}
+		var entry := {"id": node_id, "name": node_name, "node": node_ref}
 		_node_list.append(entry)
 		_node_lookup[node_id] = entry
 
-		var line_node_name: String = str(def.get("line_node_name", ""))
-		if line_node_name != "":
-			var line_ref := lines_container.get_node_or_null(line_node_name) as CanvasItem
-			if line_ref != null:
-				_line_lookup[node_id] = line_ref
+		# Create a code-drawn Line2D from SporeCloud to this node
+		var line := Line2D.new()
+		line.name = "Line_" + node_id
+		line.set_meta("runtime_spawned", true)
+		line.add_point(spore_cloud.position)
+		line.add_point(world_pos)
+		line.width = 1.5
+		line.default_color = Color(0.4, 0.8, 0.5, 0.6)
+		line.visible = false  # hidden until node is connected
+		lines_container.add_child(line)
+		_line_lookup[node_id] = line
+
+
+func _add_node_visual(parent: Node2D, node_id: String, node_name: String) -> void:
+	# Create a simple visual circle for the node using a generated texture
+	var spr := Sprite2D.new()
+	spr.name = node_name.replace(" ", "")
+	spr.texture = _make_circle_texture(48, false)
+	spr.modulate = _node_color_for_id(node_id)
+	spr.centered = true
+	parent.add_child(spr)
+
+	# Collision shape for tap detection
+	var area := Area2D.new()
+	area.name = "ClickArea"
+	var col := CollisionShape2D.new()
+	var shape := CircleShape2D.new()
+	shape.radius = 44.0
+	col.shape = shape
+	area.add_child(col)
+	parent.add_child(area)
+
+
+func _node_color_for_id(node_id: String) -> Color:
+	# Deterministic pastel color from node id hash
+	var h: int = node_id.hash()
+	var hue: float = fmod(abs(float(h)) / 2147483647.0, 1.0)
+	return Color.from_hsv(hue, 0.55, 0.85, 1.0)
 
 
 func _get_node_world_state(node_id: String) -> Dictionary:

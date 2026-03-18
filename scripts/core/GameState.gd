@@ -2,22 +2,53 @@ extends Node
 
 const TICK_DT: float = 0.1
 
-# Upgrade tuning (Phase 6 placeholder values; can move to config later)
-const YIELD_STEP: float = 0.10
-const NODE_SPEED_STEP: float = 0.10
-const CARRY_STEP: int = 1
+# ── IPM-based stat formulas ──────────────────────────────────────────────────
+# Yield rate (units/sec): 0.25 + 0.1*(L-1) + 0.017*(L-1)^2
+const IPM_YIELD_BASE:      float = 0.25
+const IPM_YIELD_LINEAR:    float = 0.10
+const IPM_YIELD_QUAD:      float = 0.017
+# Pulse frequency (pulses/sec): starts at 0.2/s (5s interval), scales up
+# 0.2 + 0.04*(L-1) + (0.2/75)*(L-1)^2
+const IPM_FREQ_BASE:       float = 0.2
+const IPM_FREQ_LINEAR:     float = 0.04
+const IPM_FREQ_QUAD:       float = 0.002667
+# Pulse speed multiplier: 1 + 0.2*(L-1) + (1/75)*(L-1)^2  (IPM ship speed curve)
+const IPM_SPEED_BASE:      float = 1.0
+const IPM_SPEED_LINEAR:    float = 0.2
+const IPM_SPEED_QUAD:      float = 0.01333
+# Carry capacity: 5 + 2*(L-1) + 0.1*(L-1)^2
+const IPM_CARRY_BASE:      float = 5.0
+const IPM_CARRY_LINEAR:    float = 2.0
+const IPM_CARRY_QUAD:      float = 0.1
+# Upgrade cost: (node_unlock_cost / divisor) * 1.3^(level-1)
+# Yield is more expensive than the others, matching IPM mine > speed/cargo ratio
+const IPM_UPGRADE_DIVISOR_YIELD: float = 15.0  # ~1.3x more expensive than others
+const IPM_UPGRADE_DIVISOR:       float = 20.0  # frequency, speed, carry
+const IPM_UPGRADE_MULT:          float = 1.3
 
 # Transport tuning
-const BASE_ROOT_PULSE_SPEED: float = 150.0
-const BASE_CARRY: int = 500
-const LOAD_UNLOAD_SEC: float = 0.25
-const DEFAULT_DISTANCE_PX: float = 360.0
+const BASE_ROOT_PULSE_SPEED_PX: float = 200.0  # px/sec at speed level 1
+const DEFAULT_DISTANCE_PX:      float = 100.0
 
 const RAW_BASE_VALUES := {
-	"spores": 1.0,
-	"hyphae": 2.0,
-	"cellulose": 4.0,
-	"mycelium": 7.0
+	"spores":       1.0,
+	"hyphae":       2.0,
+	"cellulose":    4.0,
+	"ichor":        8.0,
+	"ferment":      17.0,
+	"lignin":       36.0,
+	"rift_mold":    75.0,
+	"sporoplasm":   160.0,
+	"gloomspore":   340.0,
+	"mycelium":     730.0,
+	"biolume":      1600.0,
+	"crystal_mold": 3500.0,
+	"chitin":       7800.0,
+	"null_fiber":   17500.0,
+	"deep_enzyme":  40000.0,
+	"voidspore":    92000.0,
+	"void_bloom":   215000.0,
+	"amber_dust":   510000.0
 }
 const BASE_DIGEST_MODIFIER: float = 1.0
 const DEFAULT_DISCOVERY_BASE_DIGESTION_MODIFIER: float = 0.8
@@ -112,11 +143,9 @@ func _tick_node_production(dt: float) -> void:
 		if not bool(n.get("is_connected", false)):
 			continue
 
-		var base_rate_total: float = float(n.get("base_rate_total", 0.0))
 		var up: Dictionary = _ensure_upgrade_keys(n)
 		var yield_level: int = int(up.get("yield_level", 1))
-		var yield_mult: float = _get_yield_multiplier_for_level(yield_level)
-		var rate_total: float = base_rate_total * yield_mult
+		var rate_total: float = _ipm_yield_rate(yield_level)
 
 		var outputs: Array = (n.get("outputs", []) as Array)
 		if outputs.is_empty():
@@ -136,11 +165,8 @@ func _tick_node_production(dt: float) -> void:
 			if res_id == "":
 				continue
 			var w: float = float(od2.get("weight", 1.0))
-			var amount_per_unit: float = float(od2.get("amount_per_unit", 1.0))
-			var rate_o: float = rate_total * (w / sum_w) * amount_per_unit
-			var add: float = rate_o * dt
-			var current: float = float(pool.get(res_id, 0.0))
-			pool[res_id] = current + add
+			var rate_o: float = rate_total * (w / sum_w)
+			pool[res_id] = float(pool.get(res_id, 0.0)) + rate_o * dt
 
 		n["pool"] = pool
 		n["upgrades"] = up
@@ -161,60 +187,58 @@ func _tick_root_transfer(dt: float) -> void:
 	for node_id_variant in nodes.keys():
 		var node_id: String = str(node_id_variant)
 		var n: Dictionary = nodes[node_id] as Dictionary
-
 		var transfer: Dictionary = _ensure_root_transfer_state(n, node_id)
 
 		if not bool(n.get("is_connected", false)):
-			transfer["pulse_progress_sec"] = 0.0
-			transfer["in_flight"] = false
-			transfer["cargo"] = {}
+			transfer["freq_accum"]   = 0.0
+			transfer["in_flight"]    = []
 			transfer["active_visual"] = false
+			transfer["transfer_amount"] = 0
 			_write_node_root_transfer_dict(n, transfer)
 			nodes[node_id] = n
 			continue
 
-		var pulse_sec: float = maxf(0.05, _get_node_pulse_sec(node_id))
-		var progress_sec: float = float(transfer.get("pulse_progress_sec", 0.0))
-		var in_flight: bool = bool(transfer.get("in_flight", false))
-		var cargo: Dictionary = (transfer.get("cargo", {}) as Dictionary)
+		var freq_sec:   float = maxf(0.05, _get_node_frequency_sec(node_id))
+		var travel_sec: float = maxf(0.05, _get_node_travel_sec(node_id))
+		var freq_accum: float = float(transfer.get("freq_accum", 0.0))
+
+		# in_flight: Array of {"cargo": {}, "progress_sec": float}
+		var raw_if = transfer.get("in_flight", [])
+		var in_flight: Array = raw_if if typeof(raw_if) == TYPE_ARRAY else []
 
 		var delivered_this_tick: int = 0
-		var remaining_dt: float = dt
 
-		while remaining_dt > 0.0:
-			if not in_flight:
-				cargo = _pickup_one_root_pulse(node_id)
-				if _root_pulse_cargo_total(cargo) <= 0:
-					break
-
-				in_flight = true
-				progress_sec = 0.0
-
-			var time_to_arrival: float = pulse_sec - progress_sec
-
-			if remaining_dt >= time_to_arrival:
-				progress_sec = pulse_sec
-				remaining_dt -= time_to_arrival
-
+		# ── Advance existing pulses ──────────────────────────────────────────
+		var still_flying: Array = []
+		for pulse_variant in in_flight:
+			var pulse: Dictionary = pulse_variant as Dictionary
+			var prog: float = float(pulse.get("progress_sec", 0.0)) + dt
+			if prog >= travel_sec:
+				var cargo: Dictionary = (pulse.get("cargo", {}) as Dictionary)
 				delivered_this_tick += _deliver_root_pulse_cargo_to_base(cargo)
-				cargo = {}
-				in_flight = false
-				progress_sec = 0.0
 			else:
-				progress_sec += remaining_dt
-				remaining_dt = 0.0
+				pulse["progress_sec"] = prog
+				still_flying.append(pulse)
+		in_flight = still_flying
+
+		# ── Fire new pulses on frequency timer ───────────────────────────────
+		freq_accum += dt
+		while freq_accum >= freq_sec:
+			freq_accum -= freq_sec
+			var cargo: Dictionary = _pickup_one_root_pulse(node_id)
+			if _root_pulse_cargo_total(cargo) > 0:
+				in_flight.append({"cargo": cargo, "progress_sec": 0.0})
 
 		if delivered_this_tick > 0:
 			transfer["transfer_event_id"] = int(transfer.get("transfer_event_id", 0)) + 1
-			transfer["transfer_amount"] = delivered_this_tick
+			transfer["transfer_amount"]   = delivered_this_tick
 		else:
 			transfer["transfer_amount"] = 0
 
-		transfer["pulse_progress_sec"] = progress_sec
-		transfer["pulse_sec"] = pulse_sec
-		transfer["in_flight"] = in_flight
-		transfer["cargo"] = cargo
-		transfer["active_visual"] = in_flight and (_root_pulse_cargo_total(cargo) > 0)
+		transfer["freq_accum"]    = freq_accum
+		transfer["in_flight"]     = in_flight
+		transfer["travel_sec"]    = travel_sec
+		transfer["active_visual"] = not in_flight.is_empty()
 
 		_write_node_root_transfer_dict(n, transfer)
 		nodes[node_id] = n
@@ -223,20 +247,27 @@ func _tick_root_transfer(dt: float) -> void:
 func _ensure_root_transfer_state(n: Dictionary, node_id: String) -> Dictionary:
 	var transfer: Dictionary = _read_node_root_transfer_dict(n)
 
-	if not transfer.has("pulse_progress_sec"):
-		transfer["pulse_progress_sec"] = 0.0
-	if not transfer.has("pulse_sec"):
-		transfer["pulse_sec"] = _get_node_pulse_sec(node_id)
-	if not transfer.has("in_flight"):
-		transfer["in_flight"] = false
-	if not transfer.has("cargo"):
-		transfer["cargo"] = {}
+	if not transfer.has("freq_accum"):
+		transfer["freq_accum"] = 0.0
+
+	# Migrate: old format stored in_flight as bool, new format is Array
+	var raw_in_flight = transfer.get("in_flight", [])
+	if typeof(raw_in_flight) != TYPE_ARRAY:
+		transfer["in_flight"] = []
+
+	if not transfer.has("travel_sec"):
+		transfer["travel_sec"] = _get_node_travel_sec(node_id)
 	if not transfer.has("transfer_event_id"):
 		transfer["transfer_event_id"] = 0
 	if not transfer.has("transfer_amount"):
 		transfer["transfer_amount"] = 0
 	if not transfer.has("active_visual"):
 		transfer["active_visual"] = false
+
+	# Wipe other legacy single-pulse keys
+	transfer.erase("pulse_progress_sec")
+	transfer.erase("pulse_sec")
+	transfer.erase("cargo")
 
 	return transfer
 
@@ -329,69 +360,69 @@ func _get_node_distance(node_id: String) -> float:
 
 func _get_node_speed_value(node_id: String) -> float:
 	if not nodes.has(node_id):
-		return _get_root_pulse_base_speed()
-
+		return BASE_ROOT_PULSE_SPEED_PX
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
-	var lvl: int = int(up.get("node_speed_level", 1))
-
-	return _get_root_pulse_base_speed() * _get_speed_multiplier_for_level(lvl)
+	var lvl: int = int(up.get("speed_level", 1))
+	return BASE_ROOT_PULSE_SPEED_PX * _ipm_speed_mult(lvl)
 
 
 func _get_node_carry_capacity(node_id: String) -> int:
 	if not nodes.has(node_id):
-		return _get_carry_capacity_for_level(1)
-
+		return _ipm_carry(1)
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var lvl: int = int(up.get("carry_level", 1))
+	return _ipm_carry(lvl)
 
-	return _get_carry_capacity_for_level(lvl)
+
+func _get_node_frequency_sec(node_id: String) -> float:
+	# Returns seconds between pulse firings (inverse of pulses/sec)
+	if not nodes.has(node_id):
+		return 1.0 / _ipm_frequency(1)
+	var n: Dictionary = nodes[node_id] as Dictionary
+	var up: Dictionary = _ensure_upgrade_keys(n)
+	var lvl: int = int(up.get("frequency_level", 1))
+	return 1.0 / maxf(0.01, _ipm_frequency(lvl))
 
 
-func _get_node_pulse_sec(node_id: String) -> float:
+func _get_node_travel_sec(node_id: String) -> float:
+	# How long a pulse takes to travel node -> base at current speed
 	var distance_px: float = _get_node_distance(node_id)
 	var speed: float = maxf(1.0, _get_node_speed_value(node_id))
 	return distance_px / speed
 
 
+func _get_node_pulse_sec(node_id: String) -> float:
+	# Legacy: returns travel time (used by visual system for route_t progress)
+	return _get_node_travel_sec(node_id)
+
+
 func _get_node_primary_production_rate(node_id: String) -> float:
 	if not nodes.has(node_id):
 		return 0.0
-
 	var n: Dictionary = nodes[node_id] as Dictionary
 	if not bool(n.get("is_connected", false)):
 		return 0.0
-
 	var outputs: Array = (n.get("outputs", []) as Array)
 	if outputs.is_empty():
 		return 0.0
-
 	var up: Dictionary = _ensure_upgrade_keys(n)
-	var yield_level: int = int(up.get("yield_level", 1))
-	var yield_mult: float = _get_yield_multiplier_for_level(yield_level)
-
-	var base_rate_total: float = float(n.get("base_rate_total", 0.0))
-	var rate_total: float = base_rate_total * yield_mult
-
+	var rate_total: float = _ipm_yield_rate(int(up.get("yield_level", 1)))
 	var sum_w: float = 0.0
 	for o_variant in outputs:
-		var od: Dictionary = o_variant as Dictionary
-		sum_w += float(od.get("weight", 1.0))
+		sum_w += float((o_variant as Dictionary).get("weight", 1.0))
 	if sum_w <= 0.0:
 		sum_w = 1.0
-
 	var o0: Dictionary = outputs[0] as Dictionary
-	var w: float = float(o0.get("weight", 1.0))
-	var amount_per_unit: float = float(o0.get("amount_per_unit", 1.0))
-
-	return rate_total * (w / sum_w) * amount_per_unit
+	return rate_total * float(o0.get("weight", 1.0)) / sum_w
 
 
 func _get_node_root_transfer_rate(node_id: String) -> float:
-	var pulse_sec: float = maxf(0.05, _get_node_pulse_sec(node_id))
-	var carry: int = _get_node_carry_capacity(node_id)
-	return float(carry) / pulse_sec
+	# Effective throughput: carry × frequency (pulses/sec)
+	var carry:     int   = _get_node_carry_capacity(node_id)
+	var freq_sec:  float = maxf(0.05, _get_node_frequency_sec(node_id))
+	return float(carry) / freq_sec
 
 
 func _get_node_primary_delivered_rate(node_id: String) -> float:
@@ -409,9 +440,10 @@ func _get_node_primary_delivered_rate(node_id: String) -> float:
 
 
 func get_node_root_pulse_visual(node_id: String) -> Dictionary:
+	# Returns the leading (furthest along) in-flight pulse for visual display
 	var out: Dictionary = {
 		"route_t": 0.0,
-		"active": false,
+		"active":  false,
 		"visible": false
 	}
 
@@ -423,17 +455,24 @@ func get_node_root_pulse_visual(node_id: String) -> Dictionary:
 		return out
 
 	var transfer: Dictionary = _ensure_root_transfer_state(n, node_id)
-	var in_flight: bool = bool(transfer.get("in_flight", false))
-	if not in_flight:
+	var raw_if = transfer.get("in_flight", [])
+	var in_flight: Array = raw_if if typeof(raw_if) == TYPE_ARRAY else []
+	if in_flight.is_empty():
 		return out
 
-	var pulse_sec: float = maxf(0.05, _get_node_pulse_sec(node_id))
-	var progress_sec: float = clampf(float(transfer.get("pulse_progress_sec", 0.0)), 0.0, pulse_sec)
+	var travel_sec: float = maxf(0.05, _get_node_travel_sec(node_id))
+
+	# Pick the pulse furthest along (highest progress_sec)
+	var best_progress: float = 0.0
+	for pulse_variant in in_flight:
+		var pulse: Dictionary = pulse_variant as Dictionary
+		var prog: float = float(pulse.get("progress_sec", 0.0))
+		if prog > best_progress:
+			best_progress = prog
 
 	out["visible"] = true
-	out["active"] = true
-	out["route_t"] = progress_sec / pulse_sec
-
+	out["active"]  = true
+	out["route_t"] = clampf(best_progress / travel_sec, 0.0, 1.0)
 	return out
 
 func get_node_root_transfer_feedback(node_id: String) -> Dictionary:
@@ -1238,8 +1277,8 @@ func _get_transport_cfg() -> Dictionary:
 func _get_root_pulse_base_speed() -> float:
 	var tcfg: Dictionary = _get_transport_cfg()
 	if tcfg.has("base_root_pulse_speed_px_per_sec"):
-		return float(tcfg.get("base_root_pulse_speed_px_per_sec", BASE_ROOT_PULSE_SPEED))
-	return float(tcfg.get("base_mite_speed_px_per_sec", BASE_ROOT_PULSE_SPEED))
+		return float(tcfg.get("base_root_pulse_speed_px_per_sec", BASE_ROOT_PULSE_SPEED_PX))
+	return float(tcfg.get("base_mite_speed_px_per_sec", BASE_ROOT_PULSE_SPEED_PX))
 
 
 func _get_transport_default_distance_px() -> float:
@@ -1247,126 +1286,83 @@ func _get_transport_default_distance_px() -> float:
 	return float(tcfg.get("default_distance_px", DEFAULT_DISTANCE_PX))
 
 
-func _get_upgrade_curve_cfg(curve_key: String) -> Dictionary:
-	var formulas: Dictionary = (config.get("upgrade_formulas", {}) as Dictionary)
-	var cfg: Dictionary = (formulas.get(curve_key, {}) as Dictionary)
+# ── IPM stat formulas ────────────────────────────────────────────────────────
 
-	if not cfg.is_empty():
-		return cfg
+func _ipm_yield_rate(level: int) -> float:
+	var l := float(max(0, level - 1))
+	return IPM_YIELD_BASE + IPM_YIELD_LINEAR * l + IPM_YIELD_QUAD * l * l
 
-	match curve_key:
-		"yield_curve":
-			return {
-				"base": 0.0,
-				"linear": YIELD_STEP,
-				"quadratic": 0.0,
-				"baseline_level": 1
-			}
-		"root_pulse_speed_curve":
-			return {
-				"base": 1.0,
-				"linear": NODE_SPEED_STEP,
-				"quadratic": 0.0,
-				"baseline_level": 1
-			}
-		"root_pulse_capacity_curve":
-			return {
-				"base": float(BASE_CARRY),
-				"linear": float(CARRY_STEP),
-				"quadratic": 0.0,
-				"baseline_level": 1
-			}
-		_:
-			return {
-				"base": 0.0,
-				"linear": 0.0,
-				"quadratic": 0.0,
-				"baseline_level": 1
-			}
+func _ipm_frequency(level: int) -> float:
+	var l := float(max(0, level - 1))
+	return IPM_FREQ_BASE + IPM_FREQ_LINEAR * l + IPM_FREQ_QUAD * l * l
 
+func _ipm_speed_mult(level: int) -> float:
+	var l := float(max(0, level - 1))
+	return IPM_SPEED_BASE + IPM_SPEED_LINEAR * l + IPM_SPEED_QUAD * l * l
+
+func _ipm_carry(level: int) -> int:
+	var l := float(max(0, level - 1))
+	return max(1, int(round(IPM_CARRY_BASE + IPM_CARRY_LINEAR * l + IPM_CARRY_QUAD * l * l)))
+
+func _ipm_upgrade_cost(node_id: String, level: int, stat_key: String = "") -> int:
+	var unlock_cost := 100.0
+	if node_defs.has(node_id):
+		unlock_cost = float((node_defs[node_id] as Dictionary).get("unlock_cost", 100.0))
+	elif nodes.has(node_id):
+		unlock_cost = float((nodes[node_id] as Dictionary).get("unlock_cost", 100.0))
+	var divisor: float = IPM_UPGRADE_DIVISOR_YIELD if stat_key == "yield_level" else IPM_UPGRADE_DIVISOR
+	var base: float = unlock_cost / divisor
+	return max(1, int(floor(base * pow(IPM_UPGRADE_MULT, float(max(0, level - 1))))))
+
+# ── Legacy shim functions (used elsewhere; now delegate to IPM formulas) ──────
+
+func _get_upgrade_curve_cfg(_curve_key: String) -> Dictionary:
+	return {}
 
 func _get_upgrade_cost_cfg(stat_key: String) -> Dictionary:
-	var costs: Dictionary = (config.get("upgrade_costs", {}) as Dictionary)
-	var cfg: Dictionary = (costs.get(stat_key, {}) as Dictionary)
-
-	if not cfg.is_empty():
-		return cfg
-
-	match stat_key:
-		"yield_level":
-			return {
-				"base_cost": 25,
-				"cost_mult": 1.3,
-				"label": "Yield"
-			}
-		"node_speed_level":
-			return {
-				"base_cost": 35,
-				"cost_mult": 1.3,
-				"label": "Root Pulse Speed"
-			}
-		"carry_level":
-			return {
-				"base_cost": 50,
-				"cost_mult": 1.3,
-				"label": "Root Pulse Capacity"
-			}
-		_:
-			return {
-				"base_cost": 999999,
-				"cost_mult": 1.0,
-				"label": stat_key
-			}
-
+	var labels := {
+		"yield_level":     "Yield Rate",
+		"frequency_level": "Pulse Frequency",
+		"speed_level":     "Pulse Speed",
+		"carry_level":     "Pulse Capacity"
+	}
+	return {"label": labels.get(stat_key, stat_key)}
 
 func _get_upgrade_label(stat_key: String) -> String:
 	var cfg: Dictionary = _get_upgrade_cost_cfg(stat_key)
 	return str(cfg.get("label", stat_key))
 
-
-func _evaluate_upgrade_curve(curve_key: String, level: int) -> float:
-	var cfg: Dictionary = _get_upgrade_curve_cfg(curve_key)
-	var baseline_level: int = max(1, int(cfg.get("baseline_level", 1)))
-	var x: int = max(0, level - baseline_level)
-
-	var base: float = float(cfg.get("base", 0.0))
-	var linear: float = float(cfg.get("linear", 0.0))
-	var quadratic: float = float(cfg.get("quadratic", 0.0))
-
-	return base + (linear * float(x)) + (quadratic * float(x * x))
-
+func _evaluate_upgrade_curve(_curve_key: String, _level: int) -> float:
+	return 0.0
 
 func _get_yield_bonus_for_level(level: int) -> float:
-	return maxf(0.0, _evaluate_upgrade_curve("yield_curve", level))
-
+	return _ipm_yield_rate(level) - IPM_YIELD_BASE
 
 func _get_yield_multiplier_for_level(level: int) -> float:
-	return 1.0 + _get_yield_bonus_for_level(level)
-
+	return _ipm_yield_rate(level) / IPM_YIELD_BASE
 
 func _get_speed_multiplier_for_level(level: int) -> float:
-	return maxf(0.01, _evaluate_upgrade_curve("root_pulse_speed_curve", level))
-
+	return _ipm_speed_mult(level)
 
 func _get_carry_capacity_for_level(level: int) -> int:
-	var value: float = _evaluate_upgrade_curve("root_pulse_capacity_curve", level)
-	return max(1, int(round(value)))
+	return _ipm_carry(level)
 
 # ---------------- Upgrades ----------------
 
 func _ensure_upgrade_keys(n: Dictionary) -> Dictionary:
 	var up: Dictionary = (n.get("upgrades", {}) as Dictionary)
-	up["yield_level"] = max(1, int(up.get("yield_level", 1)))
-	up["node_speed_level"] = max(1, int(up.get("node_speed_level", 1)))
-	up["carry_level"] = max(1, int(up.get("carry_level", 1)))
+	up["yield_level"]     = max(1, int(up.get("yield_level",     1)))
+	up["frequency_level"] = max(1, int(up.get("frequency_level", 1)))
+	up["speed_level"]     = max(1, int(up.get("speed_level",     1)))
+	up["carry_level"]     = max(1, int(up.get("carry_level",     1)))
+	# migrate legacy key
+	if up.has("node_speed_level") and not up.has("speed_level"):
+		up["speed_level"] = max(1, int(up.get("node_speed_level", 1)))
 	return up
 
 
-func _upgrade_cost(stat_key: String, level: int) -> int:
-	var cfg: Dictionary = _get_upgrade_cost_cfg(stat_key)
-	var base_cost: float = float(cfg.get("base_cost", 999999))
-	var cost_mult: float = float(cfg.get("cost_mult", 1.0))
-	return int(floor(base_cost * pow(cost_mult, float(max(0, level - 1)))))
+func _upgrade_cost(node_id: String, stat_key: String, level: int) -> int:
+	return _ipm_upgrade_cost(node_id, level)
 
 
 func upgrade_node_stat(node_id: String, stat_key: String) -> bool:
@@ -1379,7 +1375,7 @@ func upgrade_node_stat(node_id: String, stat_key: String) -> bool:
 	if not up.has(stat_key):
 		return false
 	var cur_level: int = int(up.get(stat_key, 1))
-	var cost: int = _upgrade_cost(stat_key, cur_level)
+	var cost: int = _ipm_upgrade_cost(node_id, cur_level, stat_key)
 	var nutrients: float = float(resources.get("nutrients", 0.0))
 	if nutrients < float(cost):
 		return false
@@ -1392,18 +1388,14 @@ func upgrade_node_stat(node_id: String, stat_key: String) -> bool:
 
 func get_node_upgrade_ui(node_id: String) -> Dictionary:
 	var out: Dictionary = {
-		"yield_label": _get_upgrade_label("yield_level"),
-		"travel_label": _get_upgrade_label("node_speed_level"),
-		"carry_label": _get_upgrade_label("carry_level"),
-		"yield_level": 1,
-		"yield_percent": "100%",
-		"yield_cost": 0,
-		"travel_level": 1,
-		"travel_value": "0.0s/pulse",
-		"travel_cost": 0,
-		"carry_level": 1,
-		"carry_value": "Cap 1",
-		"carry_cost": 0
+		"yield_label":     _get_upgrade_label("yield_level"),
+		"frequency_label": _get_upgrade_label("frequency_level"),
+		"speed_label":     _get_upgrade_label("speed_level"),
+		"carry_label":     _get_upgrade_label("carry_level"),
+		"yield_level":     1, "yield_value": "0.25/s", "yield_cost": 0,
+		"frequency_level": 1, "frequency_value": "1.0/s",  "frequency_cost": 0,
+		"speed_level":     1, "speed_value": "1.0×",       "speed_cost": 0,
+		"carry_level":     1, "carry_value": "5",           "carry_cost": 0,
 	}
 
 	if not nodes.has(node_id):
@@ -1412,23 +1404,26 @@ func get_node_upgrade_ui(node_id: String) -> Dictionary:
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 
-	var yl: int = int(up.get("yield_level", 1))
-	var tl: int = int(up.get("node_speed_level", 1))
-	var cl: int = int(up.get("carry_level", 1))
+	var yl: int = int(up.get("yield_level",     1))
+	var fl: int = int(up.get("frequency_level", 1))
+	var sl: int = int(up.get("speed_level",     1))
+	var cl: int = int(up.get("carry_level",     1))
 
-	var yield_percent: int = int(round(_get_yield_multiplier_for_level(yl) * 100.0))
+	out["yield_level"]     = yl
+	out["yield_value"]     = str(snapped(_ipm_yield_rate(yl), 0.01)) + "/s"
+	out["yield_cost"]      = _ipm_upgrade_cost(node_id, yl, "yield_level")
 
-	out["yield_level"] = yl
-	out["yield_percent"] = str(yield_percent) + "%"
-	out["yield_cost"] = _upgrade_cost("yield_level", yl)
+	out["frequency_level"] = fl
+	out["frequency_value"] = str(snapped(1.0 / maxf(0.001, _ipm_frequency(fl)), 0.1)) + "s/pulse"
+	out["frequency_cost"]  = _ipm_upgrade_cost(node_id, fl, "frequency_level")
 
-	out["travel_level"] = tl
-	out["travel_value"] = str(snapped(_get_node_pulse_sec(node_id), 0.1)) + "s/pulse"
-	out["travel_cost"] = _upgrade_cost("node_speed_level", tl)
+	out["speed_level"]     = sl
+	out["speed_value"]     = str(snapped(_ipm_speed_mult(sl), 0.01)) + "×"
+	out["speed_cost"]      = _ipm_upgrade_cost(node_id, sl, "speed_level")
 
-	out["carry_level"] = cl
-	out["carry_value"] = "Cap " + str(_get_node_carry_capacity(node_id))
-	out["carry_cost"] = _upgrade_cost("carry_level", cl)
+	out["carry_level"]     = cl
+	out["carry_value"]     = str(_ipm_carry(cl))
+	out["carry_cost"]      = _ipm_upgrade_cost(node_id, cl, "carry_level")
 
 	return out
 
@@ -1440,12 +1435,12 @@ func get_node_rate_ui(node_id: String) -> Dictionary:
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var yield_level: int = int(up.get("yield_level", 1))
-	var base_rate_total: float = float(n.get("base_rate_total", 0.0))
-	var yield_mult: float = _get_yield_multiplier_for_level(yield_level)
-	var effective: float = base_rate_total * yield_mult
+	var connected: bool  = bool(n.get("is_connected", false))
+	var base_rate: float = IPM_YIELD_BASE
+	var effective: float = _ipm_yield_rate(yield_level)
 
-	out["base_rate"] = base_rate_total if bool(n.get("is_connected", false)) else 0.0
-	out["effective_rate"] = effective if bool(n.get("is_connected", false)) else 0.0
+	out["base_rate"]      = base_rate     if connected else 0.0
+	out["effective_rate"] = effective     if connected else 0.0
 	out["delivered_rate"] = _get_node_primary_delivered_rate(node_id)
 	return out
 
@@ -1510,7 +1505,8 @@ func get_starter_node_defs() -> Array:
 		if not node_defs.has(node_id):
 			continue
 		var d: Dictionary = node_defs[node_id] as Dictionary
-		if bool(d.get("is_starter", false)):
+		# Node 1 (Damp Soil) is the only starter — keyed by number field
+		if int(d.get("number", 0)) == 1:
 			out.append(d.duplicate(true))
 	return out
 
@@ -1561,7 +1557,7 @@ func _update_node_reveals() -> void:
 			continue
 		if str(n.get("reveal_rule", "")) != "aura":
 			continue
-		var reveal_total: int = int(n.get("reveal_total_nutrients", 0))
+		var reveal_total: int = int(n.get("reveal_nutrients", int(n.get("reveal_total_nutrients", 0))))
 		if total_nutrients_earned_run >= float(reveal_total):
 			n["is_visible"] = true
 			nodes[node_id] = n
@@ -2376,12 +2372,11 @@ func _build_saved_node_state(node_id: String) -> Dictionary:
 	var root_transfer: Dictionary = _read_node_root_transfer_dict(n)
 
 	return {
-		"pool": (n.get("pool", {}) as Dictionary).duplicate(true),
+		"pool":         (n.get("pool", {}) as Dictionary).duplicate(true),
 		"root_transfer": root_transfer.duplicate(true),
-		"transport": root_transfer.duplicate(true),
-		"upgrades": (n.get("upgrades", {}) as Dictionary).duplicate(true),
-		"is_visible": bool(n.get("is_visible", false)),
-		"is_unlocked": bool(n.get("is_unlocked", false)),
+		"upgrades":     (n.get("upgrades", {}) as Dictionary).duplicate(true),
+		"is_visible":   bool(n.get("is_visible", false)),
+		"is_unlocked":  bool(n.get("is_unlocked", false)),
 		"is_connected": bool(n.get("is_connected", false))
 	}
 
@@ -2742,7 +2737,7 @@ func _load_all() -> void:
 
 	# seed starting amounts
 	var starts: Dictionary = (config.get("starting_resources", {}) as Dictionary)
-	resources["nutrients"] = float(starts.get("nutrients", 12500.0))
+	resources["nutrients"] = float(starts.get("nutrients", 150.0))
 	resources["glowcaps"] = float(starts.get("glowcaps", 0.0))
 	resources["strain_points"] = float(starts.get("strain_points", 0.0))
 
@@ -2773,32 +2768,28 @@ func _build_runtime_node(static_def: Dictionary) -> Dictionary:
 	var up_src = static_def.get("upgrades", null)
 	var upgrades: Dictionary
 	if up_src == null:
-		upgrades = {"yield_level": 1, "node_speed_level": 1, "carry_level": 1}
+		upgrades = {"yield_level": 1, "frequency_level": 1, "speed_level": 1, "carry_level": 1}
 	else:
 		upgrades = (up_src as Dictionary).duplicate(true)
 
 	var runtime: Dictionary = {
-		"id": str(static_def.get("id", "")),
-		"name": str(static_def.get("name", "")),
-		"scene_node_name": str(static_def.get("scene_node_name", "")),
-		"line_node_name": str(static_def.get("line_node_name", "")),
-		"primary_resource": str(static_def.get("primary_resource", "")),
-		"secondary_resource": str(static_def.get("secondary_resource", "")),
-		"unlock_cost": int(static_def.get("unlock_cost", 0)),
-		"distance_px": float(static_def.get("distance_px", DEFAULT_DISTANCE_PX)),
-		"ring": int(static_def.get("ring", 1)),
-		"reveal_rule": str(static_def.get("reveal_rule", "starter")),
-		"reveal_total_nutrients": int(static_def.get("reveal_total_nutrients", 0)),
-		"base_rate_total": float(static_def.get("base_rate_total", 0.0)),
-		"pool_cap": int(static_def.get("pool_cap", 50)),
-		"outputs": static_def.get("outputs", []),
-		"upgrades": upgrades,
-		"pool": {},
-		"root_transfer": {},
-		"transport": {},
-		"is_visible": bool(static_def.get("starts_visible", true)),
-		"is_unlocked": bool(static_def.get("starts_unlocked", true)),
-		"is_connected": bool(static_def.get("starts_connected", true))
+		"id":               str(static_def.get("id", "")),
+		"name":             str(static_def.get("name", "")),
+		"number":           int(static_def.get("number", 0)),
+		"ring":             int(static_def.get("ring", 1)),
+		"distance_px":      float(static_def.get("distance_px", DEFAULT_DISTANCE_PX)),
+		"angle_deg":        float(static_def.get("angle_deg", 0.0)),
+		"unlock_cost":      int(static_def.get("unlock_cost", 100)),
+		"base_rate":        float(static_def.get("base_rate", 0.25)),
+		"reveal_rule":      str(static_def.get("reveal_rule", "aura")),
+		"reveal_nutrients": int(static_def.get("reveal_nutrients", 0)),
+		"outputs":          static_def.get("outputs", []),
+		"upgrades":         upgrades,
+		"pool":             {},
+		"root_transfer":    {},
+		"is_visible":       bool(static_def.get("starts_visible", false)),
+		"is_unlocked":      bool(static_def.get("starts_unlocked", false)),
+		"is_connected":     bool(static_def.get("starts_connected", false))
 	}
 
 	runtime["upgrades"] = _ensure_upgrade_keys(runtime)
@@ -2806,42 +2797,40 @@ func _build_runtime_node(static_def: Dictionary) -> Dictionary:
 	
 
 func _seed_defaults() -> void:
+	# Fallback used only when nodes.json fails to load
 	resource_defs = {
-		"nutrients": {"id": "nutrients", "name": "Nutrients"},
-		"glowcaps": {"id": "glowcaps", "name": "Glowcaps"},
-		"strain_points": {"id": "strain_points", "name": "Strain Points"},
-		"spores": {"id": "spores", "name": "Spores", "base_value": 1},
-		"hyphae": {"id": "hyphae", "name": "Hyphae", "base_value": 2},
-		"cellulose": {"id": "cellulose", "name": "Cellulose", "base_value": 4},
-		"mycelium": {"id": "mycelium", "name": "Mycelium", "base_value": 7}
+		"nutrients":    {"id": "nutrients",    "name": "Nutrients"},
+		"glowcaps":     {"id": "glowcaps",     "name": "Glowcaps"},
+		"strain_points":{"id": "strain_points","name": "Strain Points"},
 	}
-	resources = {
-		"nutrients": 12500.0,
-		"glowcaps": 0.0,
-		"strain_points": 0.0,
-		"spores": 0.0,
-		"hyphae": 0.0,
-		"cellulose": 0.0,
-		"mycelium": 0.0
-	}
+	for rid in RAW_BASE_VALUES:
+		resource_defs[rid] = {
+			"id": rid, "name": rid.capitalize().replace("_", " "),
+			"base_value": float(RAW_BASE_VALUES[rid])
+		}
+
+	resources = {"nutrients": 150.0, "glowcaps": 0.0, "strain_points": 0.0}
+	for rid in RAW_BASE_VALUES:
+		resources[rid] = 0.0
+
 	_ensure_refinery_slots_initialized()
+
 	var damp_def := {
-		"id": "damp_soil",
-		"name": "Damp Soil",
-		"scene_node_name": "Node_DampSoil",
-		"line_node_name": "Line_DampSoil",
-		"primary_resource": "spores",
-		"unlock_cost": 75,
-		"distance_px": 360,
-		"ring": 1,
-		"reveal_rule": "starter",
-		"reveal_total_nutrients": 0,
-		"starts_visible": true,
-		"starts_unlocked": true,
-		"starts_connected": true,
-		"base_rate_total": 0.25,
-		"outputs": [{"res": "spores", "weight": 1.0, "amount_per_unit": 1.0}],
-		"upgrades": {"yield_level": 1, "node_speed_level": 1, "carry_level": 1}
+		"id":              "damp_soil",
+		"number":          1,
+		"name":            "Damp Soil",
+		"ring":            1,
+		"distance_px":     100.0,
+		"angle_deg":       230.0,
+		"unlock_cost":     100,
+		"base_rate":       0.25,
+		"reveal_rule":     "starter",
+		"reveal_nutrients":0,
+		"starts_visible":  true,
+		"starts_unlocked": false,
+		"starts_connected":false,
+		"outputs":         [{"res": "spores", "weight": 1.0}],
+		"upgrades": {"yield_level": 1, "frequency_level": 1, "speed_level": 1, "carry_level": 1}
 	}
 	node_defs["damp_soil"] = damp_def
 	node_order = ["damp_soil"]
