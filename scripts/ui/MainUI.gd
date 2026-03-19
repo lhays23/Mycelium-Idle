@@ -67,6 +67,7 @@ var _bar_h: float = 0.0
 var _node_list: Array = []
 var _node_lookup: Dictionary = {}
 var _line_lookup: Dictionary = {}
+var _node_cost_labels: Dictionary = {}  # node_id -> Label
 
 var _selected_node: Node2D = null
 var _selected_node_id: String = ""
@@ -1700,6 +1701,8 @@ func _bind_nodepanel_top_table() -> void:
 
 
 var _resource_rows_container: VBoxContainer = null
+var _resource_row_labels: Array = []   # Array of {pool: Label, rate: Label} per output
+var _resource_rows_node_id: String = ""  # which node the rows were built for
 
 func _get_or_create_resource_rows() -> VBoxContainer:
 	if is_instance_valid(_resource_rows_container):
@@ -1729,11 +1732,20 @@ func _refresh_nodepanel_top_table() -> void:
 	if container == null:
 		return
 
-	# Clear previous rows
+	# Only rebuild row structure when the selected node changes
+	if _resource_rows_node_id != _selected_node_id:
+		_resource_rows_node_id = _selected_node_id
+		_build_resource_rows(container)
+
+	# Always update the live values (pool, rate) without rebuilding
+	_update_resource_row_values()
+
+
+func _build_resource_rows(container: VBoxContainer) -> void:
 	for child in container.get_children():
 		child.free()
+	_resource_row_labels.clear()
 
-	# Get node definition for outputs
 	var def: Dictionary = {}
 	if game_state.has_method("get_node_definition"):
 		var d = game_state.call("get_node_definition", _selected_node_id)
@@ -1742,77 +1754,118 @@ func _refresh_nodepanel_top_table() -> void:
 
 	var outputs: Array = (def.get("outputs", []) as Array)
 	if outputs.is_empty():
-		# Fallback: show primary resource only
 		var res_id: String = ""
 		if game_state.has_method("get_node_primary_res_id"):
 			res_id = str(game_state.call("get_node_primary_res_id", _selected_node_id))
 		if res_id != "":
 			outputs = [{"res": res_id, "weight": 1.0}]
 
-	var yield_level: int = 1
-	if game_state.has_method("get_node_upgrade_ui"):
-		var u = game_state.call("get_node_upgrade_ui", _selected_node_id)
-		if typeof(u) == TYPE_DICTIONARY:
-			yield_level = int(u.get("yield_level", 1))
-
-	# Pool amounts
-	var pool_amounts: Dictionary = {}
-	if game_state.has_method("get_node_pool_amounts"):
-		var pa = game_state.call("get_node_pool_amounts", _selected_node_id)
-		if typeof(pa) == TYPE_DICTIONARY:
-			pool_amounts = pa
-
 	var sum_w: float = 0.0
 	for o in outputs:
 		sum_w += float((o as Dictionary).get("weight", 1.0))
-	if sum_w <= 0.0:
-		sum_w = 1.0
+	if sum_w <= 0.0: sum_w = 1.0
+
+	# Header row
+	var hdr := HBoxContainer.new()
+	hdr.add_theme_constant_override("separation", 8)
+
+	for hdr_data in [["Resource", 0, HORIZONTAL_ALIGNMENT_LEFT], ["Split", 42, HORIZONTAL_ALIGNMENT_RIGHT], ["Rate/s", 54, HORIZONTAL_ALIGNMENT_RIGHT], ["Pool", 54, HORIZONTAL_ALIGNMENT_RIGHT]]:
+		var hl := Label.new()
+		hl.text = hdr_data[0]
+		hl.add_theme_font_size_override("font_size", 11)
+		hl.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6, 1.0))
+		hl.custom_minimum_size = Vector2(int(hdr_data[1]), 0)
+		hl.horizontal_alignment = hdr_data[2]
+		if int(hdr_data[1]) == 0:
+			hl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hdr.add_child(hl)
+	container.add_child(hdr)
 
 	for o_variant in outputs:
 		var o: Dictionary = o_variant as Dictionary
 		var res_id: String = str(o.get("res", ""))
-		if res_id == "":
-			continue
+		if res_id == "": continue
 		var weight: float = float(o.get("weight", 1.0))
 		var pct: int = int(round(weight / sum_w * 100.0))
-		var pool_val: int = int(pool_amounts.get(res_id, 0))
 
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 
-		# Color dot (node-color-like but keyed to resource id)
-		var dot_tex := _make_circle_texture(14, false)
-		var dot_spr := TextureRect.new()
-		dot_spr.texture = dot_tex
-		dot_spr.modulate = _node_color_for_id(res_id)
-		dot_spr.custom_minimum_size = Vector2(14, 14)
-		dot_spr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		row.add_child(dot_spr)
+		var dot_tex := _make_circle_texture(12, false)
+		var dot := TextureRect.new()
+		dot.texture = dot_tex
+		dot.modulate = _node_color_for_id(res_id)
+		dot.custom_minimum_size = Vector2(12, 12)
+		dot.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		row.add_child(dot)
 
-		# Resource name
 		var lbl_name := Label.new()
 		lbl_name.text = _pretty_res(res_id)
 		lbl_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lbl_name.add_theme_font_size_override("font_size", 13)
 		row.add_child(lbl_name)
 
-		# Split %
 		var lbl_pct := Label.new()
 		lbl_pct.text = str(pct) + "%"
-		lbl_pct.custom_minimum_size = Vector2(40, 0)
+		lbl_pct.custom_minimum_size = Vector2(42, 0)
 		lbl_pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		lbl_pct.add_theme_font_size_override("font_size", 12)
 		row.add_child(lbl_pct)
 
-		# Pool (backlog)
+		var lbl_rate := Label.new()
+		lbl_rate.text = "—"
+		lbl_rate.custom_minimum_size = Vector2(54, 0)
+		lbl_rate.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl_rate.add_theme_font_size_override("font_size", 12)
+		row.add_child(lbl_rate)
+
 		var lbl_pool := Label.new()
-		lbl_pool.text = _fmt_int(pool_val)
-		lbl_pool.custom_minimum_size = Vector2(50, 0)
+		lbl_pool.text = "0"
+		lbl_pool.custom_minimum_size = Vector2(54, 0)
 		lbl_pool.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		lbl_pool.add_theme_font_size_override("font_size", 12)
 		row.add_child(lbl_pool)
 
 		container.add_child(row)
+		_resource_row_labels.append({
+			"res_id": res_id,
+			"weight": weight,
+			"sum_w": sum_w,
+			"rate_lbl": lbl_rate,
+			"pool_lbl": lbl_pool
+		})
+
+
+func _update_resource_row_values() -> void:
+	if _resource_row_labels.is_empty() or game_state == null:
+		return
+
+	var pool_amounts: Dictionary = {}
+	if game_state.has_method("get_node_pool_amounts"):
+		var pa = game_state.call("get_node_pool_amounts", _selected_node_id)
+		if typeof(pa) == TYPE_DICTIONARY:
+			pool_amounts = pa
+
+	var yield_rate: float = 0.0
+	if game_state.has_method("get_node_rate_ui"):
+		var rui = game_state.call("get_node_rate_ui", _selected_node_id)
+		if typeof(rui) == TYPE_DICTIONARY:
+			yield_rate = float(rui.get("effective_rate", 0.0))
+
+	for entry in _resource_row_labels:
+		var res_id: String   = str(entry.get("res_id", ""))
+		var weight: float    = float(entry.get("weight", 1.0))
+		var sum_w: float     = float(entry.get("sum_w", 1.0))
+		var rate_lbl: Label  = entry.get("rate_lbl", null) as Label
+		var pool_lbl: Label  = entry.get("pool_lbl", null) as Label
+
+		var res_rate: float = yield_rate * (weight / sum_w)
+		var pool_val: int   = int(pool_amounts.get(res_id, 0))
+
+		if rate_lbl != null and is_instance_valid(rate_lbl):
+			rate_lbl.text = _fmt_rate(res_rate)
+		if pool_lbl != null and is_instance_valid(pool_lbl):
+			pool_lbl.text = _fmt_int(pool_val)
 
 
 func _get_res_icon_texture(res_id: String) -> Texture2D:
@@ -2004,6 +2057,15 @@ func _all_panels() -> Array[Control]:
 func _toggle_panel(panel: Control) -> void:
 	if _open_panel == panel:
 		_close_current()
+	elif _open_panel != null:
+		# Switch directly — no close animation, just swap
+		if _open_panel == node_panel:
+			_resource_rows_node_id = ""
+		_open_panel.visible = false
+		_set_panel_closed(_open_panel)
+		_kill_tween()
+		_open_panel = null
+		_open(panel)
 	else:
 		_open(panel)
 
@@ -2057,6 +2119,8 @@ func _close_current() -> void:
 
 	_tween.finished.connect(func():
 		panel.visible = false
+		if panel == node_panel:
+			_resource_rows_node_id = ""  # force rebuild on next open
 		_open_panel = null
 		dimmer.visible = false
 		dimmer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2080,24 +2144,30 @@ func _input(event: InputEvent) -> void:
 		return
 
 	# Block map interaction while a panel is showing
-	if _open_panel != null:
-		return
+	# EXCEPT: allow node taps (press_end) to pass through so clicking a node
+	# while a menu panel is open closes that panel and opens the node panel.
+	if _open_panel != null and _open_panel != node_panel:
+		# Block everything — we'll re-check after classifying the event type
+		pass  # handled below after is_press_start/is_motion are declared
 
 	# ── Pinch-to-zoom (native mobile gesture) ──────────────────────────────
 	if event is InputEventMagnifyGesture:
-		_map_apply_zoom(event.factor, event.position)
-		get_viewport().set_input_as_handled()
+		if _open_panel == null:
+			_map_apply_zoom(event.factor, event.position)
+			get_viewport().set_input_as_handled()
 		return
 
 	# ── Scroll-wheel zoom (desktop / testing) ──────────────────────────────
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_map_apply_zoom(1.0 + MAP_ZOOM_STEP, event.position)
-			get_viewport().set_input_as_handled()
+			if _open_panel == null:
+				_map_apply_zoom(1.0 + MAP_ZOOM_STEP, event.position)
+				get_viewport().set_input_as_handled()
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_map_apply_zoom(1.0 / (1.0 + MAP_ZOOM_STEP), event.position)
-			get_viewport().set_input_as_handled()
+			if _open_panel == null:
+				_map_apply_zoom(1.0 / (1.0 + MAP_ZOOM_STEP), event.position)
+				get_viewport().set_input_as_handled()
 			return
 
 	# ── Classify the event ─────────────────────────────────────────────────
@@ -2120,6 +2190,12 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag:
 		ev_pos    = event.position
 		is_motion = true
+
+	# Now that event type is known: block pan/zoom/press-start when panel is open,
+	# but allow press-end through so a tap on a node can switch panels.
+	if _open_panel != null and _open_panel != node_panel:
+		if is_press_start or is_motion:
+			return
 
 	# Ignore taps that land in the bottom bar
 	var vp_h := get_viewport_rect().size.y
@@ -2146,7 +2222,10 @@ func _input(event: InputEvent) -> void:
 
 	# ── Press end: tap fires node-select; drag does nothing extra ─────────
 	if is_press_end:
-		if _map_is_dragging and not _map_drag_has_moved:
+		# If a menu panel was open, press_start was blocked so _map_is_dragging
+		# is false — treat this press_end as a tap directly.
+		var came_from_panel := (_open_panel != null and _open_panel != node_panel)
+		if (came_from_panel) or (_map_is_dragging and not _map_drag_has_moved):
 			_try_select_node(ev_pos)
 		_map_is_dragging = false
 		return
@@ -2194,20 +2273,31 @@ func _try_select_node(screen_pos: Vector2) -> void:
 			continue
 
 		if not bool(state.get("is_unlocked", true)):
+			# Attempt purchase — no panel opened regardless of outcome
 			if game_state != null and game_state.has_method("try_unlock_node"):
 				var unlocked: bool = bool(game_state.call("try_unlock_node", node_id))
 				if unlocked:
 					_refresh_panel_access_ui()
 					_refresh_currency_ui()
 					_refresh_node_world_state()
-					node_title.text  = str(e["name"])
-					_selected_node_id = node_id
-					_select_node(node)
-					_open(node_panel)
-					_refresh_nodepanel_all()
-					get_viewport().set_input_as_handled()
-					return
-			continue
+					_update_node_cost_labels()
+			get_viewport().set_input_as_handled()
+			return
+
+		# Unlocked node — close any open menu panel then open node panel
+		# Exception: if this node's panel is already open, close it (toggle)
+		if _open_panel == node_panel and _selected_node_id == node_id:
+			_close_current()
+			get_viewport().set_input_as_handled()
+			return
+
+		if _open_panel != null and _open_panel != node_panel:
+			_open_panel.visible = false
+			_set_panel_closed(_open_panel)
+			_open_panel = null
+			_kill_tween()
+			dimmer.visible = false
+			dimmer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 		node_title.text   = str(e["name"])
 		_selected_node_id = node_id
@@ -2357,6 +2447,48 @@ func _refresh_node_world_state() -> void:
 			selection_ring.visible = false
 			if _open_panel == node_panel:
 				_close_current()
+
+	_update_node_cost_labels()
+
+
+func _update_node_cost_labels() -> void:
+	for e in _node_list:
+		var node_id: String  = str(e.get("id", ""))
+		var node_ref: Node2D = e.get("node", null) as Node2D
+		if node_ref == null:
+			continue
+
+		var state        := _get_node_world_state(node_id)
+		var is_visible   := bool(state.get("is_visible", false))
+		var is_unlocked  := bool(state.get("is_unlocked", false))
+
+		# Show cost label only when visible + locked
+		if is_visible and not is_unlocked:
+			var cost: int = int(state.get("unlock_cost", 0))
+			var lbl: Label = _node_cost_labels.get(node_id, null) as Label
+
+			if lbl == null or not is_instance_valid(lbl):
+				lbl = Label.new()
+				lbl.name = "CostLabel_" + node_id
+				lbl.top_level = true
+				lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				lbl.add_theme_font_size_override("font_size", 12)
+				lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5, 1.0))
+				lbl.add_theme_color_override("font_outline_color", Color(0.05, 0.1, 0.05, 1.0))
+				lbl.add_theme_constant_override("outline_size", 3)
+				nodes_container.add_child(lbl)
+				_node_cost_labels[node_id] = lbl
+
+			lbl.text = _fmt_int(cost)
+			# Position above the node sprite
+			lbl.global_position = node_ref.global_position + Vector2(-lbl.size.x * 0.5, -36)
+			lbl.visible = true
+		else:
+			# Hide cost label when unlocked or not visible
+			var lbl: Label = _node_cost_labels.get(node_id, null) as Label
+			if lbl != null and is_instance_valid(lbl):
+				lbl.visible = false
 
 
 func _select_node(node: Node2D) -> void:
