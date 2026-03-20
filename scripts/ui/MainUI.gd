@@ -88,6 +88,17 @@ var _map_drag_start_screen: Vector2 = Vector2.ZERO
 var _map_drag_start_map_pos: Vector2 = Vector2.ZERO
 var _map_drag_has_moved: bool = false
 
+# Discovery grid pan/zoom
+const DISC_ZOOM_MIN  := 0.5
+const DISC_ZOOM_MAX  := 2.0
+const DISC_ZOOM_START := 1.0
+const DISC_ZOOM_STEP  := 0.12
+var _disc_zoom: float = DISC_ZOOM_START
+var _disc_drag_start_screen: Vector2 = Vector2.ZERO
+var _disc_drag_start_pos: Vector2 = Vector2.ZERO
+var _disc_is_dragging: bool = false
+var _disc_drag_has_moved: bool = false
+
 # DigestPanel widgets
 var digest_lbl_selected: Label = null
 var digest_btn_1: Button = null
@@ -111,12 +122,18 @@ var _digest_action_lbl: Label = null
 var _digest_row_refs: Dictionary = {}   # item_id -> row Control (for live updates)
 var _digest_hold_timer: float = 0.0
 var _digest_hold_id: String = ""
+var _digest_hold_consumed: bool = false  # true when hold triggered auto-toggle, suppress release tap
 var _digest_auto_ids: Dictionary = {}   # item_id -> bool
-var _digest_mode: String = "manual"     # "manual" or "auto"
+var _digest_auto_last_amt: Dictionary = {}  # item_id -> int, amount at last tick
 
 # Discoveries panel widgets
 var discoveries_list: VBoxContainer = null
 var discoveries_feedback: Label = null
+var _disc_node_refs: Dictionary = {}   # discovery_id -> Control (grid node)
+var _disc_popup: Control = null
+var _disc_popup_dimmer: ColorRect = null
+var _disc_popup_disc_id: String = ""
+var _disc_popup_layer: CanvasLayer = null
 
 # Refinery panel widgets
 var refinery_list: VBoxContainer = null
@@ -269,7 +286,7 @@ func _ready() -> void:
 
 	_refresh_panel_access_ui()
 	_refresh_currency_ui()
-	get_tree().root.print_tree_pretty()
+	#get_tree().root.print_tree_pretty()
 
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
@@ -760,7 +777,9 @@ func _process(dt: float) -> void:
 	if _digest_hold_id != "":
 		_digest_hold_timer += dt
 		if _digest_hold_timer >= 0.6:
-			_select_digest_row(_digest_hold_id, "auto")
+			_toggle_digest_auto(_digest_hold_id)
+			_select_digest_row(_digest_hold_id)
+			_digest_hold_consumed = true
 			_digest_hold_id    = ""
 			_digest_hold_timer = 0.0
 
@@ -771,12 +790,17 @@ func _process(dt: float) -> void:
 		_refresh_currency_ui()
 		_refresh_node_world_state()
 
+		# Execute auto-digest for all enabled items
+		_execute_auto_digest()
+
 		if _open_panel == node_panel and _selected_node_id != "":
 			_refresh_nodepanel_all()
 
 		if _open_panel == digest_panel:
 			_update_digest_live_values()
-			if _digest_selected_id != "": _update_digest_action_bar()
+			if _digest_selected_id != "":
+				_update_digest_action_bar()
+				_position_digest_action_bar()
 
 	var new_signature := _get_refinery_inventory_signature()
 	if new_signature != _last_refinery_inventory_signature:
@@ -1195,7 +1219,12 @@ func _build_digest_action_bar(parent: VBoxContainer) -> Control:
 	_theme_action_button(_digest_action_btn)
 	main_row.add_child(_digest_action_btn)
 
-	parent.add_child(bar)
+	# Detach from panel VBox layout — position it relative to viewport
+	# so it always sits at the bottom of _panel_container regardless of scroll
+	bar.top_level = true
+	bar.size = Vector2(0, 0)  # will be set in _position_digest_action_bar
+
+	parent.add_child(bar)  # still parented here so it's freed with the panel
 	return bar
 
 
@@ -1391,43 +1420,60 @@ func _highlight_digest_row(item_id: String) -> void:
 func _on_digest_row_input(event: InputEvent, item_id: String) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
-			_digest_hold_timer = 0.0
-			_digest_hold_id    = item_id
+			_digest_hold_timer    = 0.0
+			_digest_hold_id       = item_id
+			_digest_hold_consumed = false
 		else:
-			if _digest_hold_id == item_id and _digest_hold_timer < 0.6:
-				# Short tap
-				if _digest_selected_id == item_id and _digest_mode == "manual":
-					# Tap same row again in same mode → deselect
+			# Use item_id from press, not release — mouse may drift between them
+			var press_id := _digest_hold_id if _digest_hold_id != "" else item_id
+			if _digest_hold_consumed:
+				# Hold was already handled — suppress tap action
+				_digest_hold_consumed = false
+			elif _digest_hold_timer < 0.6:
+				if _digest_selected_id == press_id:
 					_digest_selected_id = ""
 					_highlight_digest_row("")
 					if _digest_action_bar != null:
 						_digest_action_bar.visible = false
 				else:
-					_select_digest_row(item_id, "manual")
+					_select_digest_row(press_id)
 			_digest_hold_id    = ""
 			_digest_hold_timer = 0.0
 	elif event is InputEventScreenTouch:
 		if event.pressed:
 			_digest_hold_timer = 0.0
 			_digest_hold_id    = item_id
+			_digest_hold_consumed = false
 		else:
-			if _digest_hold_id == item_id and _digest_hold_timer < 0.6:
-				if _digest_selected_id == item_id and _digest_mode == "manual":
+			var press_id := _digest_hold_id if _digest_hold_id != "" else item_id
+			if _digest_hold_consumed:
+				_digest_hold_consumed = false
+			elif _digest_hold_timer < 0.6:
+				if _digest_selected_id == press_id:
 					_digest_selected_id = ""
 					_highlight_digest_row("")
 					if _digest_action_bar != null:
 						_digest_action_bar.visible = false
 				else:
-					_select_digest_row(item_id, "manual")
+					_select_digest_row(press_id)
 			_digest_hold_id    = ""
 			_digest_hold_timer = 0.0
 
 
-func _select_digest_row(item_id: String, mode: String = "manual") -> void:
+func _position_digest_action_bar() -> void:
+	if _digest_action_bar == null or _panel_container == null:
+		return
+	var vp_w  := get_viewport_rect().size.x
+	var bar_h := 120.0
+	var pc    := _panel_container
+	_digest_action_bar.size     = Vector2(vp_w, bar_h)
+	_digest_action_bar.position = Vector2(0.0, pc.position.y + pc.size.y - bar_h)
+
+
+func _select_digest_row(item_id: String) -> void:
 	_digest_selected_id = item_id
-	_digest_mode = mode
 	_highlight_digest_row(item_id)
-	_digest_pct = 1.0 if mode == "manual" else _digest_auto_ids.get(item_id + "_pct", 1.0)
+	_digest_pct = float(_digest_auto_ids.get(item_id + "_pct", 1.0))
 	if _digest_slider != null:
 		_digest_slider.value = _digest_pct
 
@@ -1444,6 +1490,7 @@ func _select_digest_row(item_id: String, mode: String = "manual") -> void:
 
 	_update_digest_action_bar()
 	if _digest_action_bar != null:
+		_position_digest_action_bar()
 		_digest_action_bar.visible = true
 
 
@@ -1451,55 +1498,81 @@ func _update_digest_action_bar() -> void:
 	if _digest_action_bar == null or _digest_selected_id == "":
 		return
 
+	var is_auto: bool = _digest_auto_ids.get(_digest_selected_id, false)
 	var amount: int = 0
 	if game_state != null and game_state.has_method("get_amount"):
 		amount = int(game_state.call("get_amount", _digest_selected_id))
-
 	var selected_amt: int   = int(floor(amount * _digest_pct))
 	var nutrient_yield: int = int(round(selected_amt * _digest_selected_value))
 	var res_name := _pretty_res(_digest_selected_id)
 	var pct_int := int(_digest_pct * 100)
 
-	# Mode label
+	# Resource name + auto hint
 	if _digest_action_lbl != null:
-		if _digest_mode == "auto":
-			_digest_action_lbl.text = "%s  —  Auto-digest %d%% of incoming" % [res_name, pct_int]
+		if is_auto:
+			_digest_action_lbl.text = "%s  —  Auto-digesting %d%% of incoming" % [res_name, pct_int]
 		else:
-			_digest_action_lbl.text = res_name
+			_digest_action_lbl.text = "%s  •  %s → %s nutrients" % [res_name, _fmt_int(selected_amt), _fmt_int(nutrient_yield)]
 
-	# Amount label (top-right)
+	# Amount label
 	var lbl_amt: Label = _digest_action_bar.find_child("LblSelectedAmt", true, false) as Label
 	if lbl_amt != null:
-		if _digest_mode == "auto":
-			lbl_amt.text = "%d%%" % pct_int
-		else:
-			lbl_amt.text = _fmt_int(selected_amt)
+		lbl_amt.text = "%d%%" % pct_int if is_auto else _fmt_int(selected_amt)
 
-	# Value label (bottom-right, under amount)
+	# Value label
 	var lbl_val: Label = _digest_action_bar.find_child("LblSelectedVal", true, false) as Label
 	if lbl_val != null:
-		if _digest_mode == "auto":
-			lbl_val.text = "of new stock"
-		else:
-			lbl_val.text = "%s nutrients" % _fmt_int(nutrient_yield)
+		lbl_val.text = "of incoming" if is_auto else "%s nutrients" % _fmt_int(nutrient_yield)
 
-	# Digest button
+	# Button: reflects auto state, not mode
 	if _digest_action_btn != null:
-		if _digest_mode == "auto":
-			var is_auto: bool = _digest_auto_ids.get(_digest_selected_id, false)
-			_digest_action_btn.text = "Auto ON" if is_auto else "Enable"
+		if is_auto:
+			_digest_action_btn.text = "Auto ON"
 		else:
 			_digest_action_btn.text = "Digest"
 
 
 func _on_digest_slider_changed(value: float) -> void:
 	_digest_pct = clampf(value, 0.0, 1.0)
+	# If this item has auto-digest enabled, persist the pct
+	if _digest_selected_id != "" and _digest_auto_ids.get(_digest_selected_id, false):
+		_digest_auto_ids[_digest_selected_id + "_pct"] = _digest_pct
 	_update_digest_action_bar()
+
+
+func _execute_auto_digest() -> void:
+	if game_state == null or _digest_auto_ids.is_empty():
+		return
+	for item_id_v in _digest_auto_ids.keys():
+		var item_id := str(item_id_v)
+		if item_id.ends_with("_pct"):
+			continue
+		if not _digest_auto_ids.get(item_id, false):
+			continue
+		var pct: float = float(_digest_auto_ids.get(item_id + "_pct", 1.0))
+		if pct <= 0.0:
+			continue
+		var current_amt: int = int(game_state.call("get_amount", item_id))
+		var last_amt: int    = int(_digest_auto_last_amt.get(item_id, current_amt))
+		# Only digest new arrivals since last tick
+		var incoming: int = max(0, current_amt - last_amt)
+		var digest_amt: int = int(floor(incoming * pct))
+		if digest_amt > 0 and game_state.has_method("digest_inventory_item"):
+			game_state.call("digest_inventory_item", item_id, digest_amt)
+		# Record current amount as baseline for next tick
+		_digest_auto_last_amt[item_id] = current_amt
 
 
 func _toggle_digest_auto(item_id: String) -> void:
 	var was_auto: bool = _digest_auto_ids.get(item_id, false)
 	_digest_auto_ids[item_id] = not was_auto
+	if not was_auto:
+		# Enabling — seed baseline so we only digest future incoming, not existing stock
+		if game_state != null and game_state.has_method("get_amount"):
+			_digest_auto_last_amt[item_id] = int(game_state.call("get_amount", item_id))
+	else:
+		# Disabling — clear the baseline
+		_digest_auto_last_amt.erase(item_id)
 	# Refresh just this row's AUTO badge and amount color
 	var row: Control = _digest_row_refs.get(item_id, null) as Control
 	if row != null and is_instance_valid(row):
@@ -1516,16 +1589,22 @@ func _on_digest_action_pressed() -> void:
 	if _digest_selected_id == "" or game_state == null:
 		return
 
-	if _digest_mode == "auto":
-		# Toggle auto and save the pct
+	var is_auto: bool = _digest_auto_ids.get(_digest_selected_id, false)
+
+	if is_auto:
+		# Button reads "Auto ON" → tap turns it off
 		_toggle_digest_auto(_digest_selected_id)
 		_digest_auto_ids[_digest_selected_id + "_pct"] = _digest_pct
 		_update_digest_action_bar()
 		return
 
-	# Manual digest
+	# Button reads "Digest" → manual digest at current slider %
 	var amount: int = int(game_state.call("get_amount", _digest_selected_id))
-	var digest_amt: int = max(1, int(floor(amount * _digest_pct)))
+	var digest_amt: int = int(floor(amount * _digest_pct))
+	if digest_amt <= 0:
+		if digest_feedback != null:
+			digest_feedback.text = "Nothing to digest."
+		return
 	var digested: int = 0
 	if game_state.has_method("digest_inventory_item"):
 		digested = int(game_state.call("digest_inventory_item", _digest_selected_id, digest_amt))
@@ -1640,15 +1719,34 @@ func _get_discovery_signature() -> String:
 # ---------------- DiscoveriesPanel ----------------
 
 func _bind_discoveries_panel() -> void:
-	discoveries_list = discoveries_panel.find_child("VBoxContainer", true, false) as VBoxContainer
-	if discoveries_list == null:
+	var root_box: VBoxContainer = discoveries_panel.find_child("VBoxContainer", true, false) as VBoxContainer
+	if root_box == null:
 		return
+	for child in root_box.get_children():
+		child.queue_free()
 
+	# Header
+	var header := Label.new()
+	header.text = "Discoveries"
+	header.add_theme_font_size_override("font_size", 16)
+	header.add_theme_color_override("font_color", ThemeManager.c("accent"))
+	root_box.add_child(header)
+
+	# Feedback label
 	discoveries_feedback = Label.new()
 	discoveries_feedback.name = "DiscoveriesFeedback"
 	discoveries_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	discoveries_feedback.text = ""
-	discoveries_list.add_child(discoveries_feedback)
+	discoveries_feedback.add_theme_font_size_override("font_size", 12)
+	discoveries_feedback.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
+	root_box.add_child(discoveries_feedback)
+
+	# Grid canvas — drawn in code using a Control
+	var grid := Control.new()
+	grid.name = "DiscoveryGrid"
+	grid.custom_minimum_size = Vector2(0, 420)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root_box.add_child(grid)
+	discoveries_list = root_box  # reuse var so refresh finds the panel
 
 
 func _refresh_panel_access_ui() -> void:
@@ -1674,87 +1772,467 @@ func _refresh_panel_access_ui() -> void:
 
 
 func _clear_discoveries_rows() -> void:
-	if discoveries_list == null:
+	_disc_node_refs.clear()
+	if discoveries_panel == null:
 		return
-	for child in discoveries_list.get_children():
-		if child == discoveries_feedback:
-			continue
+	var grid: Control = discoveries_panel.find_child("DiscoveryGrid", true, false) as Control
+	if grid == null:
+		return
+	for child in grid.get_children():
 		child.queue_free()
 
 
 func _refresh_discoveries_panel() -> void:
-	if discoveries_list == null or game_state == null:
+	if discoveries_panel == null or game_state == null:
 		return
 	_clear_discoveries_rows()
-	if discoveries_feedback != null and discoveries_feedback.get_parent() == null:
-		discoveries_list.add_child(discoveries_feedback)
-	if discoveries_feedback != null and discoveries_feedback.text == "":
-		discoveries_feedback.text = "Spend physical resources to unlock discoveries for this run."
 
-	if not game_state.has_method("can_show_discoveries_tab") or not bool(game_state.call("can_show_discoveries_tab")):
-		if discoveries_feedback != null:
+	if discoveries_feedback != null:
+		if not game_state.has_method("can_show_discoveries_tab") or not bool(game_state.call("can_show_discoveries_tab")):
 			discoveries_feedback.text = "Connect a second node to unlock Discoveries."
-		return
+			return
+		discoveries_feedback.text = ""
 
 	if not game_state.has_method("get_discovery_ui_entries"):
 		return
-	var entries = game_state.call("get_discovery_ui_entries")
-	if typeof(entries) != TYPE_ARRAY:
+	var entries_v = game_state.call("get_discovery_ui_entries")
+	if typeof(entries_v) != TYPE_ARRAY:
 		return
-	for entry_variant in entries:
-		var entry: Dictionary = entry_variant as Dictionary
-		discoveries_list.add_child(_make_discovery_card(entry))
+	var entries: Array = entries_v as Array
+
+	# Build lookup by id
+	var by_id: Dictionary = {}
+	for ev in entries:
+		var e := ev as Dictionary
+		by_id[str(e.get("id", ""))] = e
+
+	var grid: Control = discoveries_panel.find_child("DiscoveryGrid", true, false) as Control
+	if grid == null:
+		return
+
+	# ── Grid layout (positions relative to grid Control) ──────────────────
+	# Grid is 412px wide. Center x = 206. Node size = 88×88.
+	# Layout:
+	#   aura_activation          — top center
+	#   primitive_refinery       — middle left
+	#   mycelial_insight         — middle center  (root)
+	#   [synthesis               — middle far left, off aura branch not used yet]
+	#   excess_fertilizer        — middle right (or bottom center per design)
+	#   nutrient_efficiency_1    — below excess_fertilizer
+	#
+	# Branches: root→aura (up), root→refinery (left), root→excess (right/down)
+	#            excess→nutrient_eff (down), refinery→synthesis (left)
+
+	var cx: float = 206.0
+	var node_w := 88.0
+	var node_h := 88.0
+
+	var positions: Dictionary = {
+		"mycelial_insight":      Vector2(cx - node_w * 0.5,  160),
+		"aura_activation":       Vector2(cx - node_w * 0.5,  30),
+		"primitive_refinery":    Vector2(cx - node_w * 1.5 - 20, 160),
+		"synthesis":             Vector2(cx - node_w * 2.5 - 40, 160),
+		"excess_fertilizer":     Vector2(cx + node_w * 0.5 + 20, 160),
+		"nutrient_efficiency_1": Vector2(cx + node_w * 0.5 + 20, 290),
+	}
+
+	# Connection lines (drawn as ColorRect strips or Line2D)
+	var connections: Array = [
+		["mycelial_insight", "aura_activation"],
+		["mycelial_insight", "primitive_refinery"],
+		["mycelial_insight", "excess_fertilizer"],
+		["primitive_refinery", "synthesis"],
+		["excess_fertilizer", "nutrient_efficiency_1"],
+	]
+
+	for conn in connections:
+		var id_a: String = conn[0]
+		var id_b: String = conn[1]
+		if not positions.has(id_a) or not positions.has(id_b):
+			continue
+		var pos_a: Vector2 = positions[id_a] as Vector2
+		var pos_b: Vector2 = positions[id_b] as Vector2
+		var center_a := pos_a + Vector2(node_w * 0.5, node_h * 0.5)
+		var center_b := pos_b + Vector2(node_w * 0.5, node_h * 0.5)
+		var line := _make_disc_connector(center_a, center_b, by_id, id_a, id_b)
+		grid.add_child(line)
+
+	# Discovery nodes
+	for disc_id in positions.keys():
+		var pos: Vector2 = positions[disc_id] as Vector2
+		var entry: Dictionary = by_id.get(disc_id, {}) as Dictionary
+		var node := _make_disc_node(disc_id, entry, Vector2(node_w, node_h))
+		node.position = pos
+		grid.add_child(node)
+		_disc_node_refs[disc_id] = node
 
 
-func _make_discovery_card(entry: Dictionary) -> Control:
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 4)
+func _make_disc_connector(from: Vector2, to: Vector2, by_id: Dictionary, id_a: String, id_b: String) -> Node2D:
+	var entry_a: Dictionary = by_id.get(id_a, {}) as Dictionary
+	var entry_b: Dictionary = by_id.get(id_b, {}) as Dictionary
+	var unlocked_a: bool = bool(entry_a.get("complete", false)) or (int(entry_a.get("level", 0)) > 0)
+	var col: Color = ThemeManager.c("accent_dim") if unlocked_a else ThemeManager.c("border")
 
-	var title := Label.new()
-	var level: int = int(entry.get("level", 0))
+	var line := Line2D.new()
+	line.default_color = col
+	line.width = 2.0
+	line.add_point(from)
+	line.add_point(to)
+	return line
+
+
+func _make_disc_node(disc_id: String, entry: Dictionary, node_size: Vector2) -> Control:
+	var tm := ThemeManager
+	var level: int    = int(entry.get("level", 0))
+	var complete: bool = bool(entry.get("complete", false))
+	var can_buy: bool  = bool(entry.get("can_buy", false))
+	var available: bool = bool(entry.get("available", false))
+	var name_str: String = str(entry.get("name", disc_id))
+	var is_root: bool = disc_id == "mycelial_insight"
+
+	# State: unlocked > can_buy > available > locked
+	var state: String = "locked"
+	if complete or level > 0:
+		state = "unlocked"
+	elif can_buy:
+		state = "ready"
+	elif available:
+		state = "available"
+
+	# Outer container
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size = node_size
+	btn.size = node_size
+	btn.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	# Background panel
+	var sb := StyleBoxFlat.new()
+	sb.set_corner_radius_all(14)
+	sb.set_border_width_all(2)
+	sb.content_margin_left   = 8
+	sb.content_margin_right  = 8
+	sb.content_margin_top    = 8
+	sb.content_margin_bottom = 8
+	match state:
+		"unlocked":
+			sb.bg_color     = tm.c("accent_glow")
+			sb.border_color = tm.c("accent")
+		"ready":
+			sb.bg_color     = tm.c("bg_panel")
+			sb.border_color = tm.c("accent")
+		"available":
+			sb.bg_color     = tm.c("bg_panel")
+			sb.border_color = tm.c("border")
+		_:  # locked
+			sb.bg_color     = tm.c("bg_deep")
+			sb.border_color = tm.c("border")
+	if is_root and state == "unlocked":
+		sb.border_color = tm.c("accent")
+
+	btn.add_theme_stylebox_override("normal", sb)
+	btn.add_theme_stylebox_override("hover",  sb)
+	btn.add_theme_stylebox_override("pressed", sb)
+	btn.add_theme_stylebox_override("focus",  sb)
+
+	# Content vbox
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 4)
+	btn.add_child(vbox)
+
+	# Icon (drawn via custom draw — use a simple Control)
+	var icon_ctrl := Control.new()
+	icon_ctrl.custom_minimum_size = Vector2(32, 32)
+	icon_ctrl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var icon_col: Color = tm.c("accent") if state == "unlocked" or state == "ready" else tm.c("text_muted")
+	icon_ctrl.draw.connect(_draw_disc_icon.bind(icon_ctrl, disc_id, icon_col))
+	vbox.add_child(icon_ctrl)
+
+	# Name label
+	var lbl := Label.new()
+	lbl.text = name_str
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 10)
+	var text_col: Color
+	match state:
+		"unlocked": text_col = tm.c("accent")
+		"ready":    text_col = tm.c("text_primary")
+		_:          text_col = tm.c("text_muted")
+	lbl.add_theme_color_override("font_color", text_col)
+	vbox.add_child(lbl)
+
+	# Level badge for repeatables
 	var max_level: int = int(entry.get("max_level", 1))
-	var repeatable: bool = bool(entry.get("repeatable", false))
-	var title_text: String = str(entry.get("name", ""))
-	if repeatable:
-		title_text += "  Lv %s/%s" % [level, max_level]
-	title.text = title_text
-	box.add_child(title)
+	if max_level > 1:
+		var lv_lbl := Label.new()
+		lv_lbl.text = "Lv %d/%d" % [level, max_level]
+		lv_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lv_lbl.add_theme_font_size_override("font_size", 9)
+		lv_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		vbox.add_child(lv_lbl)
 
-	var effect := Label.new()
-	effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	effect.text = str(entry.get("effect_text", ""))
-	effect.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
-	box.add_child(effect)
+	# Connect button
+	if not entry.is_empty():
+		btn.pressed.connect(_on_disc_node_pressed.bind(disc_id, entry))
+	else:
+		btn.modulate.a = 0.25  # not yet visible in data
 
-	var cost := Label.new()
-	cost.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	cost.text = "Cost: " + str(entry.get("cost_text", "—"))
-	box.add_child(cost)
+	return btn
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	box.add_child(row)
 
-	var status := Label.new()
-	status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var status_text := str(entry.get("status_text", ""))
-	if bool(entry.get("complete", false)):
-		status_text = "Complete"
-	elif bool(entry.get("can_buy", false)):
-		status_text = "Ready"
-	status.text = status_text
-	row.add_child(status)
+func _draw_disc_icon(ctrl: Control, disc_id: String, col: Color) -> void:
+	var cx := ctrl.size.x * 0.5
+	var cy := ctrl.size.y * 0.5
+	var s  := 10.0
+	var w  := 1.5
+	match disc_id:
+		"mycelial_insight":
+			# Spore burst — central circle + radiating lines
+			ctrl.draw_circle(Vector2(cx, cy), s * 0.5, col)
+			for i in range(6):
+				var angle := float(i) * TAU / 6.0
+				var inner := Vector2(cos(angle), sin(angle)) * s * 0.7
+				var outer_v := Vector2(cos(angle), sin(angle)) * s * 1.3
+				ctrl.draw_line(Vector2(cx, cy) + inner, Vector2(cx, cy) + outer_v, col, w, true)
+		"aura_activation":
+			# Concentric arcs
+			ctrl.draw_arc(Vector2(cx, cy), s * 0.5, 0, TAU, 32, col, w, true)
+			ctrl.draw_arc(Vector2(cx, cy), s * 1.0, -PI * 0.6, PI * 0.6, 24, col, w, true)
+			ctrl.draw_arc(Vector2(cx, cy), s * 1.4, -PI * 0.35, PI * 0.35, 16, col, w, true)
+		"primitive_refinery":
+			# Flask shape
+			ctrl.draw_line(Vector2(cx - s*0.4, cy - s), Vector2(cx + s*0.4, cy - s), col, w, true)
+			ctrl.draw_line(Vector2(cx - s*0.4, cy - s), Vector2(cx - s*0.8, cy + s*0.5), col, w, true)
+			ctrl.draw_line(Vector2(cx + s*0.4, cy - s), Vector2(cx + s*0.8, cy + s*0.5), col, w, true)
+			ctrl.draw_arc(Vector2(cx, cy + s*0.5), s * 0.8, 0, TAU, 32, col, w, true)
+			ctrl.draw_circle(Vector2(cx, cy + s*0.5), s * 0.3, col)
+		"synthesis":
+			# Interlocked circles
+			ctrl.draw_arc(Vector2(cx - s*0.4, cy), s * 0.7, 0, TAU, 32, col, w, true)
+			ctrl.draw_arc(Vector2(cx + s*0.4, cy), s * 0.7, 0, TAU, 32, col, w, true)
+		"excess_fertilizer":
+			# Upward arrows (growth)
+			ctrl.draw_line(Vector2(cx, cy + s), Vector2(cx, cy - s), col, w, true)
+			ctrl.draw_line(Vector2(cx, cy - s), Vector2(cx - s*0.4, cy - s*0.4), col, w, true)
+			ctrl.draw_line(Vector2(cx, cy - s), Vector2(cx + s*0.4, cy - s*0.4), col, w, true)
+			ctrl.draw_line(Vector2(cx - s*0.6, cy + s*0.3), Vector2(cx - s*0.6, cy - s*0.5), col, w, true)
+			ctrl.draw_line(Vector2(cx + s*0.6, cy + s*0.3), Vector2(cx + s*0.6, cy - s*0.5), col, w, true)
+		"nutrient_efficiency_1":
+			# Diamond / crystal
+			var pts := PackedVector2Array([
+				Vector2(cx, cy - s),
+				Vector2(cx + s*0.7, cy),
+				Vector2(cx, cy + s),
+				Vector2(cx - s*0.7, cy),
+				Vector2(cx, cy - s),
+			])
+			ctrl.draw_polyline(pts, col, w, true)
+			ctrl.draw_line(Vector2(cx - s*0.7, cy), Vector2(cx + s*0.7, cy), col, w * 0.5, true)
+		_:
+			ctrl.draw_circle(Vector2(cx, cy), s * 0.8, col)
 
-	var buy_btn := Button.new()
-	buy_btn.text = "Buy" if not repeatable else "Buy Lv"
-	buy_btn.disabled = not bool(entry.get("can_buy", false))
-	var discovery_id: String = str(entry.get("id", ""))
-	buy_btn.pressed.connect(func(): _on_discovery_buy_pressed(discovery_id))
-	row.add_child(buy_btn)
 
-	return box
+func _on_disc_node_pressed(disc_id: String, entry: Dictionary) -> void:
+	_show_disc_popup(disc_id, entry)
+
+
+# ── Discovery popup ───────────────────────────────────────────────────────────
+
+func _show_disc_popup(disc_id: String, entry: Dictionary) -> void:
+	_close_disc_popup()
+	_disc_popup_disc_id = disc_id
+	var vp := get_viewport_rect().size
+	var tm := ThemeManager
+
+	# ── CanvasLayer ensures popup renders above ALL other UI ─────────────
+	_disc_popup_layer = CanvasLayer.new()
+	_disc_popup_layer.layer = 128  # well above default (0) and panel container
+	add_child(_disc_popup_layer)
+
+	# ── Dimmer ────────────────────────────────────────────────────────────
+	_disc_popup_dimmer = ColorRect.new()
+	_disc_popup_dimmer.size      = vp
+	_disc_popup_dimmer.position  = Vector2.ZERO
+	_disc_popup_dimmer.color     = Color(0, 0, 0, 0)
+	_disc_popup_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	_disc_popup_dimmer.gui_input.connect(_on_disc_popup_dimmer_input)
+	_disc_popup_layer.add_child(_disc_popup_dimmer)
+
+	# ── Popup card ────────────────────────────────────────────────────────
+	var popup := PanelContainer.new()
+	popup.z_index   = 11
+	popup.custom_minimum_size = Vector2(320, 0)
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("border")
+	sb.set_border_width_all(1)
+	sb.border_color = tm.c("bark_stripe")
+	sb.border_width_top = 3
+	sb.set_corner_radius_all(16)
+	sb.content_margin_left   = 20
+	sb.content_margin_right  = 20
+	sb.content_margin_top    = 18
+	sb.content_margin_bottom = 20
+	popup.add_theme_stylebox_override("panel", sb)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	popup.add_child(vbox)
+
+	# ── Header row (name + X) ─────────────────────────────────────────────
+	var header_row := HBoxContainer.new()
+	vbox.add_child(header_row)
+
+	var name_lbl := Label.new()
+	name_lbl.text = str(entry.get("name", disc_id))
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.add_theme_font_size_override("font_size", 18)
+	name_lbl.add_theme_color_override("font_color", tm.c("accent"))
+	header_row.add_child(name_lbl)
+
+	var close_btn := Button.new()
+	close_btn.flat = true
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.custom_minimum_size = Vector2(32, 32)
+	close_btn.draw.connect(func():
+		var c: Color = tm.c("text_muted")
+		var cx2 := close_btn.size.x * 0.5
+		var cy2 := close_btn.size.y * 0.5
+		var r := 6.0
+		close_btn.draw_line(Vector2(cx2-r, cy2-r), Vector2(cx2+r, cy2+r), c, 1.5, true)
+		close_btn.draw_line(Vector2(cx2+r, cy2-r), Vector2(cx2-r, cy2+r), c, 1.5, true)
+	)
+	close_btn.pressed.connect(_close_disc_popup)
+	header_row.add_child(close_btn)
+
+	# ── Divider ───────────────────────────────────────────────────────────
+	var div := HSeparator.new()
+	var sb_div := StyleBoxFlat.new()
+	sb_div.bg_color = tm.c("border")
+	sb_div.content_margin_top = 0
+	sb_div.content_margin_bottom = 0
+	div.add_theme_stylebox_override("separator", sb_div)
+	vbox.add_child(div)
+
+	# ── Description ───────────────────────────────────────────────────────
+	var desc_lbl := Label.new()
+	desc_lbl.text = str(entry.get("effect_text", "No description available."))
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.add_theme_font_size_override("font_size", 14)
+	desc_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+	vbox.add_child(desc_lbl)
+
+	# ── Cost row ──────────────────────────────────────────────────────────
+	var complete: bool = bool(entry.get("complete", false))
+	var level: int     = int(entry.get("level", 0))
+	var max_level: int = int(entry.get("max_level", 1))
+
+	if complete and max_level <= 1:
+		var done_lbl := Label.new()
+		done_lbl.text = "✓ Already unlocked"
+		done_lbl.add_theme_font_size_override("font_size", 13)
+		done_lbl.add_theme_color_override("font_color", tm.c("accent"))
+		vbox.add_child(done_lbl)
+	else:
+		# Cost header
+		var cost_header := Label.new()
+		cost_header.text = "Cost" if level == 0 else "Cost (Lv %d → %d)" % [level, level + 1]
+		cost_header.add_theme_font_size_override("font_size", 12)
+		cost_header.add_theme_color_override("font_color", tm.c("text_muted"))
+		vbox.add_child(cost_header)
+
+		# Cost resource rows
+		var costs_v = game_state.call("get_discovery_costs_for_next_level", disc_id) if game_state != null else []
+		if typeof(costs_v) == TYPE_ARRAY:
+			var costs: Array = costs_v as Array
+			for cost_v in costs:
+				var cost: Dictionary = cost_v as Dictionary
+				var res_id: String  = str(cost.get("id", ""))
+				var qty: int        = int(cost.get("qty", 0))
+				var have: int       = int(game_state.call("get_amount", res_id)) if game_state != null else 0
+				var can_afford: bool = have >= qty
+
+				var cost_row := HBoxContainer.new()
+				cost_row.add_theme_constant_override("separation", 8)
+				vbox.add_child(cost_row)
+
+				# Colored dot
+				var dot_tex := _make_circle_texture(14, false)
+				var dot := TextureRect.new()
+				dot.texture = dot_tex
+				dot.modulate = _node_color_for_id(res_id)
+				dot.custom_minimum_size = Vector2(14, 14)
+				dot.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+				cost_row.add_child(dot)
+
+				# Resource name
+				var res_name := _pretty_res(res_id)
+				var res_lbl := Label.new()
+				res_lbl.text = res_name
+				res_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				res_lbl.add_theme_font_size_override("font_size", 13)
+				res_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+				cost_row.add_child(res_lbl)
+
+				# Amount (have / need)
+				var amt_lbl := Label.new()
+				amt_lbl.text = "%s / %s" % [_fmt_int(have), _fmt_int(qty)]
+				amt_lbl.add_theme_font_size_override("font_size", 13)
+				amt_lbl.add_theme_color_override("font_color",
+					tm.c("accent") if can_afford else tm.c("text_muted"))
+				cost_row.add_child(amt_lbl)
+
+	# ── Discover button ───────────────────────────────────────────────────
+	var can_buy: bool = bool(entry.get("can_buy", false))
+
+	if not complete or max_level > 1:
+		var disc_btn := Button.new()
+		disc_btn.text = "Discover" if level == 0 else "Upgrade"
+		disc_btn.disabled = not can_buy
+		disc_btn.focus_mode = Control.FOCUS_NONE
+		_theme_action_button(disc_btn)
+		disc_btn.pressed.connect(func():
+			_on_discovery_buy_pressed(disc_id)
+		)
+		vbox.add_child(disc_btn)
+
+	_disc_popup = popup
+	_disc_popup_layer.add_child(popup)
+
+	# Center popup after one frame (needs size to be computed)
+	await get_tree().process_frame
+	if is_instance_valid(popup):
+		popup.position = Vector2(
+			(vp.x - popup.size.x) * 0.5,
+			(vp.y - popup.size.y) * 0.5
+		)
+
+	# Fade in dimmer
+	var tw := create_tween()
+	tw.tween_property(_disc_popup_dimmer, "color:a", 0.55, 0.15)
+
+
+func _close_disc_popup() -> void:
+	if _disc_popup_layer != null and is_instance_valid(_disc_popup_layer):
+		_disc_popup_layer.queue_free()
+		_disc_popup_layer = null
+	_disc_popup        = null
+	_disc_popup_dimmer = null
+	_disc_popup_disc_id = ""
+
+
+func _on_disc_popup_dimmer_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+		_close_disc_popup()
+		get_viewport().set_input_as_handled()
+	elif event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed:
+		_close_disc_popup()
+		get_viewport().set_input_as_handled()
+
 
 
 func _on_discovery_buy_pressed(discovery_id: String) -> void:
@@ -1783,12 +2261,18 @@ func _on_discovery_buy_pressed(discovery_id: String) -> void:
 	if ok:
 		if _open_panel == refinery_panel:
 			_refresh_refinery_panel()
-
 		if _open_panel == digest_panel:
 			_refresh_digest_panel()
-
 		_last_refinery_inventory_signature = _get_refinery_inventory_signature()
 		_last_discovery_signature = _get_discovery_signature()
+
+		# Close popup — grid will have refreshed showing unlocked state
+		_close_disc_popup()
+	else:
+		# Purchase failed — update popup button state if open
+		if _disc_popup != null and is_instance_valid(_disc_popup) and _disc_popup_disc_id == discovery_id:
+			if discoveries_feedback != null:
+				discoveries_feedback.text = reason
 
 
 # ---------------- RefineryPanel ----------------
@@ -2945,6 +3429,7 @@ func _open(panel: Control) -> void:
 	if panel == digest_panel:
 		_refresh_digest_panel()
 	if panel == discoveries_panel:
+		_disc_reset_view()
 		_refresh_discoveries_panel()
 	if panel == refinery_panel:
 		_refresh_refinery_panel()
@@ -3014,6 +3499,9 @@ func _input(event: InputEvent) -> void:
 		if _open_panel == null:
 			_map_apply_zoom(event.factor, event.position)
 			get_viewport().set_input_as_handled()
+		elif _open_panel == discoveries_panel:
+			_disc_apply_zoom(event.factor, event.position)
+			get_viewport().set_input_as_handled()
 		return
 
 	# ── Scroll-wheel zoom (desktop / testing) ──────────────────────────────
@@ -3022,10 +3510,16 @@ func _input(event: InputEvent) -> void:
 			if _open_panel == null:
 				_map_apply_zoom(1.0 + MAP_ZOOM_STEP, event.position)
 				get_viewport().set_input_as_handled()
+			elif _open_panel == discoveries_panel:
+				_disc_apply_zoom(1.0 + DISC_ZOOM_STEP, event.position)
+				get_viewport().set_input_as_handled()
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			if _open_panel == null:
 				_map_apply_zoom(1.0 / (1.0 + MAP_ZOOM_STEP), event.position)
+				get_viewport().set_input_as_handled()
+			elif _open_panel == discoveries_panel:
+				_disc_apply_zoom(1.0 / (1.0 + DISC_ZOOM_STEP), event.position)
 				get_viewport().set_input_as_handled()
 			return
 
@@ -3053,7 +3547,30 @@ func _input(event: InputEvent) -> void:
 	# Now that event type is known: block pan/zoom/press-start when panel is open,
 	# but allow press-end through so a tap on a node can switch panels.
 	if _open_panel != null and _open_panel != node_panel:
-		if is_press_start or is_motion:
+		if _open_panel == discoveries_panel:
+			# Route drag to disc grid pan
+			if is_press_start:
+				var grid := _disc_get_grid()
+				if grid != null:
+					_disc_drag_start_screen = ev_pos
+					_disc_drag_start_pos    = grid.position
+					_disc_is_dragging       = true
+					_disc_drag_has_moved    = false
+				return
+			if is_motion and _disc_is_dragging:
+				var grid := _disc_get_grid()
+				if grid != null:
+					var delta := ev_pos - _disc_drag_start_screen
+					if delta.length() > MAP_PAN_THRESHOLD:
+						_disc_drag_has_moved = true
+					if _disc_drag_has_moved:
+						grid.position = _disc_drag_start_pos + delta
+						get_viewport().set_input_as_handled()
+				return
+			if is_press_end:
+				_disc_is_dragging = false
+				return
+		elif is_press_start or is_motion:
 			return
 
 	# Ignore taps that land in the bottom bar
@@ -3112,6 +3629,37 @@ func _map_apply_zoom(factor: float, screen_pivot: Vector2) -> void:
 	var pivot_local := (screen_pivot - map_layer.position) / old_zoom
 	map_layer.scale    = Vector2(_map_zoom, _map_zoom)
 	map_layer.position = screen_pivot - pivot_local * _map_zoom
+
+
+func _disc_get_grid() -> Control:
+	if discoveries_panel == null:
+		return null
+	return discoveries_panel.find_child("DiscoveryGrid", true, false) as Control
+
+
+func _disc_reset_view() -> void:
+	_disc_zoom = DISC_ZOOM_START
+	var grid := _disc_get_grid()
+	if grid == null:
+		return
+	grid.scale    = Vector2.ONE
+	grid.position = Vector2.ZERO
+
+
+func _disc_apply_zoom(factor: float, screen_pivot: Vector2) -> void:
+	var grid := _disc_get_grid()
+	if grid == null:
+		return
+	# Convert screen pivot to grid-local space
+	var panel_rect := _panel_container.get_global_rect() if _panel_container != null else Rect2()
+	var local_pivot := screen_pivot - panel_rect.position - grid.position
+	var old_zoom := _disc_zoom
+	_disc_zoom = clamp(_disc_zoom * factor, DISC_ZOOM_MIN, DISC_ZOOM_MAX)
+	if is_equal_approx(_disc_zoom, old_zoom):
+		return
+	var scale_ratio := _disc_zoom / old_zoom
+	grid.scale    = Vector2(_disc_zoom, _disc_zoom)
+	grid.position = screen_pivot - panel_rect.position - local_pivot * scale_ratio
 
 
 # ── Node tap selection (extracted from old _input) ────────────────────────────
