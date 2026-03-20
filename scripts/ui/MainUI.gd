@@ -1,19 +1,22 @@
 extends Control
 
-const PANEL_H := 864.0
-const PANEL_MARGIN := 8.0
+const PANEL_H_RATIO  := 0.68  # panel takes 68% of screen height
+const PANEL_MARGIN   := 8.0
+var   PANEL_H: float = 600.0  # set at runtime in _ready
 
-const NODE_HIT_RADIUS := 110.0
+const NODE_HIT_RADIUS := 36.0
 const UI_REFRESH_DT := 0.20
 
 const ROOT_PULSE_DOT_SIZE_PX := 10
 const ROOT_PULSE_GLOW_SIZE_PX := 24
 
-const ROOT_PULSE_IDLE_COLOR := Color(0.50, 0.62, 0.48, 0.80)
-const ROOT_PULSE_ACTIVE_COLOR := Color(0.88, 1.00, 0.70, 1.00)
+const ROOT_PULSE_IDLE_COLOR_DEFAULT   := Color(0.50, 0.62, 0.48, 0.80)
+const ROOT_PULSE_ACTIVE_COLOR_DEFAULT := Color(0.88, 1.00, 0.70, 1.00)
 
-const TRANSFER_TEXT_COLOR := Color(0.90, 1.00, 0.78, 1.00)
-const TRANSFER_TEXT_OUTLINE_COLOR := Color(0.11, 0.17, 0.10, 0.95)
+var ROOT_PULSE_IDLE_COLOR:   Color = ROOT_PULSE_IDLE_COLOR_DEFAULT
+var ROOT_PULSE_ACTIVE_COLOR: Color = ROOT_PULSE_ACTIVE_COLOR_DEFAULT
+var TRANSFER_TEXT_COLOR:        Color = Color(0.90, 1.00, 0.78, 1.00)
+var TRANSFER_TEXT_OUTLINE_COLOR:Color = Color(0.11, 0.17, 0.10, 0.95)
 const TRANSFER_FONT_SIZE := 26
 const TRANSFER_LIFT_PX := 40.0
 const TRANSFER_DURATION := 0.60
@@ -41,11 +44,12 @@ const MAP_PAN_THRESHOLD  := 8.0    # px moved before drag is considered a pan
 @onready var node_close: Button  = $PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/"Header row"/Close
 
 # Bottom buttons
-@onready var btn_upgrades: BaseButton    = $UILayer/HUD/BottomBar/MarginContainer/HBoxContainer/BtnUpgrades
-@onready var btn_discoveries: BaseButton = $UILayer/HUD/BottomBar/MarginContainer/HBoxContainer/BtnDiscoveries
-@onready var btn_refinery: BaseButton    = $UILayer/HUD/BottomBar/MarginContainer/HBoxContainer/BtnRefinery
-@onready var btn_digest: BaseButton      = $UILayer/HUD/BottomBar/MarginContainer/HBoxContainer/BtnDigest
-@onready var btn_settings: BaseButton    = $UILayer/HUD/BottomBar/MarginContainer/HBoxContainer/BtnSettings
+var btn_digest:      BaseButton = null
+var btn_refinery:    BaseButton = null
+var btn_discoveries: BaseButton = null
+var btn_enhancements:BaseButton = null
+var btn_prestige:    BaseButton = null
+var btn_settings:    BaseButton = null  # top-right, not in nav bar
 
 # Map nodes
 var nodes_container: Node = null
@@ -62,6 +66,7 @@ var lbl_strain: Label = null
 
 var _tween: Tween
 var _open_panel: Control = null
+var _panel_container: Control = null  # shared parent of all panels
 var _bar_h: float = 0.0
 
 var _node_list: Array = []
@@ -94,6 +99,20 @@ var digest_tab_solutions: Button = null
 var digest_inventory_list: VBoxContainer = null
 var digest_feedback: Label = null
 var _digest_active_category: String = "resource"
+
+# IPM-style digest interaction state
+var _digest_selected_id: String = ""
+var _digest_selected_value: float = 0.0
+var _digest_pct: float = 1.0
+var _digest_action_bar: Control = null
+var _digest_slider: HSlider = null
+var _digest_action_btn: Button = null
+var _digest_action_lbl: Label = null
+var _digest_row_refs: Dictionary = {}   # item_id -> row Control (for live updates)
+var _digest_hold_timer: float = 0.0
+var _digest_hold_id: String = ""
+var _digest_auto_ids: Dictionary = {}   # item_id -> bool
+var _digest_mode: String = "manual"     # "manual" or "auto"
 
 # Discoveries panel widgets
 var discoveries_list: VBoxContainer = null
@@ -174,11 +193,17 @@ func _ready() -> void:
 	set_process(true)
 
 	await get_tree().process_frame
-	_bar_h = bottom_bar.size.y
+	_bar_h  = bottom_bar.size.y
+	PANEL_H = get_viewport_rect().size.y * PANEL_H_RATIO
 
 	game_state = get_node_or_null("/root/GameState")
 	if game_state == null:
 		push_warning("GameState autoload not found at /root/GameState.")
+
+	# Apply theme before building any UI
+	_apply_theme()
+	if ThemeManager.theme_changed.connect(_on_theme_changed) != OK:
+		push_warning("MainUI: could not connect to ThemeManager.theme_changed")
 
 	_bind_currency_labels()
 
@@ -202,6 +227,23 @@ func _ready() -> void:
 	if not dimmer.gui_input.is_connected(_on_dimmer_gui_input):
 		dimmer.gui_input.connect(_on_dimmer_gui_input)
 
+	# Store the shared panel container.
+	# top_level = true detaches it from the parent layout so size/position
+	# are relative to the viewport root, not the parent Control.
+	_panel_container = digest_panel.get_parent() as Control
+	if _panel_container != null:
+		var vp := get_viewport_rect().size
+		_panel_container.top_level = true
+		_panel_container.size     = Vector2(vp.x, PANEL_H)
+		_panel_container.position = Vector2(0.0, vp.y)
+		await get_tree().process_frame
+
+	# Each panel must exactly fill the container — set position and size explicitly
+	for p in _all_panels():
+		p.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		p.position = Vector2.ZERO
+		p.size     = Vector2(_panel_container.size.x, _panel_container.size.y)
+
 	# Panels start hidden/closed
 	for p in _all_panels():
 		p.visible = false
@@ -209,11 +251,8 @@ func _ready() -> void:
 		_set_panel_closed(p)
 
 	# Wire bottom buttons
-	btn_upgrades.pressed.connect(func(): _toggle_panel(upgrades_panel))
-	btn_discoveries.pressed.connect(func(): _toggle_panel(discoveries_panel))
-	btn_refinery.pressed.connect(func(): _toggle_panel(refinery_panel))
-	btn_digest.pressed.connect(func(): _toggle_panel(digest_panel))
-	btn_settings.pressed.connect(func(): _toggle_panel(settings_panel))
+	_build_nav_bar()
+	_build_settings_button()
 
 	node_close.pressed.connect(_close_current)
 
@@ -232,12 +271,498 @@ func _ready() -> void:
 	_refresh_currency_ui()
 	get_tree().root.print_tree_pretty()
 
+
+# ── Theme ─────────────────────────────────────────────────────────────────────
+
+func _on_theme_changed(_theme_id: String) -> void:
+	_apply_theme()
+	_refresh_all_panels()
+
+
+func _apply_theme() -> void:
+	var tm := ThemeManager
+
+	# ── Runtime color vars (used by pulse and transfer fx) ────────────────
+	ROOT_PULSE_IDLE_COLOR   = Color(tm.c("accent_dim").r, tm.c("accent_dim").g, tm.c("accent_dim").b, 0.80)
+	ROOT_PULSE_ACTIVE_COLOR = Color(tm.c("accent").r,     tm.c("accent").g,     tm.c("accent").b,     1.00)
+	TRANSFER_TEXT_COLOR         = tm.c("text_primary")
+	TRANSFER_TEXT_OUTLINE_COLOR = tm.c("bg_deep")
+
+	# ── Panel container background ────────────────────────────────────────
+	var panel_container: Control = get_node_or_null("PanelHost/PanelContainer")
+	if panel_container != null:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color    = tm.c("bg_deep")
+		sb.border_color = tm.c("border")
+		sb.set_border_width_all(1)
+		sb.set_corner_radius_all(14)
+		panel_container.add_theme_stylebox_override("panel", sb)
+
+	# ── Bottom bar ────────────────────────────────────────────────────────
+	var bar: Control = get_node_or_null("UILayer/HUD/BottomBar")
+	if bar != null:
+		var sb2 := StyleBoxFlat.new()
+		sb2.bg_color = tm.c("nav_bg")
+		sb2.border_color = tm.c("border")
+		sb2.border_width_top = 1
+		bar.add_theme_stylebox_override("panel", sb2)
+
+	# ── Currency labels ───────────────────────────────────────────────────
+	for lbl_node in [lbl_nutrients, lbl_glowcaps, lbl_strain]:
+		if lbl_node != null:
+			(lbl_node as Label).add_theme_color_override("font_color", tm.c("text_primary"))
+
+	# ── Node cost labels ─────────────────────────────────────────────────
+	for node_id_variant in _node_cost_labels.keys():
+		var cost_lbl: Label = _node_cost_labels[node_id_variant] as Label
+		if is_instance_valid(cost_lbl):
+			cost_lbl.add_theme_color_override("font_color", tm.c("accent"))
+			cost_lbl.add_theme_color_override("font_outline_color", tm.c("bg_deep"))
+
+	# ── Nav bar (redraw icons + restyle bar) ─────────────────────────────
+	_apply_nav_theme()
+
+	# ── Panel interiors ───────────────────────────────────────────────────
+	_theme_panels()
+
+	# ── NodePanel ─────────────────────────────────────────────────────────
+	if node_panel != null:
+		_theme_nodepanel()
+
+	# ── Upgrade rows ──────────────────────────────────────────────────────
+	_theme_upgrade_rows()
+
+
+func _theme_panels() -> void:
+	_theme_panel_shell(digest_panel)
+	_theme_panel_shell(discoveries_panel)
+	_theme_panel_shell(refinery_panel)
+	_theme_panel_shell(settings_panel)
+	_theme_panel_shell(node_panel)
+	_theme_digest_panel()
+	_theme_settings_panel()
+
+
+# ── Shared: style a panel's PanelContainer / outer shell ─────────────────────
+func _theme_panel_shell(panel: Control) -> void:
+	if panel == null:
+		return
+	var tm := ThemeManager
+
+	# Outer PanelContainer
+	var sb_outer := StyleBoxFlat.new()
+	sb_outer.bg_color      = tm.c("bg_deep")
+	sb_outer.border_color  = tm.c("border")
+	sb_outer.set_border_width_all(1)
+	sb_outer.corner_radius_top_left  = 14
+	sb_outer.corner_radius_top_right = 14
+	panel.add_theme_stylebox_override("panel", sb_outer)
+
+	# Bark stripe — draw as a thin colored rect at the top edge
+	# We simulate this by adding a top border in a contrasting color
+	var sb_bark := StyleBoxFlat.new()
+	sb_bark.bg_color     = tm.c("bg_deep")
+	sb_bark.border_color = tm.c("bark_stripe")
+	sb_bark.border_width_top  = 3
+	sb_bark.border_width_bottom = 0
+	sb_bark.border_width_left   = 0
+	sb_bark.border_width_right  = 0
+	sb_bark.corner_radius_top_left  = 14
+	sb_bark.corner_radius_top_right = 14
+
+	# Style all Labels inside the panel
+	for lbl in _find_all_type(panel, "Label"):
+		var l := lbl as Label
+		if l.get_meta("theme_exempt", false):
+			continue
+		l.add_theme_color_override("font_color", tm.c("text_secondary"))
+
+	# Style buttons (non-tab, non-nav)
+	for btn_node in _find_all_type(panel, "Button"):
+		var b := btn_node as Button
+		if b.get_meta("theme_exempt", false):
+			continue
+		_theme_action_button(b)
+
+
+func _theme_action_button(btn: Button) -> void:
+	var tm := ThemeManager
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("btn_bg")
+	sb.border_color = tm.c("btn_border")
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(8)
+	btn.add_theme_stylebox_override("normal", sb)
+	var sb_hov := sb.duplicate() as StyleBoxFlat
+	sb_hov.bg_color = tm.c("accent_glow")
+	btn.add_theme_stylebox_override("hover", sb_hov)
+	btn.add_theme_stylebox_override("pressed", sb_hov)
+	btn.add_theme_color_override("font_color",          tm.c("accent"))
+	btn.add_theme_color_override("font_disabled_color", tm.c("text_muted"))
+
+
+func _theme_tab_button(btn: Button, active: bool) -> void:
+	var tm := ThemeManager
+	var sb := StyleBoxFlat.new()
+	if active:
+		sb.bg_color     = tm.c("tab_active_bg")
+		sb.border_color = tm.c("accent_border")
+		sb.border_width_bottom = 2
+	else:
+		sb.bg_color     = Color(0, 0, 0, 0)
+		sb.border_color = tm.c("border")
+		sb.set_border_width_all(0)
+	sb.set_corner_radius_all(6)
+	btn.add_theme_stylebox_override("normal",  sb)
+	btn.add_theme_stylebox_override("hover",   sb)
+	btn.add_theme_stylebox_override("pressed", sb)
+	btn.add_theme_color_override("font_color", tm.c("accent") if active else tm.c("text_muted"))
+	btn.add_theme_color_override("font_disabled_color", tm.c("text_muted"))
+
+
+func _theme_digest_panel() -> void:
+	if digest_tab_resources == null:
+		return
+	var active := _digest_active_category
+	_theme_tab_button(digest_tab_resources, active == "resource")
+	_theme_tab_button(digest_tab_compounds, active == "compound")
+	_theme_tab_button(digest_tab_solutions, active == "solution")
+	if digest_feedback != null:
+		digest_feedback.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
+
+
+func _theme_settings_panel() -> void:
+	var tm := ThemeManager
+	# Settings buttons are already styled by _theme_panel_shell → _theme_action_button
+	# Just make the feedback label use muted color
+	if settings_feedback != null:
+		settings_feedback.add_theme_color_override("font_color", tm.c("text_muted"))
+
+
+# ── Utility: recursively find all nodes of a given class name ─────────────────
+func _find_all_type(root: Node, class_name_str: String) -> Array:
+	var result: Array = []
+	for child in root.get_children():
+		if child.get_class() == class_name_str:
+			result.append(child)
+		result.append_array(_find_all_type(child, class_name_str))
+	return result
+
+
+func _theme_nodepanel() -> void:
+	var tm := ThemeManager
+	if node_title != null:
+		node_title.add_theme_color_override("font_color", tm.c("accent"))
+	# Header row background
+	var header_row: Control = node_panel.find_child("Header row", true, false) as Control
+	if header_row != null:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = tm.c("bg_panel")
+		header_row.add_theme_stylebox_override("panel", sb)
+
+
+func _theme_upgrade_rows() -> void:
+	var tm := ThemeManager
+	for row_ref in [row_yield, row_frequency, row_travel, row_carry]:
+		if row_ref == null:
+			continue
+		# Label colors
+		for child in (row_ref as Control).get_children():
+			if child is Label:
+				(child as Label).add_theme_color_override("font_color", tm.c("text_secondary"))
+		# Button style
+		var btn: Button = (row_ref as Control).find_child("BtnUpgrade", true, false) as Button
+		if btn != null:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color     = tm.c("btn_bg")
+			sb.border_color = tm.c("btn_border")
+			sb.set_border_width_all(1)
+			sb.set_corner_radius_all(8)
+			btn.add_theme_stylebox_override("normal", sb)
+			btn.add_theme_color_override("font_color", tm.c("accent"))
+
+
+func _refresh_all_panels() -> void:
+	if _open_panel == digest_panel:      _refresh_digest_panel()
+	if _open_panel == discoveries_panel: _refresh_discoveries_panel()
+	if _open_panel == refinery_panel:    _refresh_refinery_panel()
+	if _open_panel == settings_panel:    _refresh_settings_panel()
+	if _open_panel == node_panel:        _refresh_nodepanel_all()
+
+
+# ── Nav bar ───────────────────────────────────────────────────────────────────
+
+# SVG icon paths for each button (24×24 viewBox, stroke-based)
+const _NAV_ICONS := {
+	"digest": "M6 3h12M9 3l-2 6H5l2 6h10l2-6h-4L13 3 M12 17 a2 2 0 1 0 0.001 0",
+	"refinery": "M8 8h8v8H8z M12 3v5 M12 16v5 M3 12h5 M16 12h5 M6 6l2 2 M16 16l2 2 M6 18l2-2 M16 8l2-2",
+	"discoveries": "M12 4 a2 2 0 1 0 0.001 0 M6 12 a1.5 1.5 0 1 0 0.001 0 M18 12 a1.5 1.5 0 1 0 0.001 0 M4 19 a1.5 1.5 0 1 0 0.001 0 M20 19 a1.5 1.5 0 1 0 0.001 0 M10 19 a1.5 1.5 0 1 0 0.001 0 M12 6v4l-6 2 M12 10l6 2 M6 13.5L4 17.5 M6 13.5l4 4 M18 13.5l2 4",
+	"enhancements": "M12 2l3 5h4l-2.5 4 1.5 6L12 14l-6 3 1.5-6L5 7h4z M19 3l1 1 M20 7l1-1 M22 5h-1",
+	"prestige": "M12 3 a9 9 0 1 0 0.001 0 M8 14l4-5 4 5 M8 18l4-5 4 5",
+}
+
+const _NAV_BUTTONS := ["digest", "refinery", "discoveries", "enhancements", "prestige"]
+
+
+func _build_nav_bar() -> void:
+	# Find or use the existing BottomBar container
+	var bar: Control = bottom_bar
+	if bar == null:
+		push_warning("NavBar: BottomBar not found")
+		return
+
+	# Clear any old children from scene
+	for child in bar.get_children():
+		child.free()
+
+	# HBoxContainer fills the bar
+	var hbox := HBoxContainer.new()
+	hbox.name = "NavHBox"
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_theme_constant_override("separation", 0)
+	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bar.add_child(hbox)
+
+	var panels := [digest_panel, refinery_panel, discoveries_panel, null, null]
+
+	for i in range(_NAV_BUTTONS.size()):
+		var key: String = _NAV_BUTTONS[i]
+		var panel: Control = panels[i]
+
+		var btn := Button.new()
+		btn.name = "NavBtn_" + key
+		btn.flat = true
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.custom_minimum_size = Vector2(0, 56)
+		btn.focus_mode = Control.FOCUS_NONE
+
+		# Draw icon via canvas_item draw
+		var icon_path: String = _NAV_ICONS.get(key, "")
+		btn.set_meta("nav_icon", icon_path)
+		btn.set_meta("nav_key", key)
+		btn.draw.connect(_draw_nav_icon.bind(btn))
+		btn.queue_redraw()
+
+		_style_nav_button(btn, false)
+
+		if panel != null:
+			btn.pressed.connect(func(): _on_nav_pressed(btn, panel))
+		else:
+			btn.disabled = true
+			btn.modulate.a = 0.3
+
+		hbox.add_child(btn)
+
+		# Store reference
+		match key:
+			"digest":       btn_digest       = btn
+			"refinery":     btn_refinery     = btn
+			"discoveries":  btn_discoveries  = btn
+			"enhancements": btn_enhancements = btn
+			"prestige":     btn_prestige     = btn
+
+	_apply_nav_theme()
+
+
+func _build_settings_button() -> void:
+	var hud: Control = get_node_or_null("UILayer/HUD")
+	if hud == null:
+		return
+
+	# Remove old settings button if it somehow exists
+	var old := hud.get_node_or_null("SettingsBtn")
+	if old != null:
+		old.free()
+
+	var btn := Button.new()
+	btn.name = "SettingsBtn"
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size = Vector2(40, 40)
+
+	# Anchor to top-right
+	btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	btn.offset_left   = -52
+	btn.offset_top    = 12
+	btn.offset_right  = -12
+	btn.offset_bottom = 52
+
+	btn.draw.connect(func():
+		btn.set_meta("nav_key", "settings")
+		_draw_icon_by_key(btn, "settings",
+			btn.size.x * 0.5, btn.size.y * 0.5,
+			18.0 / 24.0, ThemeManager.c("accent_dim"))
+	)
+	btn.queue_redraw()
+	btn.pressed.connect(func(): _toggle_panel(settings_panel))
+	btn_settings = btn
+	hud.add_child(btn)
+
+
+func _draw_nav_icon(btn: Button) -> void:
+	var key: String = str(btn.get_meta("nav_key", ""))
+	if key.is_empty():
+		return
+	var is_active := (_open_panel != null and (
+		(key == "digest"       and _open_panel == digest_panel) or
+		(key == "refinery"     and _open_panel == refinery_panel) or
+		(key == "discoveries"  and _open_panel == discoveries_panel)
+	))
+	var col: Color = ThemeManager.c("accent") if is_active else ThemeManager.c("accent_dim")
+	var cx: float  = btn.size.x * 0.5
+	var cy: float  = btn.size.y * 0.48  # slightly above center to leave room for dot
+	_draw_icon_by_key(btn, key, cx, cy, 22.0 / 24.0, col)
+
+	# Active dot below icon
+	if is_active:
+		btn.draw_circle(Vector2(btn.size.x * 0.5, btn.size.y - 7.0), 2.5, ThemeManager.c("accent"))
+
+
+func _draw_single_icon(ctrl: Control, _path: String, col: Color, icon_size: float) -> void:
+	var key: String = str(ctrl.get_meta("nav_key", "settings"))
+	var cx: float = ctrl.size.x * 0.5
+	var cy: float = ctrl.size.y * 0.5
+	_draw_icon_by_key(ctrl, key, cx, cy, icon_size / 24.0, col)
+
+
+func _draw_icon_by_key(ctrl: Control, key: String, cx: float, cy: float, s: float, col: Color) -> void:
+	var w := 1.5
+
+	match key:
+		"digest":
+			# Funnel top bar
+			ctrl.draw_line(Vector2(cx - 6*s, cy - 5*s), Vector2(cx + 6*s, cy - 5*s), col, w, true)
+			# Left funnel side
+			ctrl.draw_line(Vector2(cx - 6*s, cy - 5*s), Vector2(cx - 2.5*s, cy + 1*s), col, w, true)
+			# Right funnel side
+			ctrl.draw_line(Vector2(cx + 6*s, cy - 5*s), Vector2(cx + 2.5*s, cy + 1*s), col, w, true)
+			# Bottom stem lines
+			ctrl.draw_line(Vector2(cx - 2.5*s, cy + 1*s), Vector2(cx - 2.5*s, cy + 4*s), col, w, true)
+			ctrl.draw_line(Vector2(cx + 2.5*s, cy + 1*s), Vector2(cx + 2.5*s, cy + 4*s), col, w, true)
+			# Drop dot
+			ctrl.draw_circle(Vector2(cx, cy + 6*s), 1.8*s, col)
+
+		"refinery":
+			# Center square
+			ctrl.draw_rect(Rect2(cx - 3*s, cy - 3*s, 6*s, 6*s), col, false, w)
+			# Cardinal spokes
+			ctrl.draw_line(Vector2(cx,        cy - 8*s), Vector2(cx,        cy - 3*s), col, w, true)
+			ctrl.draw_line(Vector2(cx,        cy + 3*s), Vector2(cx,        cy + 8*s), col, w, true)
+			ctrl.draw_line(Vector2(cx - 8*s,  cy),       Vector2(cx - 3*s,  cy),       col, w, true)
+			ctrl.draw_line(Vector2(cx + 3*s,  cy),       Vector2(cx + 8*s,  cy),       col, w, true)
+			# Diagonal ticks
+			ctrl.draw_line(Vector2(cx - 7*s,  cy - 7*s), Vector2(cx - 5*s,  cy - 5*s), col, w, true)
+			ctrl.draw_line(Vector2(cx + 5*s,  cy + 5*s), Vector2(cx + 7*s,  cy + 7*s), col, w, true)
+			ctrl.draw_line(Vector2(cx - 7*s,  cy + 7*s), Vector2(cx - 5*s,  cy + 5*s), col, w, true)
+			ctrl.draw_line(Vector2(cx + 5*s,  cy - 5*s), Vector2(cx + 7*s,  cy - 7*s), col, w, true)
+
+		"discoveries":
+			# Root node (top center)
+			ctrl.draw_circle(Vector2(cx,        cy - 7*s), 2*s, col)
+			# Mid nodes
+			ctrl.draw_circle(Vector2(cx - 5*s,  cy),       1.5*s, col)
+			ctrl.draw_circle(Vector2(cx + 5*s,  cy),       1.5*s, col)
+			# Leaf nodes
+			ctrl.draw_circle(Vector2(cx - 7*s,  cy + 6*s), 1.5*s, col)
+			ctrl.draw_circle(Vector2(cx + 7*s,  cy + 6*s), 1.5*s, col)
+			ctrl.draw_circle(Vector2(cx,         cy + 7*s), 1.5*s, col)
+			# Branches
+			ctrl.draw_line(Vector2(cx,        cy - 5*s), Vector2(cx - 4*s,  cy - 1.5*s), col, w, true)
+			ctrl.draw_line(Vector2(cx,        cy - 5*s), Vector2(cx + 4*s,  cy - 1.5*s), col, w, true)
+			ctrl.draw_line(Vector2(cx - 5*s,  cy + 1.5*s), Vector2(cx - 6*s,  cy + 4.5*s), col, w, true)
+			ctrl.draw_line(Vector2(cx - 5*s,  cy + 1.5*s), Vector2(cx - 0.5*s, cy + 5.5*s), col, w, true)
+			ctrl.draw_line(Vector2(cx + 5*s,  cy + 1.5*s), Vector2(cx + 6*s,  cy + 4.5*s), col, w, true)
+
+		"enhancements":
+			# Gem shape
+			var pts: PackedVector2Array = PackedVector2Array([
+				Vector2(cx,        cy - 8*s),
+				Vector2(cx + 4*s,  cy - 3*s),
+				Vector2(cx + 6*s,  cy + 2*s),
+				Vector2(cx,        cy + 8*s),
+				Vector2(cx - 6*s,  cy + 2*s),
+				Vector2(cx - 4*s,  cy - 3*s),
+				Vector2(cx,        cy - 8*s),
+			])
+			ctrl.draw_polyline(pts, col, w, true)
+			# Sparkle lines
+			ctrl.draw_line(Vector2(cx + 6*s,  cy - 7*s), Vector2(cx + 7.5*s, cy - 5.5*s), col, 1.2, true)
+			ctrl.draw_line(Vector2(cx + 7.5*s,cy - 7.5*s),Vector2(cx + 9*s, cy - 7.5*s), col, 1.2, true)
+			ctrl.draw_line(Vector2(cx + 9*s,  cy - 5.5*s),Vector2(cx + 7.5*s,cy - 4.5*s),col, 1.2, true)
+
+		"prestige":
+			# Outer circle
+			ctrl.draw_arc(Vector2(cx, cy), 8*s, 0, TAU, 48, col, w, true)
+			# Double chevron up
+			ctrl.draw_line(Vector2(cx - 3.5*s, cy + 3.5*s), Vector2(cx,        cy - 1.5*s), col, w, true)
+			ctrl.draw_line(Vector2(cx,          cy - 1.5*s), Vector2(cx + 3.5*s, cy + 3.5*s), col, w, true)
+			ctrl.draw_line(Vector2(cx - 3.5*s, cy + 7*s),   Vector2(cx,        cy + 2*s),   col, w, true)
+			ctrl.draw_line(Vector2(cx,          cy + 2*s),   Vector2(cx + 3.5*s, cy + 7*s),  col, w, true)
+
+		"settings", _:
+			# Gear — outer ring
+			ctrl.draw_arc(Vector2(cx, cy), 8*s, 0, TAU, 48, col, w, true)
+			# Inner circle
+			ctrl.draw_arc(Vector2(cx, cy), 3*s, 0, TAU, 24, col, w, true)
+			# 8 gear teeth
+			for i in range(8):
+				var angle := float(i) * TAU / 8.0
+				var inner := Vector2(cos(angle), sin(angle)) * 8*s
+				var outer_v := Vector2(cos(angle), sin(angle)) * 10.5*s
+				ctrl.draw_line(Vector2(cx, cy) + inner, Vector2(cx, cy) + outer_v, col, w, true)
+
+
+func _style_nav_button(btn: Button, _active: bool) -> void:
+	var sb_normal := StyleBoxFlat.new()
+	sb_normal.bg_color = Color(0, 0, 0, 0)
+	sb_normal.set_border_width_all(0)
+	btn.add_theme_stylebox_override("normal", sb_normal)
+	btn.add_theme_stylebox_override("hover",  sb_normal)
+	btn.add_theme_stylebox_override("pressed", sb_normal)
+	btn.add_theme_stylebox_override("focus",  sb_normal)
+
+
+func _on_nav_pressed(_btn: Button, panel: Control) -> void:
+	_toggle_panel(panel)
+	# Redraw all nav buttons to update active state
+	_redraw_nav_buttons()
+
+
+func _redraw_nav_buttons() -> void:
+	var hbox: HBoxContainer = bottom_bar.get_node_or_null("NavHBox") as HBoxContainer
+	if hbox == null:
+		return
+	for child in hbox.get_children():
+		if child is Button:
+			child.queue_redraw()
+
+
+func _apply_nav_theme() -> void:
+	# Style the bottom bar itself
+	var bar: Control = bottom_bar
+	if bar != null:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color      = ThemeManager.c("nav_bg")
+		sb.border_color  = ThemeManager.c("border")
+		sb.border_width_top = 1
+		bar.add_theme_stylebox_override("panel", sb)
+	_redraw_nav_buttons()
+
+
 func _process(dt: float) -> void:
 	if selection_ring.visible and _selected_node != null:
 		selection_ring.global_position = _selected_node.global_position
 
 	_update_root_pulse_visuals()
 	_poll_root_transfer_feedback()
+
+	# Hold-to-auto-digest timer
+	if _digest_hold_id != "":
+		_digest_hold_timer += dt
+		if _digest_hold_timer >= 0.6:
+			_select_digest_row(_digest_hold_id, "auto")
+			_digest_hold_id    = ""
+			_digest_hold_timer = 0.0
 
 	_ui_accum += dt
 	if _ui_accum >= UI_REFRESH_DT:
@@ -250,14 +775,15 @@ func _process(dt: float) -> void:
 			_refresh_nodepanel_all()
 
 		if _open_panel == digest_panel:
-			_refresh_digest_panel()
+			_update_digest_live_values()
+			if _digest_selected_id != "": _update_digest_action_bar()
 
 	var new_signature := _get_refinery_inventory_signature()
 	if new_signature != _last_refinery_inventory_signature:
 		_last_refinery_inventory_signature = new_signature
 
 		if _open_panel == digest_panel:
-			_refresh_digest_panel()
+			_refresh_digest_panel()  # inventory changed, full rebuild needed
 
 		if _open_panel == refinery_panel:
 			_refresh_refinery_panel()
@@ -532,62 +1058,152 @@ func _spawn_transfer_popup(world_pos: Vector2, _text: String, node_id: String, a
 # ---------------- DigestPanel ----------------
 
 func _bind_digest_panel() -> void:
+	# Wipe the old scene content — we build everything in code
 	var root_box: VBoxContainer = digest_panel.find_child("VBoxContainer", true, false) as VBoxContainer
 	if root_box == null:
 		return
+	for child in root_box.get_children():
+		child.queue_free()
 
-	var title_lbl: Label = digest_panel.find_child("LblDigestTitle", true, false) as Label
-	digest_lbl_selected = digest_panel.find_child("LblDigestSelected", true, false) as Label
-	digest_btn_1 = digest_panel.find_child("BtnDigest1", true, false) as Button
-	digest_btn_all = digest_panel.find_child("BtnDigestAll", true, false) as Button
+	# ── Panel header ──────────────────────────────────────────────────────
+	var header := Label.new()
+	header.text = "Digest"
+	header.add_theme_font_size_override("font_size", 16)
+	header.add_theme_color_override("font_color", ThemeManager.c("accent"))
+	root_box.add_child(header)
 
-	if title_lbl != null:
-		title_lbl.text = "Digest Inventory"
-	if digest_lbl_selected != null:
-		digest_lbl_selected.visible = false
-	if digest_btn_1 != null:
-		digest_btn_1.visible = false
-	if digest_btn_all != null:
-		digest_btn_all.visible = false
-
+	# ── Tab row ───────────────────────────────────────────────────────────
 	digest_tabs_row = HBoxContainer.new()
-	digest_tabs_row.name = "DigestTabsRow"
-	digest_tabs_row.add_theme_constant_override("separation", 8)
+	digest_tabs_row.add_theme_constant_override("separation", 4)
 	root_box.add_child(digest_tabs_row)
-	root_box.move_child(digest_tabs_row, root_box.get_child_count() - 1)
 
-	digest_tab_resources = Button.new()
-	digest_tab_resources.text = "Resources"
-	digest_tab_resources.pressed.connect(func(): _set_digest_active_category("resource"))
+	digest_tab_resources = _make_digest_tab("Raw",       func(): _set_digest_active_category("resource"))
+	digest_tab_compounds = _make_digest_tab("Compounds", func(): _set_digest_active_category("compound"))
+	digest_tab_solutions = _make_digest_tab("Solutions", func(): _set_digest_active_category("solution"))
 	digest_tabs_row.add_child(digest_tab_resources)
-
-	digest_tab_compounds = Button.new()
-	digest_tab_compounds.text = "Compounds"
-	digest_tab_compounds.pressed.connect(func(): _set_digest_active_category("compound"))
 	digest_tabs_row.add_child(digest_tab_compounds)
-
-	digest_tab_solutions = Button.new()
-	digest_tab_solutions.text = "Solutions"
-	digest_tab_solutions.pressed.connect(func(): _set_digest_active_category("solution"))
 	digest_tabs_row.add_child(digest_tab_solutions)
 
-	digest_feedback = Label.new()
-	digest_feedback.name = "DigestFeedback"
-	digest_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	digest_feedback.text = ""
-	root_box.add_child(digest_feedback)
+	# ── Scrollable resource list ──────────────────────────────────────────
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	# Cap scroll height so action bar always has room at bottom (~120px for bar)
+	scroll.custom_minimum_size = Vector2(0, 80)
+	scroll.size_flags_stretch_ratio = 1.0
+	root_box.add_child(scroll)
 
 	digest_inventory_list = VBoxContainer.new()
-	digest_inventory_list.name = "DigestInventoryList"
 	digest_inventory_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	digest_inventory_list.add_theme_constant_override("separation", 6)
-	root_box.add_child(digest_inventory_list)
+	digest_inventory_list.add_theme_constant_override("separation", 4)
+	scroll.add_child(digest_inventory_list)
+
+	# ── Action bar (hidden until row selected) ────────────────────────────
+	_digest_action_bar = _build_digest_action_bar(root_box)
+	_digest_action_bar.visible = false
+
+	# ── Feedback label ────────────────────────────────────────────────────
+	digest_feedback = Label.new()
+	digest_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	digest_feedback.add_theme_font_size_override("font_size", 12)
+	digest_feedback.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
+	root_box.add_child(digest_feedback)
 
 	_set_digest_active_category("resource")
 
 
+func _make_digest_tab(label: String, callback: Callable) -> Button:
+	var btn := Button.new()
+	btn.text = label
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.pressed.connect(callback)
+	return btn
+
+
+func _build_digest_action_bar(parent: VBoxContainer) -> Control:
+	# Outer bar — PanelContainer for background
+	var bar := PanelContainer.new()
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.size_flags_vertical   = Control.SIZE_SHRINK_END
+	bar.custom_minimum_size   = Vector2(0, 110)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = ThemeManager.c("bg_panel")
+	sb.border_color = ThemeManager.c("border")
+	sb.border_width_top = 2
+	sb.border_color = ThemeManager.c("bark_stripe")
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left   = 12
+	sb.content_margin_right  = 12
+	sb.content_margin_top    = 10
+	sb.content_margin_bottom = 10
+	bar.add_theme_stylebox_override("panel", sb)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	bar.add_child(vbox)
+
+	# ── Mode label (resource name + tap/hold hint) ────────────────────────
+	_digest_action_lbl = Label.new()
+	_digest_action_lbl.name = "ActionLbl"
+	_digest_action_lbl.add_theme_font_size_override("font_size", 13)
+	_digest_action_lbl.add_theme_color_override("font_color", ThemeManager.c("text_primary"))
+	vbox.add_child(_digest_action_lbl)
+
+	# ── Main row: [Slider] [Amount+Value VBox] [Digest btn] ───────────────
+	var main_row := HBoxContainer.new()
+	main_row.add_theme_constant_override("separation", 10)
+	vbox.add_child(main_row)
+
+	# Slider — takes most of the width
+	_digest_slider = HSlider.new()
+	_digest_slider.name = "DigestSlider"
+	_digest_slider.min_value = 0.0
+	_digest_slider.max_value = 1.0
+	_digest_slider.step = 0.01
+	_digest_slider.value = 1.0
+	_digest_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_digest_slider.custom_minimum_size = Vector2(0, 28)
+	_digest_slider.value_changed.connect(_on_digest_slider_changed)
+	main_row.add_child(_digest_slider)
+
+	# Right column: amount on top, value below
+	var right_col := VBoxContainer.new()
+	right_col.add_theme_constant_override("separation", 2)
+	right_col.custom_minimum_size = Vector2(80, 0)
+	main_row.add_child(right_col)
+
+	var lbl_amount := Label.new()
+	lbl_amount.name = "LblSelectedAmt"
+	lbl_amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lbl_amount.add_theme_font_size_override("font_size", 13)
+	lbl_amount.add_theme_color_override("font_color", ThemeManager.c("accent"))
+	right_col.add_child(lbl_amount)
+
+	var lbl_value := Label.new()
+	lbl_value.name = "LblSelectedVal"
+	lbl_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lbl_value.add_theme_font_size_override("font_size", 11)
+	lbl_value.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
+	right_col.add_child(lbl_value)
+
+	# Digest button — right of the right column
+	_digest_action_btn = Button.new()
+	_digest_action_btn.name = "DigestBtn"
+	_digest_action_btn.text = "Digest"
+	_digest_action_btn.custom_minimum_size = Vector2(72, 0)
+	_digest_action_btn.pressed.connect(_on_digest_action_pressed)
+	_theme_action_button(_digest_action_btn)
+	main_row.add_child(_digest_action_btn)
+
+	parent.add_child(bar)
+	return bar
+
+
 func _set_digest_active_category(category: String) -> void:
 	_digest_active_category = category
+	_digest_selected_id = ""
+	if _digest_action_bar != null:
+		_digest_action_bar.visible = false
 	_refresh_digest_panel()
 
 
@@ -596,20 +1212,20 @@ func _clear_digest_rows() -> void:
 		return
 	for child in digest_inventory_list.get_children():
 		child.queue_free()
+	_digest_row_refs.clear()
 
 
 func _refresh_digest_tab_buttons() -> void:
-	if digest_tab_resources == null or digest_tab_compounds == null or digest_tab_solutions == null:
+	if digest_tab_resources == null:
 		return
-	var compounds_unlocked: bool = false
-	var solutions_unlocked: bool = false
+	var compounds_unlocked := false
+	var solutions_unlocked := false
 	if game_state != null:
 		if game_state.has_method("is_refinery_unlocked"):
 			compounds_unlocked = bool(game_state.call("is_refinery_unlocked"))
 		if game_state.has_method("is_synth_unlocked"):
 			solutions_unlocked = bool(game_state.call("is_synth_unlocked"))
 
-	digest_tab_resources.disabled = false
 	digest_tab_compounds.disabled = not compounds_unlocked
 	digest_tab_solutions.disabled = not solutions_unlocked
 
@@ -618,79 +1234,9 @@ func _refresh_digest_tab_buttons() -> void:
 	if not solutions_unlocked and _digest_active_category == "solution":
 		_digest_active_category = "resource"
 
-	digest_tab_resources.modulate = Color.WHITE if _digest_active_category == "resource" else Color(0.86, 0.86, 0.86, 1.0)
-	digest_tab_compounds.modulate = Color.WHITE if _digest_active_category == "compound" else Color(0.86, 0.86, 0.86, 1.0)
-	digest_tab_solutions.modulate = Color.WHITE if _digest_active_category == "solution" else Color(0.86, 0.86, 0.86, 1.0)
-
-
-func _make_digest_entry_row(entry: Dictionary) -> Control:
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 2)
-
-	var title := Label.new()
-	title.text = "%s • %s" % [str(entry.get("name", "")), _fmt_int(int(entry.get("amount", 0)))]
-	box.add_child(title)
-
-	var details := Label.new()
-	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var digest_each: float = float(entry.get("digest_each", 0.0))
-	var digest_total: float = float(entry.get("digest_total", 0.0))
-	details.text = "Digest each: %s Nutrients • Total: %s" % [_fmt_int(int(round(digest_each))), _fmt_int(int(round(digest_total)))]
-	details.modulate = Color(0.88, 0.92, 0.88, 1.0)
-	box.add_child(details)
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	box.add_child(row)
-
-	var btn_one := Button.new()
-	btn_one.text = "Digest 1"
-	var item_id: String = str(entry.get("id", ""))
-	btn_one.pressed.connect(func(): _on_digest_inventory_amount_pressed(item_id, 1))
-	row.add_child(btn_one)
-
-	var btn_all := Button.new()
-	btn_all.text = "Digest All"
-	btn_all.pressed.connect(func(): _on_digest_inventory_amount_pressed(item_id, -1))
-	row.add_child(btn_all)
-
-	return box
-
-
-func _on_digest_inventory_amount_pressed(item_id: String, amount: int) -> void:
-	if game_state == null:
-		return
-	var digested: int = 0
-	if amount < 0:
-		if game_state.has_method("digest_all_inventory_item"):
-			digested = int(game_state.call("digest_all_inventory_item", item_id))
-	else:
-		if game_state.has_method("digest_inventory_item"):
-			digested = int(game_state.call("digest_inventory_item", item_id, amount))
-	if digested > 0:
-		_flash_nutrients()
-		if digest_feedback != null:
-			digest_feedback.text = "Digested %s %s." % [_fmt_int(digested), _pretty_res(item_id)]
-	else:
-		if digest_feedback != null:
-			digest_feedback.text = "Nothing to digest."
-	_refresh_panel_access_ui()
-	_refresh_currency_ui()
-	_refresh_digest_panel()
-	_refresh_nodepanel_all()
-
-
-func _on_digest_panel_1_pressed() -> void:
-	pass
-
-
-func _on_digest_panel_all_pressed() -> void:
-	pass
-
-
-func _digest_selected_node_at_cloud(amount: int) -> void:
-	pass
+	_theme_tab_button(digest_tab_resources, _digest_active_category == "resource")
+	_theme_tab_button(digest_tab_compounds, _digest_active_category == "compound")
+	_theme_tab_button(digest_tab_solutions, _digest_active_category == "solution")
 
 
 func _refresh_digest_panel() -> void:
@@ -699,36 +1245,338 @@ func _refresh_digest_panel() -> void:
 	_refresh_digest_tab_buttons()
 	_clear_digest_rows()
 
-	if digest_feedback != null and digest_feedback.text == "":
-		digest_feedback.text = "Digest owned inventory into Nutrients."
+	if digest_feedback != null:
+		digest_feedback.text = ""
 
 	if _digest_active_category == "compound":
-		if game_state == null or not game_state.has_method("is_refinery_unlocked") or not bool(game_state.call("is_refinery_unlocked")):
+		if game_state == null or not bool(game_state.call("is_refinery_unlocked")):
 			if digest_feedback != null:
 				digest_feedback.text = "Unlock Primitive Refinery to digest compounds."
 			return
 	elif _digest_active_category == "solution":
-		if game_state == null or not game_state.has_method("is_synth_unlocked") or not bool(game_state.call("is_synth_unlocked")):
+		if game_state == null or not bool(game_state.call("is_synth_unlocked")):
 			if digest_feedback != null:
 				digest_feedback.text = "Unlock Synthesis to digest solutions."
 			return
 
 	if game_state == null or not game_state.has_method("get_digest_inventory_entries"):
 		return
+
 	var entries_variant = game_state.call("get_digest_inventory_entries", _digest_active_category)
 	if typeof(entries_variant) != TYPE_ARRAY:
 		return
 	var entries: Array = entries_variant as Array
+
 	if entries.is_empty():
 		var empty := Label.new()
-		empty.text = "No %s available." % (_digest_active_category + "s")
-		empty.modulate = Color(0.82, 0.82, 0.82, 1.0)
+		empty.text = "No %s to digest." % _digest_active_category
+		empty.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
+		empty.add_theme_font_size_override("font_size", 13)
 		digest_inventory_list.add_child(empty)
 		return
 
 	for entry_variant in entries:
 		var entry: Dictionary = entry_variant as Dictionary
-		digest_inventory_list.add_child(_make_digest_entry_row(entry))
+		var row := _make_digest_row(entry)
+		digest_inventory_list.add_child(row)
+		_digest_row_refs[str(entry.get("id", ""))] = row
+
+	# Re-highlight selected row if still valid
+	if _digest_selected_id != "" and _digest_row_refs.has(_digest_selected_id):
+		_highlight_digest_row(_digest_selected_id)
+
+
+func _make_digest_row(entry: Dictionary) -> Control:
+	var item_id: String = str(entry.get("id", ""))
+	var name_str: String = str(entry.get("name", ""))
+	var amount: int      = int(entry.get("amount", 0))
+	var dv: float        = float(entry.get("digest_each", 0.0))
+
+	# Pill container
+	var row := PanelContainer.new()
+	row.name = "Row_" + item_id
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sb_row := StyleBoxFlat.new()
+	sb_row.bg_color = ThemeManager.c("bg_panel")
+	sb_row.border_color = ThemeManager.c("border")
+	sb_row.set_border_width_all(1)
+	sb_row.set_corner_radius_all(10)
+	sb_row.content_margin_left   = 10
+	sb_row.content_margin_right  = 10
+	sb_row.content_margin_top    = 8
+	sb_row.content_margin_bottom = 8
+	row.add_theme_stylebox_override("panel", sb_row)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	row.add_child(hbox)
+
+	# Colored resource dot
+	var dot_tex := _make_circle_texture(16, false)
+	var dot := TextureRect.new()
+	dot.texture = dot_tex
+	dot.modulate = _node_color_for_id(item_id)
+	dot.custom_minimum_size = Vector2(16, 16)
+	dot.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	hbox.add_child(dot)
+
+	# Name
+	var lbl_name := Label.new()
+	lbl_name.text = name_str
+	lbl_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_name.add_theme_font_size_override("font_size", 14)
+	lbl_name.add_theme_color_override("font_color", ThemeManager.c("text_primary"))
+	hbox.add_child(lbl_name)
+
+	# Amount (live-updating)
+	var lbl_amt := Label.new()
+	lbl_amt.name = "LblAmt"
+	lbl_amt.text = _fmt_int(amount)
+	lbl_amt.add_theme_font_size_override("font_size", 13)
+	lbl_amt.add_theme_color_override("font_color",
+		ThemeManager.c("accent") if _digest_auto_ids.get(item_id, false)
+		else ThemeManager.c("text_secondary"))
+	hbox.add_child(lbl_amt)
+
+	# Value per unit
+	var lbl_val := Label.new()
+	lbl_val.text = "×%s" % _fmt_int(int(dv))
+	lbl_val.add_theme_font_size_override("font_size", 12)
+	lbl_val.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
+	hbox.add_child(lbl_val)
+
+	# Auto badge (hidden unless auto active)
+	var auto_lbl := Label.new()
+	auto_lbl.name = "AutoLbl"
+	auto_lbl.text = "AUTO"
+	auto_lbl.add_theme_font_size_override("font_size", 10)
+	auto_lbl.add_theme_color_override("font_color", ThemeManager.c("accent"))
+	auto_lbl.visible = _digest_auto_ids.get(item_id, false)
+	hbox.add_child(auto_lbl)
+
+	# Tap → select; hold → toggle auto
+	# Must explicitly allow input — PanelContainer defaults to IGNORE
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	row.gui_input.connect(_on_digest_row_input.bind(item_id))
+
+	# Selected highlight
+	if item_id == _digest_selected_id:
+		sb_row.bg_color     = ThemeManager.c("bg_row")
+		sb_row.border_color = ThemeManager.c("accent_border")
+
+	return row
+
+
+func _highlight_digest_row(item_id: String) -> void:
+	for rid in _digest_row_refs:
+		var row: Control = _digest_row_refs[rid] as Control
+		if not is_instance_valid(row):
+			continue
+		var sb := StyleBoxFlat.new()
+		sb.set_corner_radius_all(10)
+		sb.content_margin_left   = 10
+		sb.content_margin_right  = 10
+		sb.content_margin_top    = 8
+		sb.content_margin_bottom = 8
+		sb.set_border_width_all(1)
+		if rid == item_id:
+			sb.bg_color     = ThemeManager.c("bg_row")
+			sb.border_color = ThemeManager.c("accent_border")
+		else:
+			sb.bg_color     = ThemeManager.c("bg_panel")
+			sb.border_color = ThemeManager.c("border")
+		row.add_theme_stylebox_override("panel", sb)
+
+
+func _on_digest_row_input(event: InputEvent, item_id: String) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_digest_hold_timer = 0.0
+			_digest_hold_id    = item_id
+		else:
+			if _digest_hold_id == item_id and _digest_hold_timer < 0.6:
+				# Short tap
+				if _digest_selected_id == item_id and _digest_mode == "manual":
+					# Tap same row again in same mode → deselect
+					_digest_selected_id = ""
+					_highlight_digest_row("")
+					if _digest_action_bar != null:
+						_digest_action_bar.visible = false
+				else:
+					_select_digest_row(item_id, "manual")
+			_digest_hold_id    = ""
+			_digest_hold_timer = 0.0
+	elif event is InputEventScreenTouch:
+		if event.pressed:
+			_digest_hold_timer = 0.0
+			_digest_hold_id    = item_id
+		else:
+			if _digest_hold_id == item_id and _digest_hold_timer < 0.6:
+				if _digest_selected_id == item_id and _digest_mode == "manual":
+					_digest_selected_id = ""
+					_highlight_digest_row("")
+					if _digest_action_bar != null:
+						_digest_action_bar.visible = false
+				else:
+					_select_digest_row(item_id, "manual")
+			_digest_hold_id    = ""
+			_digest_hold_timer = 0.0
+
+
+func _select_digest_row(item_id: String, mode: String = "manual") -> void:
+	_digest_selected_id = item_id
+	_digest_mode = mode
+	_highlight_digest_row(item_id)
+	_digest_pct = 1.0 if mode == "manual" else _digest_auto_ids.get(item_id + "_pct", 1.0)
+	if _digest_slider != null:
+		_digest_slider.value = _digest_pct
+
+	# Get current value for this item
+	_digest_selected_value = 0.0
+	if game_state != null and game_state.has_method("get_digest_inventory_entries"):
+		var entries_v = game_state.call("get_digest_inventory_entries", _digest_active_category)
+		if typeof(entries_v) == TYPE_ARRAY:
+			for ev in (entries_v as Array):
+				var e := ev as Dictionary
+				if str(e.get("id", "")) == item_id:
+					_digest_selected_value = float(e.get("digest_each", 0.0))
+					break
+
+	_update_digest_action_bar()
+	if _digest_action_bar != null:
+		_digest_action_bar.visible = true
+
+
+func _update_digest_action_bar() -> void:
+	if _digest_action_bar == null or _digest_selected_id == "":
+		return
+
+	var amount: int = 0
+	if game_state != null and game_state.has_method("get_amount"):
+		amount = int(game_state.call("get_amount", _digest_selected_id))
+
+	var selected_amt: int   = int(floor(amount * _digest_pct))
+	var nutrient_yield: int = int(round(selected_amt * _digest_selected_value))
+	var res_name := _pretty_res(_digest_selected_id)
+	var pct_int := int(_digest_pct * 100)
+
+	# Mode label
+	if _digest_action_lbl != null:
+		if _digest_mode == "auto":
+			_digest_action_lbl.text = "%s  —  Auto-digest %d%% of incoming" % [res_name, pct_int]
+		else:
+			_digest_action_lbl.text = res_name
+
+	# Amount label (top-right)
+	var lbl_amt: Label = _digest_action_bar.find_child("LblSelectedAmt", true, false) as Label
+	if lbl_amt != null:
+		if _digest_mode == "auto":
+			lbl_amt.text = "%d%%" % pct_int
+		else:
+			lbl_amt.text = _fmt_int(selected_amt)
+
+	# Value label (bottom-right, under amount)
+	var lbl_val: Label = _digest_action_bar.find_child("LblSelectedVal", true, false) as Label
+	if lbl_val != null:
+		if _digest_mode == "auto":
+			lbl_val.text = "of new stock"
+		else:
+			lbl_val.text = "%s nutrients" % _fmt_int(nutrient_yield)
+
+	# Digest button
+	if _digest_action_btn != null:
+		if _digest_mode == "auto":
+			var is_auto: bool = _digest_auto_ids.get(_digest_selected_id, false)
+			_digest_action_btn.text = "Auto ON" if is_auto else "Enable"
+		else:
+			_digest_action_btn.text = "Digest"
+
+
+func _on_digest_slider_changed(value: float) -> void:
+	_digest_pct = clampf(value, 0.0, 1.0)
+	_update_digest_action_bar()
+
+
+func _toggle_digest_auto(item_id: String) -> void:
+	var was_auto: bool = _digest_auto_ids.get(item_id, false)
+	_digest_auto_ids[item_id] = not was_auto
+	# Refresh just this row's AUTO badge and amount color
+	var row: Control = _digest_row_refs.get(item_id, null) as Control
+	if row != null and is_instance_valid(row):
+		var auto_lbl: Label = row.find_child("AutoLbl", true, false) as Label
+		if auto_lbl != null:
+			auto_lbl.visible = not was_auto
+		var lbl_amt: Label = row.find_child("LblAmt", true, false) as Label
+		if lbl_amt != null:
+			lbl_amt.add_theme_color_override("font_color",
+				ThemeManager.c("accent") if not was_auto else ThemeManager.c("text_secondary"))
+
+
+func _on_digest_action_pressed() -> void:
+	if _digest_selected_id == "" or game_state == null:
+		return
+
+	if _digest_mode == "auto":
+		# Toggle auto and save the pct
+		_toggle_digest_auto(_digest_selected_id)
+		_digest_auto_ids[_digest_selected_id + "_pct"] = _digest_pct
+		_update_digest_action_bar()
+		return
+
+	# Manual digest
+	var amount: int = int(game_state.call("get_amount", _digest_selected_id))
+	var digest_amt: int = max(1, int(floor(amount * _digest_pct)))
+	var digested: int = 0
+	if game_state.has_method("digest_inventory_item"):
+		digested = int(game_state.call("digest_inventory_item", _digest_selected_id, digest_amt))
+	if digested > 0:
+		_flash_nutrients()
+		if digest_feedback != null:
+			digest_feedback.text = "Digested %s %s → %s nutrients." % [
+				_fmt_int(digested),
+				_pretty_res(_digest_selected_id),
+				_fmt_int(int(round(digested * _digest_selected_value)))
+			]
+	else:
+		if digest_feedback != null:
+			digest_feedback.text = "Nothing to digest."
+	_refresh_currency_ui()
+	_update_digest_live_values()
+	_update_digest_action_bar()
+
+
+func _update_digest_live_values() -> void:
+	# Update amount labels in existing rows without full rebuild
+	if game_state == null:
+		return
+	for item_id_v in _digest_row_refs.keys():
+		var item_id := str(item_id_v)
+		var row: Control = _digest_row_refs[item_id] as Control
+		if not is_instance_valid(row):
+			continue
+		var lbl_amt: Label = row.find_child("LblAmt", true, false) as Label
+		if lbl_amt != null and game_state.has_method("get_amount"):
+			var amt: int = int(game_state.call("get_amount", item_id))
+			lbl_amt.text = _fmt_int(amt)
+
+
+func _on_digest_panel_1_pressed() -> void:
+	pass
+
+func _on_digest_panel_all_pressed() -> void:
+	pass
+
+func _digest_selected_node_at_cloud(_amount: int) -> void:
+	pass
+
+func _make_digest_entry_row(_entry: Dictionary) -> Control:
+	return Control.new()
+
+func _on_digest_inventory_amount_pressed(_item_id: String, _amount: int) -> void:
+	pass
+
+
+
 
 
 func _flash_nutrients() -> void:
@@ -805,18 +1653,24 @@ func _bind_discoveries_panel() -> void:
 
 func _refresh_panel_access_ui() -> void:
 	var can_show_discoveries := false
-	var can_show_refinery := false
+	var can_show_refinery    := false
 	if game_state != null:
 		if game_state.has_method("can_show_discoveries_tab"):
 			can_show_discoveries = bool(game_state.call("can_show_discoveries_tab"))
 		if game_state.has_method("is_refinery_unlocked"):
 			can_show_refinery = bool(game_state.call("is_refinery_unlocked"))
-	btn_discoveries.visible = can_show_discoveries
-	btn_discoveries.disabled = not can_show_discoveries
-	btn_refinery.visible = can_show_refinery
-	btn_refinery.disabled = not can_show_refinery
+
+	if btn_discoveries != null:
+		btn_discoveries.modulate.a = 1.0 if can_show_discoveries else 0.3
+		btn_discoveries.disabled   = not can_show_discoveries
+	if btn_refinery != null:
+		btn_refinery.modulate.a = 1.0 if can_show_refinery else 0.3
+		btn_refinery.disabled   = not can_show_refinery
+
 	if not can_show_refinery and _open_panel == refinery_panel:
 		_close_current()
+
+	_redraw_nav_buttons()
 
 
 func _clear_discoveries_rows() -> void:
@@ -870,7 +1724,7 @@ func _make_discovery_card(entry: Dictionary) -> Control:
 	var effect := Label.new()
 	effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	effect.text = str(entry.get("effect_text", ""))
-	effect.modulate = Color(0.88, 0.92, 0.88, 1.0)
+	effect.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
 	box.add_child(effect)
 
 	var cost := Label.new()
@@ -995,8 +1849,9 @@ func _refresh_refinery_tab_buttons() -> void:
 	if not solutions_unlocked and _refinery_active_category == "solution":
 		_refinery_active_category = "compound"
 
-	refinery_tab_compounds.modulate = Color.WHITE if _refinery_active_category == "compound" else Color(0.86, 0.86, 0.86, 1.0)
-	refinery_tab_solutions.modulate = Color.WHITE if _refinery_active_category == "solution" else Color(0.86, 0.86, 0.86, 1.0)
+	var ractive := _refinery_active_category
+	_theme_tab_button(refinery_tab_compounds, ractive == "compound")
+	_theme_tab_button(refinery_tab_solutions, ractive == "solution")
 
 
 func _set_refinery_active_category(category: String) -> void:
@@ -1773,7 +2628,7 @@ func _build_resource_rows(container: VBoxContainer) -> void:
 		var hl := Label.new()
 		hl.text = hdr_data[0]
 		hl.add_theme_font_size_override("font_size", 11)
-		hl.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6, 1.0))
+		hl.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
 		hl.custom_minimum_size = Vector2(int(hdr_data[1]), 0)
 		hl.horizontal_alignment = hdr_data[2]
 		if int(hdr_data[1]) == 0:
@@ -2085,6 +2940,8 @@ func _open(panel: Control) -> void:
 	panel.visible = true
 	_set_panel_closed(panel)
 
+	_redraw_nav_buttons()
+
 	if panel == digest_panel:
 		_refresh_digest_panel()
 	if panel == discoveries_panel:
@@ -2096,13 +2953,13 @@ func _open(panel: Control) -> void:
 	if panel == node_panel:
 		_refresh_nodepanel_all()
 
-	var open_bottom := -_bar_h
-	var open_top := -(PANEL_H + _bar_h)
+	var vp_h       := get_viewport_rect().size.y
+	var open_y     := vp_h - PANEL_H - _bar_h
+	var pc         := _panel_container if _panel_container != null else panel
 
 	_tween = create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_tween.tween_property(dimmer, "modulate:a", 1.0, 0.12)
-	_tween.parallel().tween_property(panel, "offset_bottom", open_bottom, 0.18)
-	_tween.parallel().tween_property(panel, "offset_top", open_top, 0.18)
+	_tween.parallel().tween_property(pc, "position:y", open_y, 0.18)
 
 
 func _close_current() -> void:
@@ -2111,19 +2968,21 @@ func _close_current() -> void:
 
 	_kill_tween()
 	var panel := _open_panel
+	var vp_h  := get_viewport_rect().size.y
+	var pc    := _panel_container if _panel_container != null else panel
 
 	_tween = create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	_tween.tween_property(dimmer, "modulate:a", 0.0, 0.10)
-	_tween.parallel().tween_property(panel, "offset_top", PANEL_MARGIN, 0.14)
-	_tween.parallel().tween_property(panel, "offset_bottom", PANEL_H + PANEL_MARGIN, 0.14)
+	_tween.parallel().tween_property(pc, "position:y", vp_h, 0.14)
 
 	_tween.finished.connect(func():
 		panel.visible = false
 		if panel == node_panel:
-			_resource_rows_node_id = ""  # force rebuild on next open
+			_resource_rows_node_id = ""
 		_open_panel = null
 		dimmer.visible = false
 		dimmer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_redraw_nav_buttons()
 	)
 
 
@@ -2259,6 +3118,12 @@ func _map_apply_zoom(factor: float, screen_pivot: Vector2) -> void:
 
 func _try_select_node(screen_pos: Vector2) -> void:
 	var canvas_xform := get_viewport().get_canvas_transform()
+
+	# If a panel is open, block any tap that lands inside the panel's screen rect
+	if _open_panel != null:
+		var panel_rect := _open_panel.get_global_rect()
+		if panel_rect.has_point(screen_pos):
+			return
 
 	for e in _node_list:
 		var node: Node2D    = e["node"]
@@ -2459,11 +3324,11 @@ func _update_node_cost_labels() -> void:
 			continue
 
 		var state        := _get_node_world_state(node_id)
-		var is_visible   := bool(state.get("is_visible", false))
-		var is_unlocked  := bool(state.get("is_unlocked", false))
+		var node_vis     := bool(state.get("is_visible", false))
+		var node_lock    := bool(state.get("is_unlocked", false))
 
 		# Show cost label only when visible + locked
-		if is_visible and not is_unlocked:
+		if node_vis and not node_lock:
 			var cost: int = int(state.get("unlock_cost", 0))
 			var lbl: Label = _node_cost_labels.get(node_id, null) as Label
 
@@ -2474,8 +3339,8 @@ func _update_node_cost_labels() -> void:
 				lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 				lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 				lbl.add_theme_font_size_override("font_size", 12)
-				lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5, 1.0))
-				lbl.add_theme_color_override("font_outline_color", Color(0.05, 0.1, 0.05, 1.0))
+				lbl.add_theme_color_override("font_color", ThemeManager.c("accent"))
+				lbl.add_theme_color_override("font_outline_color", ThemeManager.c("bg_deep"))
 				lbl.add_theme_constant_override("outline_size", 3)
 				nodes_container.add_child(lbl)
 				_node_cost_labels[node_id] = lbl
@@ -2582,8 +3447,11 @@ func _fmt_int(v: int) -> String:
 
 
 func _set_panel_closed(panel: Control) -> void:
-	panel.offset_top = PANEL_MARGIN
-	panel.offset_bottom = PANEL_H + PANEL_MARGIN
+	# Push the shared container off-screen below; individual panels fill it
+	if _panel_container != null:
+		_panel_container.position.y = get_viewport_rect().size.y
+	else:
+		panel.position.y = get_viewport_rect().size.y
 
 
 func _kill_tween() -> void:

@@ -18,11 +18,12 @@ config/icon="res://icon.svg"
 [autoload]
 
 GameState="*uid://b41a4ve8n40xu"
+ThemeManager="*uid://btt4m640xi2c1"
 
 [display]
 
-window/size/viewport_width=1080
-window/size/viewport_height=1920
+window/size/viewport_width=412
+window/size/viewport_height=915
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation=1

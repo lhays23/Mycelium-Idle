@@ -519,23 +519,6 @@ func get_node_primary_pool_amount(node_id: String) -> int:
 	return int(floor(float(pool.get(res_id, 0.0))))
 
 
-func get_node_pool_amounts(node_id: String) -> Dictionary:
-	# Returns {res_id: int} for every output resource this node produces
-	var out: Dictionary = {}
-	if not nodes.has(node_id):
-		return out
-	var n: Dictionary = nodes[node_id] as Dictionary
-	var pool: Dictionary = (n.get("pool", {}) as Dictionary)
-	var outputs: Array = (n.get("outputs", []) as Array)
-	for o_variant in outputs:
-		var o: Dictionary = o_variant as Dictionary
-		var res_id: String = str(o.get("res", ""))
-		if res_id == "":
-			continue
-		out[res_id] = int(floor(float(pool.get(res_id, 0.0))))
-	return out
-
-
 func get_node_primary_cloud_amount(node_id: String) -> int:
 	var res_id: String = _get_node_primary_res_id(node_id)
 	if res_id == "":
@@ -1378,7 +1361,7 @@ func _ensure_upgrade_keys(n: Dictionary) -> Dictionary:
 	return up
 
 
-func _upgrade_cost(node_id: String, stat_key: String, level: int) -> int:
+func _upgrade_cost(node_id: String, _stat_key: String, level: int) -> int:
 	return _ipm_upgrade_cost(node_id, level)
 
 
@@ -1748,7 +1731,6 @@ func buy_discovery(discovery_id: String) -> Dictionary:
 	var check := can_buy_discovery(discovery_id)
 	if not bool(check.get("ok", false)):
 		return check
-	var d: Dictionary = discovery_defs[discovery_id] as Dictionary
 	var costs: Array = get_discovery_costs_for_next_level(discovery_id)
 	_spend_costs(costs)
 	var new_level: int = get_discovery_level(discovery_id) + 1
