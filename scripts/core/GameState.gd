@@ -279,11 +279,16 @@ func _pickup_one_root_pulse(node_id: String) -> Dictionary:
 
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var pool: Dictionary = (n.get("pool", {}) as Dictionary)
-	var outputs: Array = (n.get("outputs", []) as Array)
+	var outputs: Array = (n.get("outputs", []) as Array).duplicate()
 	var carry_left: int = _get_node_carry_capacity(node_id)
 
 	if carry_left <= 0:
 		return cargo
+
+	# Sort outputs by resource base value descending — highest value transferred first
+	outputs.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return _get_resource_base_value(str(a.get("res", ""))) > _get_resource_base_value(str(b.get("res", "")))
+	)
 
 	for o_variant in outputs:
 		if carry_left <= 0:
@@ -1361,7 +1366,7 @@ func _ensure_upgrade_keys(n: Dictionary) -> Dictionary:
 	return up
 
 
-func _upgrade_cost(node_id: String, _stat_key: String, level: int) -> int:
+func _upgrade_cost(node_id: String, stat_key: String, level: int) -> int:
 	return _ipm_upgrade_cost(node_id, level)
 
 
@@ -1731,6 +1736,7 @@ func buy_discovery(discovery_id: String) -> Dictionary:
 	var check := can_buy_discovery(discovery_id)
 	if not bool(check.get("ok", false)):
 		return check
+	var d: Dictionary = discovery_defs[discovery_id] as Dictionary
 	var costs: Array = get_discovery_costs_for_next_level(discovery_id)
 	_spend_costs(costs)
 	var new_level: int = get_discovery_level(discovery_id) + 1

@@ -1,6 +1,6 @@
 extends Control
 
-const PANEL_H_RATIO  := 0.68  # panel takes 68% of screen height
+const PANEL_H_RATIO  := 0.55  # panel takes 68% of screen height
 const PANEL_MARGIN   := 8.0
 var   PANEL_H: float = 600.0  # set at runtime in _ready
 
@@ -84,6 +84,11 @@ var _ui_accum: float = 0.0
 # Camera state
 var _map_zoom: float = MAP_ZOOM_START
 var _map_is_dragging: bool = false
+var _press_started_in_popup: bool = false  # swallow release if press began during popup
+var _popup_closed_this_press: bool = false  # popup closed mid-press, swallow the release
+# Two-finger pinch tracking (fallback for devices without MagnifyGesture)
+var _touch_points: Dictionary = {}  # index -> Vector2
+var _pinch_last_dist: float = 0.0
 var _map_drag_start_screen: Vector2 = Vector2.ZERO
 var _map_drag_start_map_pos: Vector2 = Vector2.ZERO
 var _map_drag_has_moved: bool = false
@@ -110,6 +115,10 @@ var digest_tab_solutions: Button = null
 var digest_inventory_list: VBoxContainer = null
 var digest_feedback: Label = null
 var _digest_active_category: String = "resource"
+# Digest layout children (sized explicitly in _layout_digest_panel)
+var _digest_header: Label = null
+var _digest_scroll: ScrollContainer = null
+var _digest_bottom_bar: Control = null
 
 # IPM-style digest interaction state
 var _digest_selected_id: String = ""
@@ -122,6 +131,7 @@ var _digest_action_lbl: Label = null
 var _digest_row_refs: Dictionary = {}   # item_id -> row Control (for live updates)
 var _digest_hold_timer: float = 0.0
 var _digest_hold_id: String = ""
+var _digest_tap_start_pos: Vector2 = Vector2.ZERO
 var _digest_hold_consumed: bool = false  # true when hold triggered auto-toggle, suppress release tap
 var _digest_auto_ids: Dictionary = {}   # item_id -> bool
 var _digest_auto_last_amt: Dictionary = {}  # item_id -> int, amount at last tick
@@ -134,6 +144,11 @@ var _disc_popup: Control = null
 var _disc_popup_dimmer: ColorRect = null
 var _disc_popup_disc_id: String = ""
 var _disc_popup_layer: CanvasLayer = null
+
+# Recipe picker popup
+var _recipe_popup_layer: CanvasLayer = null
+var _recipe_popup: Control = null
+var _recipe_popup_dimmer: ColorRect = null
 
 # Refinery panel widgets
 var refinery_list: VBoxContainer = null
@@ -250,9 +265,10 @@ func _ready() -> void:
 	_panel_container = digest_panel.get_parent() as Control
 	if _panel_container != null:
 		var vp := get_viewport_rect().size
-		_panel_container.top_level = true
-		_panel_container.size     = Vector2(vp.x, PANEL_H)
-		_panel_container.position = Vector2(0.0, vp.y)
+		_panel_container.top_level    = true
+		_panel_container.clip_children = CanvasItem.CLIP_CHILDREN_ONLY
+		_panel_container.size         = Vector2(vp.x, PANEL_H)
+		_panel_container.position     = Vector2(0.0, vp.y)
 		await get_tree().process_frame
 
 	# Each panel must exactly fill the container — set position and size explicitly
@@ -260,6 +276,18 @@ func _ready() -> void:
 		p.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		p.position = Vector2.ZERO
 		p.size     = Vector2(_panel_container.size.x, _panel_container.size.y)
+
+	# Size the digest anchor root to match its panel
+	var digest_root := digest_panel.find_child("DigestAnchorRoot", true, false) as Control
+	if digest_root != null:
+		digest_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		digest_root.offset_left   = 0
+		digest_root.offset_right  = 0
+		digest_root.offset_top    = 0
+		digest_root.offset_bottom = 0
+		digest_root.size = Vector2(_panel_container.size.x, _panel_container.size.y)
+
+	_layout_digest_panel()
 
 	# Panels start hidden/closed
 	for p in _all_panels():
@@ -470,6 +498,11 @@ func _theme_nodepanel() -> void:
 	var tm := ThemeManager
 	if node_title != null:
 		node_title.add_theme_color_override("font_color", tm.c("accent"))
+	# Reduce close button size
+	if node_close != null:
+		node_close.custom_minimum_size = Vector2(24, 24)
+		node_close.flat = true
+		node_close.add_theme_font_size_override("font_size", 12)
 	# Header row background
 	var header_row: Control = node_panel.find_child("Header row", true, false) as Control
 	if header_row != null:
@@ -483,12 +516,25 @@ func _theme_upgrade_rows() -> void:
 	for row_ref in [row_yield, row_frequency, row_travel, row_carry]:
 		if row_ref == null:
 			continue
+		var row := row_ref as Control
+		# Card background on the row itself if it's a PanelContainer
+		if row is PanelContainer:
+			var sb_row := StyleBoxFlat.new()
+			sb_row.bg_color     = tm.c("bg_panel")
+			sb_row.border_color = tm.c("border")
+			sb_row.set_border_width_all(1)
+			sb_row.set_corner_radius_all(8)
+			sb_row.content_margin_left   = 10
+			sb_row.content_margin_right  = 8
+			sb_row.content_margin_top    = 8
+			sb_row.content_margin_bottom = 8
+			row.add_theme_stylebox_override("panel", sb_row)
 		# Label colors
-		for child in (row_ref as Control).get_children():
+		for child in row.get_children():
 			if child is Label:
 				(child as Label).add_theme_color_override("font_color", tm.c("text_secondary"))
-		# Button style
-		var btn: Button = (row_ref as Control).find_child("BtnUpgrade", true, false) as Button
+		# Button — base style; affordability updated per-tick in _refresh_nodepanel_upgrades
+		var btn: Button = row.find_child("BtnUpgrade", true, false) as Button
 		if btn != null:
 			var sb := StyleBoxFlat.new()
 			sb.bg_color     = tm.c("btn_bg")
@@ -800,7 +846,6 @@ func _process(dt: float) -> void:
 			_update_digest_live_values()
 			if _digest_selected_id != "":
 				_update_digest_action_bar()
-				_position_digest_action_bar()
 
 	var new_signature := _get_refinery_inventory_signature()
 	if new_signature != _last_refinery_inventory_signature:
@@ -1082,24 +1127,35 @@ func _spawn_transfer_popup(world_pos: Vector2, _text: String, node_id: String, a
 # ---------------- DigestPanel ----------------
 
 func _bind_digest_panel() -> void:
-	# Wipe the old scene content — we build everything in code
-	var root_box: VBoxContainer = digest_panel.find_child("VBoxContainer", true, false) as VBoxContainer
-	if root_box == null:
-		return
-	for child in root_box.get_children():
-		child.queue_free()
+	# Hide the old MarginContainer — we build our own layout
+	var margin_c: Control = digest_panel.find_child("MarginContainer", true, false) as Control
+	if margin_c != null:
+		margin_c.visible = false
 
-	# ── Panel header ──────────────────────────────────────────────────────
-	var header := Label.new()
-	header.text = "Digest"
-	header.add_theme_font_size_override("font_size", 16)
-	header.add_theme_color_override("font_color", ThemeManager.c("accent"))
-	root_box.add_child(header)
+	# Remove any previous layout root
+	var existing := digest_panel.find_child("DigestRoot", true, false) as Control
+	if existing != null:
+		existing.queue_free()
+
+	var tm := ThemeManager
+
+	# ── Root container ────────────────────────────────────────────────────
+	var root := Control.new()
+	root.name = "DigestRoot"
+	root.mouse_filter = Control.MOUSE_FILTER_PASS
+	digest_panel.add_child(root)
+
+	# ── Header ────────────────────────────────────────────────────────────
+	_digest_header = Label.new()
+	_digest_header.text = "Digest"
+	_digest_header.add_theme_font_size_override("font_size", 16)
+	_digest_header.add_theme_color_override("font_color", tm.c("accent"))
+	root.add_child(_digest_header)
 
 	# ── Tab row ───────────────────────────────────────────────────────────
 	digest_tabs_row = HBoxContainer.new()
 	digest_tabs_row.add_theme_constant_override("separation", 4)
-	root_box.add_child(digest_tabs_row)
+	root.add_child(digest_tabs_row)
 
 	digest_tab_resources = _make_digest_tab("Raw",       func(): _set_digest_active_category("resource"))
 	digest_tab_compounds = _make_digest_tab("Compounds", func(): _set_digest_active_category("compound"))
@@ -1108,32 +1164,101 @@ func _bind_digest_panel() -> void:
 	digest_tabs_row.add_child(digest_tab_compounds)
 	digest_tabs_row.add_child(digest_tab_solutions)
 
-	# ── Scrollable resource list ──────────────────────────────────────────
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	# Cap scroll height so action bar always has room at bottom (~120px for bar)
-	scroll.custom_minimum_size = Vector2(0, 80)
-	scroll.size_flags_stretch_ratio = 1.0
-	root_box.add_child(scroll)
+	# ── Scroll ────────────────────────────────────────────────────────────
+	_digest_scroll = ScrollContainer.new()
+	_digest_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_digest_scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
+	root.add_child(_digest_scroll)
+
+	# Hide the scrollbar visually but keep scroll functionality
+	await get_tree().process_frame
+	var vscroll := _digest_scroll.get_node_or_null("_v_scroll") as ScrollBar
+	if vscroll != null:
+		var sb_hidden := StyleBoxEmpty.new()
+		vscroll.add_theme_stylebox_override("scroll", sb_hidden)
+		vscroll.custom_minimum_size = Vector2(0, 0)
 
 	digest_inventory_list = VBoxContainer.new()
 	digest_inventory_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	digest_inventory_list.add_theme_constant_override("separation", 4)
-	scroll.add_child(digest_inventory_list)
+	digest_inventory_list.add_theme_constant_override("separation", 2)
+	_digest_scroll.add_child(digest_inventory_list)
 
-	# ── Action bar (hidden until row selected) ────────────────────────────
-	_digest_action_bar = _build_digest_action_bar(root_box)
+	# ── Bottom bar ────────────────────────────────────────────────────────
+	# Use Panel (not PanelContainer) — PanelContainer forces child layout
+	# which overrides the explicit position/size we set in _layout_digest_panel
+	_digest_bottom_bar = Panel.new()
+	var sb_bar := StyleBoxFlat.new()
+	sb_bar.bg_color         = tm.c("bg_panel")
+	sb_bar.border_color     = tm.c("bark_stripe")
+	sb_bar.border_width_top = 2
+	sb_bar.set_corner_radius_all(0)
+	(_digest_bottom_bar as Panel).add_theme_stylebox_override("panel", sb_bar)
+	root.add_child(_digest_bottom_bar)
+
+	# Feedback label fills the panel container's content area
+	digest_feedback = Label.new()
+	digest_feedback.name = "DigestFeedback"
+	digest_feedback.text = "Select a resource"
+	digest_feedback.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	digest_feedback.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	digest_feedback.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	digest_feedback.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	digest_feedback.add_theme_font_size_override("font_size", 14)
+	digest_feedback.add_theme_color_override("font_color", tm.c("text_muted"))
+	_digest_bottom_bar.add_child(digest_feedback)
+
+	# ── Action bar (overlays bottom bar when row selected) ────────────────
+	_digest_action_bar = _build_digest_action_bar(_digest_bottom_bar)
 	_digest_action_bar.visible = false
 
-	# ── Feedback label ────────────────────────────────────────────────────
-	digest_feedback = Label.new()
-	digest_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	digest_feedback.add_theme_font_size_override("font_size", 12)
-	digest_feedback.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
-	root_box.add_child(digest_feedback)
-
 	_set_digest_active_category("resource")
+
+
+func _layout_digest_panel() -> void:
+	var root := digest_panel.find_child("DigestRoot", true, false) as Control
+	if root == null or _panel_container == null:
+		return
+	# Always use _panel_container — digest_panel.size reflects the scene's
+	# baked size (full viewport), not the runtime panel height
+	var W: float = _panel_container.size.x
+	var H: float = _panel_container.size.y
+	if W <= 0 or H <= 0:
+		return
+
+	root.position = Vector2.ZERO
+	root.size     = Vector2(W, H)
+
+	const HDR_H := 28.0
+	const TAB_H := 36.0
+	const BAR_H := 116.0
+	const GAP   := 4.0
+
+	if _digest_header != null:
+		_digest_header.position = Vector2(0, 0)
+		_digest_header.size     = Vector2(W, HDR_H)
+
+	if digest_tabs_row != null:
+		digest_tabs_row.position = Vector2(0, HDR_H + GAP)
+		digest_tabs_row.size     = Vector2(W, TAB_H)
+
+	var scroll_top := HDR_H + GAP + TAB_H + GAP
+	if _digest_scroll != null:
+		_digest_scroll.position = Vector2(0, scroll_top)
+		_digest_scroll.size     = Vector2(W, H - scroll_top - BAR_H)
+
+	if _digest_bottom_bar != null:
+		_digest_bottom_bar.position = Vector2(0, H - BAR_H)
+		_digest_bottom_bar.size     = Vector2(W, BAR_H)
+		# PanelContainer children don't auto-resize when size is set directly
+		# Force the feedback label to fill the content area
+		if digest_feedback != null and is_instance_valid(digest_feedback):
+			var margin := 12.0
+			digest_feedback.position = Vector2(margin, margin)
+			digest_feedback.size     = Vector2(W - margin * 2.0, BAR_H - margin * 2.0)
+		if _digest_action_bar != null and is_instance_valid(_digest_action_bar):
+			_digest_action_bar.position = Vector2(0, 0)
+			_digest_action_bar.size     = Vector2(W, BAR_H)
+		var root2 := digest_panel.find_child("DigestRoot", true, false) as Control
 
 
 func _make_digest_tab(label: String, callback: Callable) -> Button:
@@ -1144,18 +1269,15 @@ func _make_digest_tab(label: String, callback: Callable) -> Button:
 	return btn
 
 
-func _build_digest_action_bar(parent: VBoxContainer) -> Control:
-	# Outer bar — PanelContainer for background
+func _build_digest_action_bar(parent: Control) -> Control:
+	var tm := ThemeManager
 	var bar := PanelContainer.new()
-	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar.size_flags_vertical   = Control.SIZE_SHRINK_END
-	bar.custom_minimum_size   = Vector2(0, 110)
+	bar.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = ThemeManager.c("bg_panel")
-	sb.border_color = ThemeManager.c("border")
+	sb.bg_color         = tm.c("bg_panel")
+	sb.border_color     = tm.c("bark_stripe")
 	sb.border_width_top = 2
-	sb.border_color = ThemeManager.c("bark_stripe")
-	sb.set_corner_radius_all(10)
+	sb.set_corner_radius_all(0)
 	sb.content_margin_left   = 12
 	sb.content_margin_right  = 12
 	sb.content_margin_top    = 10
@@ -1166,19 +1288,18 @@ func _build_digest_action_bar(parent: VBoxContainer) -> Control:
 	vbox.add_theme_constant_override("separation", 8)
 	bar.add_child(vbox)
 
-	# ── Mode label (resource name + tap/hold hint) ────────────────────────
+	# ── Mode label ────────────────────────────────────────────────────────
 	_digest_action_lbl = Label.new()
 	_digest_action_lbl.name = "ActionLbl"
 	_digest_action_lbl.add_theme_font_size_override("font_size", 13)
-	_digest_action_lbl.add_theme_color_override("font_color", ThemeManager.c("text_primary"))
+	_digest_action_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
 	vbox.add_child(_digest_action_lbl)
 
-	# ── Main row: [Slider] [Amount+Value VBox] [Digest btn] ───────────────
+	# ── Main row: [Slider] [Amount+Value] [Digest btn] ────────────────────
 	var main_row := HBoxContainer.new()
 	main_row.add_theme_constant_override("separation", 10)
 	vbox.add_child(main_row)
 
-	# Slider — takes most of the width
 	_digest_slider = HSlider.new()
 	_digest_slider.name = "DigestSlider"
 	_digest_slider.min_value = 0.0
@@ -1190,7 +1311,6 @@ func _build_digest_action_bar(parent: VBoxContainer) -> Control:
 	_digest_slider.value_changed.connect(_on_digest_slider_changed)
 	main_row.add_child(_digest_slider)
 
-	# Right column: amount on top, value below
 	var right_col := VBoxContainer.new()
 	right_col.add_theme_constant_override("separation", 2)
 	right_col.custom_minimum_size = Vector2(80, 0)
@@ -1200,17 +1320,16 @@ func _build_digest_action_bar(parent: VBoxContainer) -> Control:
 	lbl_amount.name = "LblSelectedAmt"
 	lbl_amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	lbl_amount.add_theme_font_size_override("font_size", 13)
-	lbl_amount.add_theme_color_override("font_color", ThemeManager.c("accent"))
+	lbl_amount.add_theme_color_override("font_color", tm.c("accent"))
 	right_col.add_child(lbl_amount)
 
 	var lbl_value := Label.new()
 	lbl_value.name = "LblSelectedVal"
 	lbl_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	lbl_value.add_theme_font_size_override("font_size", 11)
-	lbl_value.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
+	lbl_value.add_theme_color_override("font_color", tm.c("text_muted"))
 	right_col.add_child(lbl_value)
 
-	# Digest button — right of the right column
 	_digest_action_btn = Button.new()
 	_digest_action_btn.name = "DigestBtn"
 	_digest_action_btn.text = "Digest"
@@ -1219,12 +1338,7 @@ func _build_digest_action_bar(parent: VBoxContainer) -> Control:
 	_theme_action_button(_digest_action_btn)
 	main_row.add_child(_digest_action_btn)
 
-	# Detach from panel VBox layout — position it relative to viewport
-	# so it always sits at the bottom of _panel_container regardless of scroll
-	bar.top_level = true
-	bar.size = Vector2(0, 0)  # will be set in _position_digest_action_bar
-
-	parent.add_child(bar)  # still parented here so it's freed with the panel
+	parent.add_child(bar)
 	return bar
 
 
@@ -1275,7 +1389,7 @@ func _refresh_digest_panel() -> void:
 	_clear_digest_rows()
 
 	if digest_feedback != null:
-		digest_feedback.text = ""
+		digest_feedback.text = "Select a resource" if _digest_selected_id == "" else ""
 
 	if _digest_active_category == "compound":
 		if game_state == null or not bool(game_state.call("is_refinery_unlocked")):
@@ -1384,9 +1498,9 @@ func _make_digest_row(entry: Dictionary) -> Control:
 	hbox.add_child(auto_lbl)
 
 	# Tap → select; hold → toggle auto
-	# Must explicitly allow input — PanelContainer defaults to IGNORE
-	row.mouse_filter = Control.MOUSE_FILTER_STOP
-	row.gui_input.connect(_on_digest_row_input.bind(item_id))
+	# Use MOUSE_FILTER_PASS so ScrollContainer handles scroll,
+	# we hit-test rows manually in _unhandled_input instead
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
 
 	# Selected highlight
 	if item_id == _digest_selected_id:
@@ -1424,10 +1538,9 @@ func _on_digest_row_input(event: InputEvent, item_id: String) -> void:
 			_digest_hold_id       = item_id
 			_digest_hold_consumed = false
 		else:
-			# Use item_id from press, not release — mouse may drift between them
+			get_viewport().set_input_as_handled()
 			var press_id := _digest_hold_id if _digest_hold_id != "" else item_id
 			if _digest_hold_consumed:
-				# Hold was already handled — suppress tap action
 				_digest_hold_consumed = false
 			elif _digest_hold_timer < 0.6:
 				if _digest_selected_id == press_id:
@@ -1441,10 +1554,11 @@ func _on_digest_row_input(event: InputEvent, item_id: String) -> void:
 			_digest_hold_timer = 0.0
 	elif event is InputEventScreenTouch:
 		if event.pressed:
-			_digest_hold_timer = 0.0
-			_digest_hold_id    = item_id
+			_digest_hold_timer    = 0.0
+			_digest_hold_id       = item_id
 			_digest_hold_consumed = false
 		else:
+			get_viewport().set_input_as_handled()
 			var press_id := _digest_hold_id if _digest_hold_id != "" else item_id
 			if _digest_hold_consumed:
 				_digest_hold_consumed = false
@@ -1459,15 +1573,6 @@ func _on_digest_row_input(event: InputEvent, item_id: String) -> void:
 			_digest_hold_id    = ""
 			_digest_hold_timer = 0.0
 
-
-func _position_digest_action_bar() -> void:
-	if _digest_action_bar == null or _panel_container == null:
-		return
-	var vp_w  := get_viewport_rect().size.x
-	var bar_h := 120.0
-	var pc    := _panel_container
-	_digest_action_bar.size     = Vector2(vp_w, bar_h)
-	_digest_action_bar.position = Vector2(0.0, pc.position.y + pc.size.y - bar_h)
 
 
 func _select_digest_row(item_id: String) -> void:
@@ -1490,7 +1595,6 @@ func _select_digest_row(item_id: String) -> void:
 
 	_update_digest_action_bar()
 	if _digest_action_bar != null:
-		_position_digest_action_bar()
 		_digest_action_bar.visible = true
 
 
@@ -1725,6 +1829,11 @@ func _bind_discoveries_panel() -> void:
 	for child in root_box.get_children():
 		child.queue_free()
 
+	# Ensure the panel and root box fill the container vertically
+	discoveries_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root_box.size_flags_vertical          = Control.SIZE_EXPAND_FILL
+	root_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+
 	# Header
 	var header := Label.new()
 	header.text = "Discoveries"
@@ -1869,7 +1978,7 @@ func _refresh_discoveries_panel() -> void:
 
 func _make_disc_connector(from: Vector2, to: Vector2, by_id: Dictionary, id_a: String, id_b: String) -> Node2D:
 	var entry_a: Dictionary = by_id.get(id_a, {}) as Dictionary
-	var entry_b: Dictionary = by_id.get(id_b, {}) as Dictionary
+	var _entry_b: Dictionary = by_id.get(id_b, {}) as Dictionary
 	var unlocked_a: bool = bool(entry_a.get("complete", false)) or (int(entry_a.get("level", 0)) > 0)
 	var col: Color = ThemeManager.c("accent_dim") if unlocked_a else ThemeManager.c("border")
 
@@ -2203,13 +2312,15 @@ func _show_disc_popup(disc_id: String, entry: Dictionary) -> void:
 	_disc_popup = popup
 	_disc_popup_layer.add_child(popup)
 
-	# Center popup after one frame (needs size to be computed)
+	# Center popup after one frame, clamped to screen
 	await get_tree().process_frame
 	if is_instance_valid(popup):
-		popup.position = Vector2(
-			(vp.x - popup.size.x) * 0.5,
-			(vp.y - popup.size.y) * 0.5
-		)
+		var px := (vp.x - popup.size.x) * 0.5
+		var py := (vp.y - popup.size.y) * 0.5
+		# Clamp so popup never goes off screen
+		px = clampf(px, 8.0, vp.x - popup.size.x - 8.0)
+		py = clampf(py, 8.0, vp.y - popup.size.y - 8.0)
+		popup.position = Vector2(px, py)
 
 	# Fade in dimmer
 	var tw := create_tween()
@@ -2223,6 +2334,7 @@ func _close_disc_popup() -> void:
 	_disc_popup        = null
 	_disc_popup_dimmer = null
 	_disc_popup_disc_id = ""
+	_popup_closed_this_press = true
 
 
 func _on_disc_popup_dimmer_input(event: InputEvent) -> void:
@@ -2313,6 +2425,7 @@ func _clear_refinery_rows() -> void:
 		if child == refinery_feedback or child == refinery_tabs_row:
 			continue
 		child.queue_free()
+		child.queue_free()
 
 
 func _refresh_refinery_tab_buttons() -> void:
@@ -2350,13 +2463,8 @@ func _refresh_refinery_panel() -> void:
 	_refresh_refinery_tab_buttons()
 	_clear_refinery_rows()
 
-	if refinery_tabs_row != null and refinery_tabs_row.get_parent() == null:
-		refinery_list.add_child(refinery_tabs_row)
-	if refinery_feedback != null and refinery_feedback.get_parent() == null:
-		refinery_list.add_child(refinery_feedback)
-
-	if refinery_feedback != null and refinery_feedback.text == "":
-		refinery_feedback.text = "Assign recipes to refinery slots. Slots repeat automatically while ingredients are available."
+	if refinery_feedback != null:
+		refinery_feedback.text = ""
 
 	if _refinery_active_category == "compound":
 		if not game_state.has_method("is_refinery_unlocked") or not bool(game_state.call("is_refinery_unlocked")):
@@ -2379,10 +2487,6 @@ func _refresh_refinery_panel() -> void:
 
 		var spacer := HSeparator.new()
 		refinery_list.add_child(spacer)
-
-		var slot_header := Label.new()
-		slot_header.text = "Compounds"
-		refinery_list.add_child(slot_header)
 
 		if not game_state.has_method("get_refinery_ui_entries"):
 			return
@@ -2421,10 +2525,6 @@ func _refresh_refinery_panel() -> void:
 		var spacer2 := HSeparator.new()
 		refinery_list.add_child(spacer2)
 
-		var slot_header2 := Label.new()
-		slot_header2.text = "Solutions"
-		refinery_list.add_child(slot_header2)
-
 		if game_state.has_method("get_synth_ui_entries"):
 			var synth_entries = game_state.call("get_synth_ui_entries")
 			if typeof(synth_entries) == TYPE_ARRAY:
@@ -2450,323 +2550,322 @@ func _make_refinery_progress_bar(pct: int, width: int = 10) -> String:
 
 func _refinery_recipe_cycle_label(recipe_name: String) -> String:
 	if recipe_name == "" or recipe_name == "Idle":
-		return "Cycle Recipe (Idle)"
-	return "Cycle Recipe (%s)" % recipe_name
+		return "Set Recipe"
+	return "Change"
+
+
+func _make_refinery_card_shell() -> PanelContainer:
+	var tm := ThemeManager
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("border")
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left   = 12
+	sb.content_margin_right  = 12
+	sb.content_margin_top    = 10
+	sb.content_margin_bottom = 10
+	card.add_theme_stylebox_override("panel", sb)
+	return card
 
 
 func _make_refinery_slot_card(entry: Dictionary) -> Control:
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 4)
-
-	var title := Label.new()
-	title.text = "Refinery Slot %s" % str(entry.get("slot_number", 0))
-	box.add_child(title)
-
-	var recipe_name := str(entry.get("recipe_name", "Idle"))
-	var recipe := Label.new()
-	recipe.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	recipe.text = "Recipe: %s" % recipe_name
-	box.add_child(recipe)
-
-	var input_label := Label.new()
-	input_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	input_label.text = "Input: %s" % str(entry.get("input_summary", "—"))
-	box.add_child(input_label)
-
-	var output_label := Label.new()
-	output_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	output_label.text = "Output: %s" % str(entry.get("output_summary", "—"))
-	box.add_child(output_label)
-
-	var pct := int(entry.get("progress_pct", 0))
-	var progress_bar := Label.new()
-	progress_bar.text = "Progress: %s %s%%" % [_make_refinery_progress_bar(pct), pct]
-	box.add_child(progress_bar)
-
-	var status := Label.new()
-	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status.text = "Status: %s • Completed %s" % [
-		str(entry.get("status", "Idle")),
-		str(entry.get("completed_count", 0))
-	]
-	box.add_child(status)
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	box.add_child(row)
-
-	var cycle_btn := Button.new()
-	cycle_btn.text = _refinery_recipe_cycle_label(recipe_name)
-	var slot_number: int = int(entry.get("slot_number", 0))
-	cycle_btn.pressed.connect(func(): _on_refinery_cycle_recipe_pressed(slot_number))
-	row.add_child(cycle_btn)
-
-	var repeat_btn := Button.new()
-	repeat_btn.text = "Repeat: %s" % ("On" if bool(entry.get("repeat_enabled", true)) else "Off")
-	repeat_btn.pressed.connect(func(): _on_refinery_toggle_repeat_pressed(slot_number))
-	row.add_child(repeat_btn)
-
-	var clear_btn := Button.new()
-	clear_btn.text = "Clear"
-	clear_btn.pressed.connect(func(): _on_refinery_clear_recipe_pressed(slot_number))
-	row.add_child(clear_btn)
-
-	return box
+	return _make_slot_row(entry, "compound")
 
 
+func _make_slot_row(entry: Dictionary, category: String) -> Control:
+	var tm := ThemeManager
+	var slot_number: int  = int(entry.get("slot_number", 0))
+	var recipe_name: String = str(entry.get("recipe_name", "Idle"))
+	var is_idle: bool      = recipe_name == "" or recipe_name == "Idle"
+	var pct: int           = int(entry.get("progress_pct", 0))
+	var completed: int     = int(entry.get("completed_count", 0))
+	var repeat_on: bool    = bool(entry.get("repeat_enabled", true))
+
+	var row := PanelContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("border")
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(8)
+	sb.content_margin_left   = 10
+	sb.content_margin_right  = 10
+	sb.content_margin_top    = 8
+	sb.content_margin_bottom = 8
+	row.add_theme_stylebox_override("panel", sb)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 4)
+	row.add_child(vbox)
+
+	# ── Top line: slot label + recipe name + completed badge ──────────────
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+	vbox.add_child(top)
+
+	var slot_lbl := Label.new()
+	slot_lbl.text = "Slot %d" % slot_number
+	slot_lbl.add_theme_font_size_override("font_size", 11)
+	slot_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+	top.add_child(slot_lbl)
+
+	var recipe_lbl := Label.new()
+	recipe_lbl.text = "Idle" if is_idle else recipe_name
+	recipe_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	recipe_lbl.add_theme_font_size_override("font_size", 13)
+	recipe_lbl.add_theme_color_override("font_color",
+		tm.c("text_muted") if is_idle else tm.c("text_primary"))
+	top.add_child(recipe_lbl)
+
+	if not is_idle:
+		if repeat_on:
+			var auto_lbl := Label.new()
+			auto_lbl.text = "AUTO"
+			auto_lbl.add_theme_font_size_override("font_size", 10)
+			auto_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+			top.add_child(auto_lbl)
+
+		if completed > 0:
+			var badge := Label.new()
+			badge.text = "×%d" % completed
+			badge.add_theme_font_size_override("font_size", 11)
+			badge.add_theme_color_override("font_color", tm.c("text_muted"))
+			top.add_child(badge)
+
+	# ── Progress bar (only when active) ──────────────────────────────────
+	if not is_idle:
+		var track := PanelContainer.new()
+		var sb_t := StyleBoxFlat.new()
+		sb_t.bg_color = tm.c("bg_deep")
+		sb_t.set_corner_radius_all(3)
+		sb_t.content_margin_top    = 0
+		sb_t.content_margin_bottom = 0
+		track.add_theme_stylebox_override("panel", sb_t)
+		track.custom_minimum_size = Vector2(0, 5)
+		vbox.add_child(track)
+
+		var fill := Control.new()
+		fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fill.custom_minimum_size   = Vector2(0, 5)
+		var fill_pct := pct
+		fill.draw.connect(func():
+			var w := fill.size.x * clampf(float(fill_pct) / 100.0, 0.0, 1.0)
+			if w > 0:
+				var sb_f := StyleBoxFlat.new()
+				sb_f.bg_color = tm.c("accent") if fill_pct >= 100 else tm.c("accent_dim")
+				sb_f.set_corner_radius_all(3)
+				fill.draw_style_box(sb_f, Rect2(0, 0, w, fill.size.y))
+		)
+		track.add_child(fill)
+
+	# ── Tap row to open slot popup ────────────────────────────────────────
+	row.gui_input.connect(func(ev: InputEvent):
+		if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) or \
+		   (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
+			_show_slot_popup(entry.duplicate(true), category)
+			get_viewport().set_input_as_handled()
+	)
+
+	return row
 func _make_refinery_recipe_unlock_card(recipe_id: String) -> Control:
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 4)
+	var tm := ThemeManager
+	var card := _make_refinery_card_shell()
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	card.add_child(vbox)
 
 	var compound_defs: Dictionary = game_state.get("compound_defs")
 	var recipe_def: Dictionary = compound_defs.get(recipe_id, {}) as Dictionary
 	var recipe_name := str(recipe_def.get("name", recipe_id))
 
-	var title := Label.new()
-	title.text = recipe_name
-	box.add_child(title)
+	var hdr_row := HBoxContainer.new()
+	vbox.add_child(hdr_row)
+
+	var name_lbl := Label.new()
+	name_lbl.text = recipe_name
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.add_theme_font_size_override("font_size", 14)
+	name_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+	hdr_row.add_child(name_lbl)
 
 	var cost_value := -1
 	if game_state.has_method("get_compound_unlock_cost"):
 		cost_value = int(game_state.call("get_compound_unlock_cost", recipe_id))
 
-	var status := Label.new()
-	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var cost_lbl := Label.new()
+	cost_lbl.text = "%s nutrients" % _fmt_int(cost_value) if cost_value > 0 else "—"
+	cost_lbl.add_theme_font_size_override("font_size", 12)
+	cost_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+	hdr_row.add_child(cost_lbl)
 
-	var check := {}
-	if game_state.has_method("can_unlock_compound_recipe"):
-		check = game_state.call("can_unlock_compound_recipe", recipe_id) as Dictionary
-
-	if cost_value <= 0:
-		status.text = "Cost: --"
-	else:
-		status.text = "Cost: %s Nutrients" % _fmt_int(cost_value)
-
-	if not check.is_empty():
-		var reason := str(check.get("reason", ""))
-		if reason != "":
-			if bool(check.get("ok", false)):
-				status.text += " • Ready"
-			elif reason != "Already unlocked.":
-				status.text += " • %s" % reason
-
-	box.add_child(status)
-
-	var btn := Button.new()
-	if cost_value > 0:
-		btn.text = "Unlock (%s)" % _fmt_int(cost_value)
-	else:
-		btn.text = "Unlock"
-
+	var check: Dictionary = {}
 	var can_unlock := false
 	if game_state.has_method("can_unlock_compound_recipe"):
-		var check2: Dictionary = game_state.call("can_unlock_compound_recipe", recipe_id) as Dictionary
-		can_unlock = bool(check2.get("ok", false))
+		check = game_state.call("can_unlock_compound_recipe", recipe_id) as Dictionary
+		can_unlock = bool(check.get("ok", false))
 
+	var reason := str(check.get("reason", ""))
+	if reason != "" and not can_unlock and reason != "Already unlocked.":
+		var reason_lbl := Label.new()
+		reason_lbl.text = reason
+		reason_lbl.add_theme_font_size_override("font_size", 11)
+		reason_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		vbox.add_child(reason_lbl)
+
+	var btn := Button.new()
+	btn.text = "Unlock Recipe"
 	btn.disabled = not can_unlock
-	btn.pressed.connect(func() -> void:
-		_on_refinery_unlock_compound_pressed(recipe_id)
-	)
-	box.add_child(btn)
+	btn.pressed.connect(func() -> void: _on_refinery_unlock_compound_pressed(recipe_id))
+	_theme_action_button(btn)
+	vbox.add_child(btn)
 
-	return box
+	return card
 
 
 func _make_synthesis_slot_card(entry: Dictionary) -> Control:
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 4)
-
-	var title := Label.new()
-	title.text = "Synthesis Slot %s" % str(entry.get("slot_number", 0))
-	box.add_child(title)
-
-	var recipe_name := str(entry.get("recipe_name", "Idle"))
-	var recipe := Label.new()
-	recipe.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	recipe.text = "Recipe: %s" % recipe_name
-	box.add_child(recipe)
-
-	var input_label := Label.new()
-	input_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	input_label.text = "Input: %s" % str(entry.get("input_summary", "—"))
-	box.add_child(input_label)
-
-	var output_label := Label.new()
-	output_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	output_label.text = "Output: %s" % str(entry.get("output_summary", "—"))
-	box.add_child(output_label)
-
-	var pct := int(entry.get("progress_pct", 0))
-	var progress_bar := Label.new()
-	progress_bar.text = "Progress: %s %s%%" % [_make_refinery_progress_bar(pct), pct]
-	box.add_child(progress_bar)
-
-	var status := Label.new()
-	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status.text = "Status: %s • Completed %s" % [
-		str(entry.get("status", "Idle")),
-		str(entry.get("completed_count", 0))
-	]
-	box.add_child(status)
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	box.add_child(row)
-
-	var slot_number: int = int(entry.get("slot_number", 0))
-
-	var cycle_btn := Button.new()
-	cycle_btn.text = _refinery_recipe_cycle_label(recipe_name)
-	cycle_btn.pressed.connect(func(): _on_synthesis_cycle_recipe_pressed(slot_number))
-	row.add_child(cycle_btn)
-
-	var repeat_btn := Button.new()
-	repeat_btn.text = "Repeat: %s" % ("On" if bool(entry.get("repeat_enabled", true)) else "Off")
-	repeat_btn.pressed.connect(func(): _on_synthesis_toggle_repeat_pressed(slot_number))
-	row.add_child(repeat_btn)
-
-	var clear_btn := Button.new()
-	clear_btn.text = "Clear"
-	clear_btn.pressed.connect(func(): _on_synthesis_clear_recipe_pressed(slot_number))
-	row.add_child(clear_btn)
-
-	return box
+	return _make_slot_row(entry, "solution")
 
 
 func _make_synth_unlock_card(entry: Dictionary) -> Control:
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 4)
+	var tm := ThemeManager
+	var card := _make_refinery_card_shell()
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	card.add_child(vbox)
 
-	var title := Label.new()
-	title.text = "Unlock Synthesis Slot %s" % str(entry.get("slot_number", 0))
-	box.add_child(title)
+	var hdr := HBoxContainer.new()
+	vbox.add_child(hdr)
+	var name_lbl := Label.new()
+	name_lbl.text = "Synth Slot %d" % int(entry.get("slot_number", 0))
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.add_theme_font_size_override("font_size", 14)
+	name_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+	hdr.add_child(name_lbl)
+	var cost_lbl := Label.new()
+	cost_lbl.text = "%s nutrients" % _fmt_int(int(entry.get("cost", 0)))
+	cost_lbl.add_theme_font_size_override("font_size", 12)
+	cost_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+	hdr.add_child(cost_lbl)
 
-	var cost := Label.new()
-	cost.text = "Cost: %s Nutrients" % _fmt_int(int(entry.get("cost", 0)))
-	box.add_child(cost)
-
-	var status := Label.new()
-	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status.text = str(entry.get("status", ""))
-	box.add_child(status)
+	var reason := str(entry.get("status", ""))
+	if reason != "":
+		var reason_lbl := Label.new()
+		reason_lbl.text = reason
+		reason_lbl.add_theme_font_size_override("font_size", 11)
+		reason_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		vbox.add_child(reason_lbl)
 
 	var btn := Button.new()
 	btn.text = "Unlock Slot"
 	btn.disabled = not bool(entry.get("can_unlock", false))
 	var slot_number: int = int(entry.get("slot_number", 0))
 	btn.pressed.connect(func(): _on_synth_unlock_slot_pressed(slot_number))
-	box.add_child(btn)
-
-	return box
+	_theme_action_button(btn)
+	vbox.add_child(btn)
+	return card
 
 
 func _make_refinery_unlock_card(entry: Dictionary) -> Control:
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 4)
+	var tm := ThemeManager
+	var card := _make_refinery_card_shell()
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	card.add_child(vbox)
 
-	var title := Label.new()
-	title.text = "Unlock Refinery Slot %s" % str(entry.get("slot_number", 0))
-	box.add_child(title)
+	var hdr := HBoxContainer.new()
+	vbox.add_child(hdr)
+	var name_lbl := Label.new()
+	name_lbl.text = "Refinery Slot %d" % int(entry.get("slot_number", 0))
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.add_theme_font_size_override("font_size", 14)
+	name_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+	hdr.add_child(name_lbl)
+	var cost_lbl := Label.new()
+	cost_lbl.text = "%s nutrients" % _fmt_int(int(entry.get("cost", 0)))
+	cost_lbl.add_theme_font_size_override("font_size", 12)
+	cost_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+	hdr.add_child(cost_lbl)
 
-	var cost := Label.new()
-	cost.text = "Cost: %s Nutrients" % _fmt_int(int(entry.get("cost", 0)))
-	box.add_child(cost)
-
-	var status := Label.new()
-	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status.text = str(entry.get("status", ""))
-	box.add_child(status)
+	var reason := str(entry.get("status", ""))
+	if reason != "":
+		var reason_lbl := Label.new()
+		reason_lbl.text = reason
+		reason_lbl.add_theme_font_size_override("font_size", 11)
+		reason_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		vbox.add_child(reason_lbl)
 
 	var btn := Button.new()
 	btn.text = "Unlock Slot"
 	btn.disabled = not bool(entry.get("can_unlock", false))
 	var slot_number: int = int(entry.get("slot_number", 0))
 	btn.pressed.connect(func(): _on_refinery_unlock_slot_pressed(slot_number))
-	box.add_child(btn)
-
-	return box
+	_theme_action_button(btn)
+	vbox.add_child(btn)
+	return card
 
 
 func _make_synth_recipe_unlock_card(recipe_id: String) -> Control:
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 4)
+	var tm := ThemeManager
+	var card := _make_refinery_card_shell()
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	card.add_child(vbox)
 
 	var solution_defs: Dictionary = game_state.get("solution_defs")
 	var recipe_def: Dictionary = solution_defs.get(recipe_id, {}) as Dictionary
 	var recipe_name := str(recipe_def.get("name", recipe_id))
 
-	var title := Label.new()
-	title.text = recipe_name
-	box.add_child(title)
+	var hdr_row := HBoxContainer.new()
+	vbox.add_child(hdr_row)
+
+	var name_lbl := Label.new()
+	name_lbl.text = recipe_name
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.add_theme_font_size_override("font_size", 14)
+	name_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+	hdr_row.add_child(name_lbl)
 
 	var cost_value := -1
 	if game_state.has_method("get_solution_unlock_cost"):
 		cost_value = int(game_state.call("get_solution_unlock_cost", recipe_id))
 
-	var status := Label.new()
-	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var cost_lbl := Label.new()
+	cost_lbl.text = "%s nutrients" % _fmt_int(cost_value) if cost_value > 0 else "—"
+	cost_lbl.add_theme_font_size_override("font_size", 12)
+	cost_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+	hdr_row.add_child(cost_lbl)
 
-	var check := {}
-	if game_state.has_method("can_unlock_solution_recipe"):
-		check = game_state.call("can_unlock_solution_recipe", recipe_id) as Dictionary
-
-	if cost_value <= 0:
-		status.text = "Cost: --"
-	else:
-		status.text = "Cost: %s Nutrients" % _fmt_int(cost_value)
-
-	if not check.is_empty():
-		var reason := str(check.get("reason", ""))
-		if reason != "":
-			if bool(check.get("ok", false)):
-				status.text += " • Ready"
-			elif reason != "Already unlocked.":
-				status.text += " • %s" % reason
-
-	box.add_child(status)
-
-	var btn := Button.new()
-	if cost_value > 0:
-		btn.text = "Unlock (%s)" % _fmt_int(cost_value)
-	else:
-		btn.text = "Unlock"
-
+	var check: Dictionary = {}
 	var can_unlock := false
 	if game_state.has_method("can_unlock_solution_recipe"):
-		var check2: Dictionary = game_state.call("can_unlock_solution_recipe", recipe_id) as Dictionary
-		can_unlock = bool(check2.get("ok", false))
+		check = game_state.call("can_unlock_solution_recipe", recipe_id) as Dictionary
+		can_unlock = bool(check.get("ok", false))
 
+	var reason := str(check.get("reason", ""))
+	if reason != "" and not can_unlock and reason != "Already unlocked.":
+		var reason_lbl := Label.new()
+		reason_lbl.text = reason
+		reason_lbl.add_theme_font_size_override("font_size", 11)
+		reason_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		vbox.add_child(reason_lbl)
+
+	var btn := Button.new()
+	btn.text = "Unlock Recipe"
 	btn.disabled = not can_unlock
-	btn.pressed.connect(func() -> void:
-		_on_refinery_unlock_solution_pressed(recipe_id)
-	)
-
-	box.add_child(btn)
-
-	return box
+	btn.pressed.connect(func() -> void: _on_refinery_unlock_solution_pressed(recipe_id))
+	_theme_action_button(btn)
+	vbox.add_child(btn)
+	return card
 
 
 func _on_refinery_cycle_recipe_pressed(slot_number: int) -> void:
-	if game_state == null or not game_state.has_method("cycle_refinery_recipe"):
-		return
+	_show_recipe_picker_popup(slot_number, "compound")
 
-	var recipe_id: String = str(game_state.call("cycle_refinery_recipe", slot_number))
-	var recipe_name := "Idle"
-
-	if recipe_id != "":
-		var compound_defs: Dictionary = game_state.get("compound_defs")
-		var recipe_def: Dictionary = compound_defs.get(recipe_id, {}) as Dictionary
-		recipe_name = str(recipe_def.get("name", recipe_id))
-
-	if refinery_feedback != null:
-		refinery_feedback.text = "Slot %s recipe: %s" % [slot_number, recipe_name]
-	_refresh_refinery_panel()
 
 
 func _on_refinery_toggle_repeat_pressed(slot_number: int) -> void:
@@ -2844,19 +2943,422 @@ func _on_refinery_unlock_solution_pressed(recipe_id: String) -> void:
 
 
 func _on_synthesis_cycle_recipe_pressed(slot_number: int) -> void:
-	if game_state == null or not game_state.has_method("cycle_synth_recipe"):
+	_show_recipe_picker_popup(slot_number, "solution")
+
+
+func _show_slot_popup(entry: Dictionary, category: String) -> void:
+	# Slot management popup: shows current recipe + progress, Auto toggle, Clear, Change Recipe
+	_close_recipe_picker_popup()
+	if game_state == null:
 		return
 
-	var recipe_id: String = str(game_state.call("cycle_synth_recipe", slot_number))
-	var recipe_name := "Idle"
+	var vp := get_viewport_rect().size
+	var tm := ThemeManager
+	var slot_number: int   = int(entry.get("slot_number", 0))
+	var recipe_name: String = str(entry.get("recipe_name", "Idle"))
+	var is_idle: bool       = recipe_name == "" or recipe_name == "Idle"
+	var pct: int            = int(entry.get("progress_pct", 0))
+	var repeat_on: bool     = bool(entry.get("repeat_enabled", true))
+	var completed: int      = int(entry.get("completed_count", 0))
+	var is_compound: bool   = category == "compound"
 
-	if recipe_id != "":
-		var solution_defs: Dictionary = game_state.get("solution_defs")
-		var recipe_def: Dictionary = solution_defs.get(recipe_id, {}) as Dictionary
-		recipe_name = str(recipe_def.get("name", recipe_id))
+	_recipe_popup_layer = CanvasLayer.new()
+	_recipe_popup_layer.layer = 128
+	add_child(_recipe_popup_layer)
 
-	if refinery_feedback != null:
-		refinery_feedback.text = "Synthesis slot %s recipe: %s" % [slot_number, recipe_name]
+	_recipe_popup_dimmer = ColorRect.new()
+	_recipe_popup_dimmer.size     = vp
+	_recipe_popup_dimmer.position = Vector2.ZERO
+	_recipe_popup_dimmer.color    = Color(0, 0, 0, 0.55)
+	_recipe_popup_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	_recipe_popup_dimmer.gui_input.connect(func(ev: InputEvent):
+		if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) or \
+		   (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
+			_close_recipe_picker_popup()
+			get_viewport().set_input_as_handled()
+	)
+	_recipe_popup_layer.add_child(_recipe_popup_dimmer)
+
+	var popup := PanelContainer.new()
+	popup.z_index = 11
+	popup.custom_minimum_size = Vector2(340, 0)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("bark_stripe")
+	sb.set_border_width_all(1)
+	sb.border_width_top = 3
+	sb.set_corner_radius_all(16)
+	sb.content_margin_left   = 16
+	sb.content_margin_right  = 16
+	sb.content_margin_top    = 14
+	sb.content_margin_bottom = 16
+	popup.add_theme_stylebox_override("panel", sb)
+	_recipe_popup_layer.add_child(popup)
+
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 10)
+	popup.add_child(outer)
+
+	# Header row
+	var hdr := HBoxContainer.new()
+	outer.add_child(hdr)
+	var title := Label.new()
+	title.text = "%s Slot %d" % ["Compound" if is_compound else "Synth", slot_number]
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 15)
+	title.add_theme_color_override("font_color", tm.c("accent"))
+	hdr.add_child(title)
+	var close_btn := Button.new()
+	close_btn.flat = true
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.custom_minimum_size = Vector2(28, 28)
+	close_btn.draw.connect(func():
+		var col: Color = tm.c("text_muted")
+		var cx2 := close_btn.size.x * 0.5
+		var cy2 := close_btn.size.y * 0.5
+		var r := 5.0
+		close_btn.draw_line(Vector2(cx2-r, cy2-r), Vector2(cx2+r, cy2+r), col, 1.5, true)
+		close_btn.draw_line(Vector2(cx2+r, cy2-r), Vector2(cx2-r, cy2+r), col, 1.5, true)
+	)
+	close_btn.pressed.connect(_close_recipe_picker_popup)
+	hdr.add_child(close_btn)
+
+	# Divider
+	var div := HSeparator.new()
+	var sb_div := StyleBoxFlat.new()
+	sb_div.bg_color = tm.c("border")
+	div.add_theme_stylebox_override("separator", sb_div)
+	outer.add_child(div)
+
+	# Current recipe + progress
+	var recipe_row := HBoxContainer.new()
+	outer.add_child(recipe_row)
+	var recipe_lbl := Label.new()
+	recipe_lbl.text = "Idle" if is_idle else recipe_name
+	recipe_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	recipe_lbl.add_theme_font_size_override("font_size", 14)
+	recipe_lbl.add_theme_color_override("font_color",
+		tm.c("text_muted") if is_idle else tm.c("text_primary"))
+	recipe_row.add_child(recipe_lbl)
+	if completed > 0:
+		var badge := Label.new()
+		badge.text = "×%d" % completed
+		badge.add_theme_font_size_override("font_size", 12)
+		badge.add_theme_color_override("font_color", tm.c("text_muted"))
+		recipe_row.add_child(badge)
+
+	if not is_idle:
+		# Progress bar
+		var track := PanelContainer.new()
+		var sb_t := StyleBoxFlat.new()
+		sb_t.bg_color = tm.c("bg_deep")
+		sb_t.set_corner_radius_all(4)
+		track.add_theme_stylebox_override("panel", sb_t)
+		track.custom_minimum_size = Vector2(0, 8)
+		outer.add_child(track)
+		var fill := Control.new()
+		fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fill.custom_minimum_size   = Vector2(0, 8)
+		var fill_pct := pct
+		fill.draw.connect(func():
+			var w := fill.size.x * clampf(float(fill_pct) / 100.0, 0.0, 1.0)
+			if w > 0:
+				var sb_f := StyleBoxFlat.new()
+				sb_f.bg_color = tm.c("accent") if fill_pct >= 100 else tm.c("accent_dim")
+				sb_f.set_corner_radius_all(4)
+				fill.draw_style_box(sb_f, Rect2(0, 0, w, fill.size.y))
+		)
+		track.add_child(fill)
+
+		# I/O summary
+		var input_lbl := Label.new()
+		input_lbl.text = "In: %s" % str(entry.get("input_summary", "—"))
+		input_lbl.add_theme_font_size_override("font_size", 11)
+		input_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+		outer.add_child(input_lbl)
+		var output_lbl := Label.new()
+		output_lbl.text = "Out: %s" % str(entry.get("output_summary", "—"))
+		output_lbl.add_theme_font_size_override("font_size", 11)
+		output_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+		outer.add_child(output_lbl)
+
+		# Status
+		var status_lbl := Label.new()
+		status_lbl.text = "%s  %d%%" % [str(entry.get("status", "Idle")), pct]
+		status_lbl.add_theme_font_size_override("font_size", 11)
+		status_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		outer.add_child(status_lbl)
+
+	# Divider
+	var div2 := HSeparator.new()
+	div2.add_theme_stylebox_override("separator", sb_div)
+	outer.add_child(div2)
+
+	# Action buttons
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	outer.add_child(btn_row)
+
+	var change_btn := Button.new()
+	change_btn.text = "Set Recipe" if is_idle else "Change"
+	change_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_theme_action_button(change_btn)
+	change_btn.pressed.connect(func():
+		_close_recipe_picker_popup()
+		_show_recipe_picker_popup(slot_number, category)
+	)
+	btn_row.add_child(change_btn)
+
+	if not is_idle:
+		var repeat_btn := Button.new()
+		repeat_btn.text = "Auto: %s" % ("ON" if repeat_on else "OFF")
+		repeat_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_theme_action_button(repeat_btn)
+		if repeat_on:
+			repeat_btn.add_theme_color_override("font_color", tm.c("accent"))
+		repeat_btn.pressed.connect(func():
+			if is_compound:
+				game_state.call("toggle_refinery_repeat", slot_number)
+			else:
+				game_state.call("toggle_synth_repeat", slot_number)
+			_close_recipe_picker_popup()
+			_refresh_refinery_panel()
+		)
+		btn_row.add_child(repeat_btn)
+
+		var clear_btn := Button.new()
+		clear_btn.text = "Clear"
+		clear_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_theme_action_button(clear_btn)
+		clear_btn.pressed.connect(func():
+			if is_compound:
+				game_state.call("clear_refinery_recipe", slot_number)
+			else:
+				game_state.call("clear_synth_recipe", slot_number)
+			_close_recipe_picker_popup()
+			_refresh_refinery_panel()
+		)
+		btn_row.add_child(clear_btn)
+
+	_recipe_popup = popup
+	await get_tree().process_frame
+	if is_instance_valid(popup):
+		popup.position = Vector2(
+			(vp.x - popup.size.x) * 0.5,
+			(vp.y - popup.size.y) * 0.5
+		)
+
+
+func _show_recipe_picker_popup(slot_number: int, category: String) -> void:
+	_close_recipe_picker_popup()
+	if game_state == null:
+		return
+
+	var vp := get_viewport_rect().size
+	var tm := ThemeManager
+
+	# Gather recipe options
+	var recipe_ids: Array = []
+	var defs: Dictionary = {}
+	if category == "compound":
+		recipe_ids = game_state.call("get_available_compound_recipe_ids")
+		defs = game_state.get("compound_defs") as Dictionary
+	else:
+		recipe_ids = game_state.call("get_available_solution_recipe_ids")
+		defs = game_state.get("solution_defs") as Dictionary
+
+	# ── CanvasLayer ───────────────────────────────────────────────────────
+	_recipe_popup_layer = CanvasLayer.new()
+	_recipe_popup_layer.layer = 128
+	add_child(_recipe_popup_layer)
+
+	# ── Dimmer ────────────────────────────────────────────────────────────
+	_recipe_popup_dimmer = ColorRect.new()
+	_recipe_popup_dimmer.size     = vp
+	_recipe_popup_dimmer.position = Vector2.ZERO
+	_recipe_popup_dimmer.color    = Color(0, 0, 0, 0.55)
+	_recipe_popup_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	_recipe_popup_dimmer.gui_input.connect(func(ev: InputEvent):
+		if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) or \
+		   (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
+			_close_recipe_picker_popup()
+			get_viewport().set_input_as_handled()
+	)
+	_recipe_popup_layer.add_child(_recipe_popup_dimmer)
+
+	# ── Popup card ────────────────────────────────────────────────────────
+	var popup := PanelContainer.new()
+	popup.z_index = 11
+	popup.custom_minimum_size = Vector2(340, 0)
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("bark_stripe")
+	sb.set_border_width_all(1)
+	sb.border_width_top = 3
+	sb.set_corner_radius_all(16)
+	sb.content_margin_left   = 16
+	sb.content_margin_right  = 16
+	sb.content_margin_top    = 14
+	sb.content_margin_bottom = 16
+	popup.add_theme_stylebox_override("panel", sb)
+	_recipe_popup_layer.add_child(popup)
+
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 10)
+	popup.add_child(outer)
+
+	# Header
+	var hdr := HBoxContainer.new()
+	outer.add_child(hdr)
+
+	var title := Label.new()
+	var label_text := "Compound" if category == "compound" else "Solution"
+	title.text = "Set Recipe — Slot %d" % slot_number
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 15)
+	title.add_theme_color_override("font_color", tm.c("accent"))
+	hdr.add_child(title)
+
+	var close_btn := Button.new()
+	close_btn.flat = true
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.custom_minimum_size = Vector2(28, 28)
+	close_btn.draw.connect(func():
+		var col: Color = tm.c("text_muted")
+		var cx2 := close_btn.size.x * 0.5
+		var cy2 := close_btn.size.y * 0.5
+		var r := 5.0
+		close_btn.draw_line(Vector2(cx2-r, cy2-r), Vector2(cx2+r, cy2+r), col, 1.5, true)
+		close_btn.draw_line(Vector2(cx2+r, cy2-r), Vector2(cx2-r, cy2+r), col, 1.5, true)
+	)
+	close_btn.pressed.connect(_close_recipe_picker_popup)
+	hdr.add_child(close_btn)
+
+	# Divider
+	var div := HSeparator.new()
+	var sb_div := StyleBoxFlat.new()
+	sb_div.bg_color = tm.c("border")
+	div.add_theme_stylebox_override("separator", sb_div)
+	outer.add_child(div)
+
+	# Recipe list (scrollable)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, minf(float(recipe_ids.size()) * 72.0, 400.0))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	outer.add_child(scroll)
+
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 6)
+	scroll.add_child(list)
+
+	if recipe_ids.is_empty():
+		var empty_lbl := Label.new()
+		empty_lbl.text = "No %s recipes unlocked yet." % label_text.to_lower()
+		empty_lbl.add_theme_font_size_override("font_size", 13)
+		empty_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		list.add_child(empty_lbl)
+	else:
+		for id_v in recipe_ids:
+			var rid: String = str(id_v)
+			var def: Dictionary = defs.get(rid, {}) as Dictionary
+			var rname: String = str(def.get("name", rid))
+			var inputs: Array = def.get("inputs", []) as Array
+			var output_qty: int = int(def.get("output_qty", 1))
+			var output_name: String = str(def.get("output_name", rname))
+
+			# Build input summary
+			var input_parts: Array = []
+			for inp_v in inputs:
+				var inp: Dictionary = inp_v as Dictionary
+				var iname: String = _pretty_res(str(inp.get("id", "")))
+				var iqty: int = int(inp.get("qty", 0))
+				input_parts.append("%d %s" % [iqty, iname])
+			var input_str: String = " + ".join(input_parts) if not input_parts.is_empty() else "—"
+
+			# Row card
+			var row_card := PanelContainer.new()
+			row_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var sb_row := StyleBoxFlat.new()
+			sb_row.bg_color     = tm.c("bg_row")
+			sb_row.border_color = tm.c("border")
+			sb_row.set_border_width_all(1)
+			sb_row.set_corner_radius_all(8)
+			sb_row.content_margin_left   = 10
+			sb_row.content_margin_right  = 10
+			sb_row.content_margin_top    = 8
+			sb_row.content_margin_bottom = 8
+			row_card.add_theme_stylebox_override("panel", sb_row)
+			row_card.mouse_filter = Control.MOUSE_FILTER_STOP
+
+			var row_vbox := VBoxContainer.new()
+			row_vbox.add_theme_constant_override("separation", 3)
+			row_card.add_child(row_vbox)
+
+			var row_hdr := HBoxContainer.new()
+			row_vbox.add_child(row_hdr)
+
+			var name_lbl := Label.new()
+			name_lbl.text = rname
+			name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			name_lbl.add_theme_font_size_override("font_size", 13)
+			name_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+			row_hdr.add_child(name_lbl)
+
+			var output_lbl := Label.new()
+			output_lbl.text = "→ %d %s" % [output_qty, output_name]
+			output_lbl.add_theme_font_size_override("font_size", 11)
+			output_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+			row_hdr.add_child(output_lbl)
+
+			var input_lbl := Label.new()
+			input_lbl.text = input_str
+			input_lbl.add_theme_font_size_override("font_size", 11)
+			input_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+			row_vbox.add_child(input_lbl)
+
+			# Tap to select
+			var capture_rid := rid
+			var capture_cat := category
+			var capture_slot := slot_number
+			row_card.gui_input.connect(func(ev: InputEvent):
+				if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) or \
+				   (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
+					_on_recipe_picker_selected(capture_slot, capture_rid, capture_cat)
+					get_viewport().set_input_as_handled()
+			)
+
+			list.add_child(row_card)
+
+	_recipe_popup = popup
+
+	# Center after layout
+	await get_tree().process_frame
+	if is_instance_valid(popup):
+		popup.position = Vector2(
+			(vp.x - popup.size.x) * 0.5,
+			(vp.y - popup.size.y) * 0.5
+		)
+
+
+func _close_recipe_picker_popup() -> void:
+	if _recipe_popup_layer != null and is_instance_valid(_recipe_popup_layer):
+		_recipe_popup_layer.queue_free()
+		_recipe_popup_layer = null
+	_recipe_popup        = null
+	_recipe_popup_dimmer = null
+	_popup_closed_this_press = true
+
+
+func _on_recipe_picker_selected(slot_number: int, recipe_id: String, category: String) -> void:
+	_close_recipe_picker_popup()
+	if game_state == null:
+		return
+	if category == "compound":
+		game_state.call("assign_refinery_recipe", slot_number, recipe_id)
+	else:
+		game_state.call("assign_synth_recipe", slot_number, recipe_id)
 	_refresh_refinery_panel()
 
 
@@ -2913,32 +3415,234 @@ func _on_synth_unlock_slot_pressed(slot_number: int) -> void:
 # ---------------- SettingsPanel ----------------
 
 func _bind_settings_panel() -> void:
-	settings_list = settings_panel.find_child("VBoxContainer", true, false) as VBoxContainer
-	if settings_list == null:
+	var root_box: VBoxContainer = settings_panel.find_child("VBoxContainer", true, false) as VBoxContainer
+	if root_box == null:
 		return
+	for child in root_box.get_children():
+		child.queue_free()
+
+	# Ensure fill
+	settings_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root_box.size_flags_vertical       = Control.SIZE_EXPAND_FILL
+	root_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	var tm := ThemeManager
+
+	# ── Header ────────────────────────────────────────────────────────────
+	var header := Label.new()
+	header.text = "Settings"
+	header.add_theme_font_size_override("font_size", 16)
+	header.add_theme_color_override("font_color", tm.c("accent"))
+	root_box.add_child(header)
+
+	# ── Theme section ─────────────────────────────────────────────────────
+	var theme_header := Label.new()
+	theme_header.text = "Theme"
+	theme_header.add_theme_font_size_override("font_size", 12)
+	theme_header.add_theme_color_override("font_color", tm.c("text_muted"))
+	root_box.add_child(theme_header)
+
+	var themes: Array = ThemeManager.get_theme_list()
+	for theme_info_v in themes:
+		var theme_info: Dictionary = theme_info_v as Dictionary
+		var tid: String   = str(theme_info.get("id", ""))
+		var tname: String = str(theme_info.get("name", tid))
+		var unlocked: bool = bool(theme_info.get("unlocked", false))
+		var is_active: bool = tid == ThemeManager.active_id()
+
+		var row := _make_settings_theme_row(tid, tname, unlocked, is_active)
+		root_box.add_child(row)
+
+	# ── Divider ───────────────────────────────────────────────────────────
+	var div := HSeparator.new()
+	var sb_div := StyleBoxFlat.new()
+	sb_div.bg_color = tm.c("border")
+	div.add_theme_stylebox_override("separator", sb_div)
+	root_box.add_child(div)
+
+	# ── Debug: rate multiplier ────────────────────────────────────────────
+	var debug_header := Label.new()
+	debug_header.text = "Debug"
+	debug_header.add_theme_font_size_override("font_size", 12)
+	debug_header.add_theme_color_override("font_color", tm.c("text_muted"))
+	root_box.add_child(debug_header)
+
+	var rate_row := HBoxContainer.new()
+	rate_row.add_theme_constant_override("separation", 10)
+	root_box.add_child(rate_row)
+
+	var rate_lbl := Label.new()
+	rate_lbl.text = "Rate ×"
+	rate_lbl.add_theme_font_size_override("font_size", 13)
+	rate_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+	rate_row.add_child(rate_lbl)
+
+	var rate_slider := HSlider.new()
+	rate_slider.min_value = 1.0
+	rate_slider.max_value = 100.0
+	rate_slider.step = 1.0
+	var cur_mult: float = 1.0
+	if game_state != null and "debug_rate_mult" in game_state:
+		cur_mult = float(game_state.get("debug_rate_mult"))
+	rate_slider.value = cur_mult
+	rate_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rate_row.add_child(rate_slider)
+
+	var rate_val_lbl := Label.new()
+	rate_val_lbl.name = "RateValLbl"
+	rate_val_lbl.text = "×%d" % int(rate_slider.value)
+	rate_val_lbl.custom_minimum_size = Vector2(40, 0)
+	rate_val_lbl.add_theme_font_size_override("font_size", 13)
+	rate_val_lbl.add_theme_color_override("font_color", tm.c("accent"))
+	rate_row.add_child(rate_val_lbl)
+
+	rate_slider.value_changed.connect(func(v: float):
+		if game_state != null:
+			game_state.set("debug_rate_mult", v)
+		rate_val_lbl.text = "×%d" % int(v)
+	)
+
+	var div2 := HSeparator.new()
+	var sb_div2 := StyleBoxFlat.new()
+	sb_div2.bg_color = tm.c("border")
+	div2.add_theme_stylebox_override("separator", sb_div2)
+	root_box.add_child(div2)
+
+	# ── Save / load section ───────────────────────────────────────────────
+	var save_header := Label.new()
+	save_header.text = "Save data"
+	save_header.add_theme_font_size_override("font_size", 12)
+	save_header.add_theme_color_override("font_color", tm.c("text_muted"))
+	root_box.add_child(save_header)
 
 	settings_feedback = Label.new()
 	settings_feedback.name = "SettingsFeedback"
 	settings_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	settings_feedback.add_theme_font_size_override("font_size", 13)
+	settings_feedback.add_theme_color_override("font_color", tm.c("text_muted"))
 	settings_feedback.text = "Manage save data for this run."
-	settings_list.add_child(settings_feedback)
+	root_box.add_child(settings_feedback)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	root_box.add_child(btn_row)
 
 	settings_btn_save = Button.new()
 	settings_btn_save.text = "Save Now"
+	settings_btn_save.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	settings_btn_save.pressed.connect(_on_settings_save_pressed)
-	settings_list.add_child(settings_btn_save)
+	_theme_action_button(settings_btn_save)
+	btn_row.add_child(settings_btn_save)
 
 	settings_btn_load = Button.new()
 	settings_btn_load.text = "Load Save"
+	settings_btn_load.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	settings_btn_load.pressed.connect(_on_settings_load_pressed)
-	settings_list.add_child(settings_btn_load)
+	_theme_action_button(settings_btn_load)
+	btn_row.add_child(settings_btn_load)
 
 	settings_btn_new_game = Button.new()
 	settings_btn_new_game.text = "New Game"
+	settings_btn_new_game.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	settings_btn_new_game.pressed.connect(_on_settings_new_game_pressed)
-	settings_list.add_child(settings_btn_new_game)
+	_theme_action_button(settings_btn_new_game)
+	root_box.add_child(settings_btn_new_game)
 
 	_refresh_settings_panel()
+
+
+func _make_settings_theme_row(tid: String, tname: String, unlocked: bool, is_active: bool) -> Control:
+	var tm := ThemeManager
+
+	var row := PanelContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.mouse_filter = Control.MOUSE_FILTER_STOP if unlocked else Control.MOUSE_FILTER_IGNORE
+
+	var sb := StyleBoxFlat.new()
+	sb.set_corner_radius_all(10)
+	sb.set_border_width_all(1)
+	sb.content_margin_left   = 12
+	sb.content_margin_right  = 12
+	sb.content_margin_top    = 10
+	sb.content_margin_bottom = 10
+	if is_active:
+		sb.bg_color     = tm.c("accent_glow")
+		sb.border_color = tm.c("accent")
+	else:
+		sb.bg_color     = tm.c("bg_panel")
+		sb.border_color = tm.c("border")
+	row.add_theme_stylebox_override("panel", sb)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	row.add_child(hbox)
+
+	# Color swatch
+	var swatch := ColorRect.new()
+	swatch.custom_minimum_size = Vector2(16, 16)
+	swatch.color = _theme_swatch_color(tid)
+	var swatch_wrap := Control.new()
+	swatch_wrap.custom_minimum_size = Vector2(16, 16)
+	hbox.add_child(swatch)
+
+	# Name
+	var name_lbl := Label.new()
+	name_lbl.text = tname
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.add_theme_font_size_override("font_size", 14)
+	var name_col: Color
+	if is_active:
+		name_col = tm.c("accent")
+	elif unlocked:
+		name_col = tm.c("text_primary")
+	else:
+		name_col = tm.c("text_muted")
+	name_lbl.add_theme_color_override("font_color", name_col)
+	hbox.add_child(name_lbl)
+
+	# Status label
+	var status_lbl := Label.new()
+	status_lbl.add_theme_font_size_override("font_size", 11)
+	if is_active:
+		status_lbl.text = "Active"
+		status_lbl.add_theme_color_override("font_color", tm.c("accent"))
+	elif not unlocked:
+		status_lbl.text = "Locked"
+		status_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+	else:
+		status_lbl.text = ""
+	hbox.add_child(status_lbl)
+
+	# Tap to switch
+	if unlocked and not is_active:
+		row.gui_input.connect(func(event: InputEvent):
+			if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+				_on_settings_theme_selected(tid)
+			elif event is InputEventScreenTouch and event.pressed:
+				_on_settings_theme_selected(tid)
+		)
+
+	if not unlocked:
+		row.modulate.a = 0.4
+
+	return row
+
+
+func _theme_swatch_color(tid: String) -> Color:
+	match tid:
+		"forest_green":    return Color(0.561, 0.812, 0.376)
+		"mycelium_violet": return Color(0.690, 0.565, 0.941)
+		"amber_spore":     return Color(0.878, 0.690, 0.314)
+		"accessible_blue": return Color(0.376, 0.690, 0.973)
+		_: return Color.WHITE
+
+
+func _on_settings_theme_selected(tid: String) -> void:
+	if ThemeManager.set_theme(tid):
+		# Rebuild settings panel so active state updates
+		_bind_settings_panel()
+		if settings_feedback != null:
+			settings_feedback.text = "Theme changed."
 
 
 func _refresh_settings_panel() -> void:
@@ -3032,52 +3736,311 @@ func _on_settings_new_game_pressed() -> void:
 # ---------------- NodePanel (Top Table) ----------------
 
 func _bind_nodepanel_top_table() -> void:
-	# Dynamic resource rows are built in _refresh_nodepanel_top_table.
-	# We only need to hide the static grid since we'll build rows in code.
-	var grid: Control = node_panel.find_child("GridContainer", true, false) as Control
-	if grid != null:
-		grid.visible = false
+	_build_nodepanel_layout()
 
 
-var _resource_rows_container: VBoxContainer = null
-var _resource_row_labels: Array = []   # Array of {pool: Label, rate: Label} per output
-var _resource_rows_node_id: String = ""  # which node the rows were built for
+func _build_nodepanel_layout() -> void:
+	var tm := ThemeManager
+	# Force NodePanel to fill its parent — scene may have stale baked size
+	node_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	node_panel.offset_left   = 0
+	node_panel.offset_right  = 0
+	node_panel.offset_top    = 0
+	node_panel.offset_bottom = 0
+
+	# Also force MarginContainer to fill and clip
+	var margin_c: Control = node_panel.find_child("MarginContainer", true, false) as Control
+	if margin_c != null:
+		margin_c.set_anchors_preset(Control.PRESET_FULL_RECT)
+		margin_c.clip_children = CanvasItem.CLIP_CHILDREN_ONLY
+
+	# Find the scene VBoxContainer and wipe its children except the header row
+	var scene_vbox: Control = node_panel.find_child("VBoxContainer", true, false) as Control
+	if scene_vbox == null:
+		return
+
+	# Hide all existing scene children we're replacing
+	for child in scene_vbox.get_children():
+		var n := child.name
+		if n != "Header row":
+			child.visible = false
+
+	# ── Icon + meta row ───────────────────────────────────────────────────
+	# Icon moves to top-left, larger (78×78 = 52 * 1.5)
+	var icon_row := HBoxContainer.new()
+	icon_row.name = "NP_IconRow"
+	icon_row.add_theme_constant_override("separation", 10)
+	scene_vbox.add_child(icon_row)
+
+	var np_icon_lpad := Control.new()
+	np_icon_lpad.custom_minimum_size = Vector2(10, 0)
+	icon_row.add_child(np_icon_lpad)
+	_np_icon_ctrl = Control.new()
+	_np_icon_ctrl.custom_minimum_size = Vector2(78, 78)   # +50%
+	_np_icon_ctrl.draw.connect(_draw_node_icon_placeholder)
+	icon_row.add_child(_np_icon_ctrl)
+
+	var meta_col := VBoxContainer.new()
+	meta_col.add_theme_constant_override("separation", 3)
+	meta_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	icon_row.add_child(meta_col)
+
+	_np_meta_lbl = Label.new()
+	_np_meta_lbl.add_theme_font_size_override("font_size", 9)   # -2px from 11
+	_np_meta_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+	meta_col.add_child(_np_meta_lbl)
+
+	_np_status_lbl = Label.new()
+	_np_status_lbl.add_theme_font_size_override("font_size", 9)  # -2px from 11
+	_np_status_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+	meta_col.add_child(_np_status_lbl)
+
+	# Node name padded + right-aligned (top row handled by scene "Header row")
+	# Apply padding and right-align + reduced font to the scene node_title
+	if node_title != null:
+		node_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		node_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		node_title.add_theme_font_size_override("font_size", 14)  # -2px from 16
+		node_title.custom_minimum_size = Vector2(0, 0)
+
+	# ── Resource section ──────────────────────────────────────────────────
+	# Move Split/Rate/Stored closer to Resource (smaller column widths)
+	const COL_SPLIT  := 52
+	const COL_RATE   := 56
+	const COL_STORED := 52
+
+	var res_hdr := HBoxContainer.new()
+	res_hdr.add_theme_constant_override("separation", 10)
+	scene_vbox.add_child(res_hdr)
+
+	var res_hdr_lpad := Control.new()
+	res_hdr_lpad.custom_minimum_size = Vector2(10, 0)
+	res_hdr.add_child(res_hdr_lpad)
+
+	for data in [["Resource", 0], ["Split", COL_SPLIT], ["Rate", COL_RATE], ["Stored", COL_STORED]]:
+		var hl := Label.new()
+		hl.text = data[0]
+		hl.add_theme_font_size_override("font_size", 14)  # +4px from 10
+		hl.add_theme_color_override("font_color", tm.c("text_muted"))
+		if int(data[1]) == 0:
+			hl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		else:
+			hl.custom_minimum_size   = Vector2(int(data[1]), 0)
+			hl.size_flags_horizontal = Control.SIZE_SHRINK_END
+			hl.horizontal_alignment  = HORIZONTAL_ALIGNMENT_RIGHT
+		res_hdr.add_child(hl)
+	# Right pad after Stored header to match data row right pad
+	var res_hdr_rpad := Control.new()
+	res_hdr_rpad.custom_minimum_size = Vector2(20, 0)
+	res_hdr.add_child(res_hdr_rpad)
+
+	_np_res_container = VBoxContainer.new()
+	_np_res_container.name = "NP_ResContainer"
+	_np_res_container.add_theme_constant_override("separation", 0)
+	scene_vbox.add_child(_np_res_container)
+
+	# ── Divider ───────────────────────────────────────────────────────────
+	var div_ctrl := Control.new()
+	div_ctrl.custom_minimum_size = Vector2(0, 1)
+	div_ctrl.draw.connect(func():
+		div_ctrl.draw_rect(Rect2(0, 0, div_ctrl.size.x, 1), tm.c("border"))
+	)
+	scene_vbox.add_child(div_ctrl)
+
+	# ── Upgrade rows ──────────────────────────────────────────────────────
+	_np_upgrade_rows.clear()
+	var upg_box := VBoxContainer.new()
+	upg_box.name = "NP_UpgradeBox"
+	upg_box.add_theme_constant_override("separation", 5)
+	scene_vbox.add_child(upg_box)
+
+	const ICON_PATHS := {
+		"yield":     "M12 4v8M9 7l3-3 3 3",
+		"frequency": "M12 3a9 9 0 1 0 0.001 0 M12 8v4l3 3",
+		"speed":     "M5 12h14M15 7l5 5-5 5",
+		"capacity":  "M4 9h16v11H4z M9 9V7a3 3 0 0 1 6 0v2",
+	}
+	const UPG_KEYS := [
+		["yield",     "yield_label",     "yield_level",     "yield_value",     "yield_cost",     "_on_upgrade_yield"],
+		["frequency", "frequency_label", "frequency_level", "frequency_value", "frequency_cost", "_on_upgrade_frequency"],
+		["speed",     "speed_label",     "speed_level",     "speed_value",     "speed_cost",     "_on_upgrade_travel"],
+		["capacity",  "carry_label",     "carry_level",     "carry_value",     "carry_cost",     "_on_upgrade_carry"],
+	]
+
+	for upg_data in UPG_KEYS:
+		var key: String     = upg_data[0]
+		var handler: String = upg_data[5]
+
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.custom_minimum_size   = Vector2(0, 60)   # height
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.clip_children = CanvasItem.CLIP_CHILDREN_ONLY
+
+		# Icon with left padding
+		var icon_pad := Control.new()
+		icon_pad.custom_minimum_size = Vector2(10, 0)
+		row.add_child(icon_pad)
+		var icon_box := Control.new()
+		icon_box.custom_minimum_size = Vector2(42, 42)
+		var icon_path: String = ICON_PATHS.get(key, "")
+		icon_box.draw.connect(_draw_upg_icon.bind(icon_box, icon_path))
+		row.add_child(icon_box)
+
+		# Name + level + value (all on left, stacked)
+		var name_col := VBoxContainer.new()
+		name_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_col.add_theme_constant_override("separation", 1)
+		var name_lbl := Label.new()
+		name_lbl.add_theme_font_size_override("font_size", 12)
+		name_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+		name_col.add_child(name_lbl)
+		var lv_lbl := Label.new()
+		lv_lbl.add_theme_font_size_override("font_size", 10)
+		lv_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		name_col.add_child(lv_lbl)
+		# Value sits under level on the left
+		var val_lbl := Label.new()
+		val_lbl.add_theme_font_size_override("font_size", 11)
+		val_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+		name_col.add_child(val_lbl)
+		row.add_child(name_col)
+
+		# Upgrade button — right side, fixed width
+		var btn := Button.new()
+		btn.custom_minimum_size   = Vector2(100, 28)
+		btn.size_flags_horizontal = Control.SIZE_SHRINK_END
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.pressed.connect(Callable(self, handler))
+		btn.clip_text = true
+		row.add_child(btn)
+		# Right padding after button
+		var btn_pad := Control.new()
+		btn_pad.custom_minimum_size = Vector2(20, 0)
+		row.add_child(btn_pad)
+
+		upg_box.add_child(row)
+		_np_upgrade_rows.append({
+			"name_lbl": name_lbl,
+			"lv_lbl":   lv_lbl,
+			"val_lbl":  val_lbl,
+			"btn":      btn,
+			"label_key": upg_data[1],
+			"level_key": upg_data[2],
+			"value_key": upg_data[3],
+			"cost_key":  upg_data[4],
+		})
+
+	# ── No production footer (removed per design) ─────────────────────────
+	prod_value = null
+
+
+func _draw_node_icon_placeholder() -> void:
+	if _np_icon_ctrl == null:
+		return
+	var tm := ThemeManager
+	var cx := _np_icon_ctrl.size.x * 0.5
+	var cy := _np_icon_ctrl.size.y * 0.5
+	var r  := minf(cx, cy) - 2.0
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("border")
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(10)
+	_np_icon_ctrl.draw_style_box(sb, Rect2(0, 0, _np_icon_ctrl.size.x, _np_icon_ctrl.size.y))
+	_np_icon_ctrl.draw_arc(Vector2(cx, cy), r * 0.55, 0, TAU, 32, tm.c("border"), 1.0, true)
+	_np_icon_ctrl.draw_circle(Vector2(cx, cy), r * 0.18, tm.c("accent_dim"))
+	for i in range(6):
+		var angle := float(i) * TAU / 6.0
+		var inner := Vector2(cos(angle), sin(angle)) * r * 0.55
+		var outer_v := Vector2(cos(angle), sin(angle)) * r * 0.8
+		_np_icon_ctrl.draw_line(Vector2(cx, cy) + inner, Vector2(cx, cy) + outer_v, tm.c("accent_dim"), 1.0, true)
+
+
+func _draw_upg_icon(ctrl: Control, path: String) -> void:
+	var tm := ThemeManager
+	var cx := ctrl.size.x * 0.5
+	var cy := ctrl.size.y * 0.5
+	var s  := 0.55
+	# Draw icon bg
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("border")
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(6)
+	ctrl.draw_style_box(sb, Rect2(0, 0, ctrl.size.x, ctrl.size.y))
+	# Draw icon lines based on path key
+	var col: Color = tm.c("accent_dim")
+	var w   := 1.3
+	if path == "M12 4v8M9 7l3-3 3 3":  # yield - up arrow
+		ctrl.draw_line(Vector2(cx, cy + 5*s), Vector2(cx, cy - 5*s), col, w, true)
+		ctrl.draw_line(Vector2(cx, cy - 5*s), Vector2(cx - 3*s, cy - 2*s), col, w, true)
+		ctrl.draw_line(Vector2(cx, cy - 5*s), Vector2(cx + 3*s, cy - 2*s), col, w, true)
+	elif path.begins_with("M12 3a9"):  # frequency - clock
+		ctrl.draw_arc(Vector2(cx, cy), 5*s, 0, TAU, 32, col, w, true)
+		ctrl.draw_line(Vector2(cx, cy), Vector2(cx, cy - 3*s), col, w, true)
+		ctrl.draw_line(Vector2(cx, cy), Vector2(cx + 2*s, cy + 1*s), col, w, true)
+	elif path.begins_with("M5 12"):  # speed - arrow right
+		ctrl.draw_line(Vector2(cx - 5*s, cy), Vector2(cx + 5*s, cy), col, w, true)
+		ctrl.draw_line(Vector2(cx + 5*s, cy), Vector2(cx + 2*s, cy - 3*s), col, w, true)
+		ctrl.draw_line(Vector2(cx + 5*s, cy), Vector2(cx + 2*s, cy + 3*s), col, w, true)
+	else:  # capacity - box with lock
+		ctrl.draw_rect(Rect2(cx - 4*s, cy - 2*s, 8*s, 6*s), col, false, w)
+		ctrl.draw_arc(Vector2(cx, cy - 2*s), 2.5*s, PI, TAU, 16, col, w, true)
+
+
+var _resource_row_labels: Array = []
+var _resource_rows_node_id: String = ""
+
+# Rebuilt node panel layout
+var _np_icon_ctrl: Control = null         # 52×52 icon placeholder
+var _np_meta_lbl: Label = null            # "Ring 1 · Node 1"
+var _np_status_lbl: Label = null          # "Connected" / "Locked"
+var _np_res_container: VBoxContainer = null
+var _np_upgrade_rows: Array = []          # [{icon,name,lv,val,btn}]
 
 func _get_or_create_resource_rows() -> VBoxContainer:
-	if is_instance_valid(_resource_rows_container):
-		return _resource_rows_container
-	# Insert a VBoxContainer right after the GridContainer (or header)
-	var vbox: Control = node_panel.find_child("VBoxContainer", true, false) as Control
-	if vbox == null:
-		return null
-	var container := VBoxContainer.new()
-	container.name = "ResourceRows"
-	# Find grid position and insert after it
-	var grid: Control = node_panel.find_child("GridContainer", true, false) as Control
-	var insert_pos: int = 0
-	if grid != null:
-		insert_pos = grid.get_index() + 1
-	vbox.add_child(container)
-	vbox.move_child(container, insert_pos)
-	_resource_rows_container = container
-	return container
+	return _np_res_container
 
 
 func _refresh_nodepanel_top_table() -> void:
 	if _selected_node_id == "" or game_state == null:
 		return
-
-	var container := _get_or_create_resource_rows()
-	if container == null:
+	if _np_res_container == null:
 		return
 
-	# Only rebuild row structure when the selected node changes
+	# Update meta labels
+	if game_state.has_method("get_node_definition"):
+		var def_v = game_state.call("get_node_definition", _selected_node_id)
+		if typeof(def_v) == TYPE_DICTIONARY:
+			var def := def_v as Dictionary
+			var ring: int = int(def.get("ring", 0))
+			var num: int  = int(def.get("number", 0))
+			if _np_meta_lbl != null:
+				_np_meta_lbl.text = "Ring %d · Node %d" % [ring, num]
+
+	var state := _get_node_world_state(_selected_node_id)
+	if _np_status_lbl != null:
+		var connected: bool = bool(state.get("is_connected", false))
+		var unlocked: bool  = bool(state.get("is_unlocked", false))
+		if connected:
+			_np_status_lbl.text = "Connected"
+			_np_status_lbl.add_theme_color_override("font_color", ThemeManager.c("accent"))
+		elif unlocked:
+			_np_status_lbl.text = "Unlocked"
+			_np_status_lbl.add_theme_color_override("font_color", ThemeManager.c("text_secondary"))
+		else:
+			_np_status_lbl.text = "Locked"
+			_np_status_lbl.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
+
+	# Rebuild resource rows only when node changes
 	if _resource_rows_node_id != _selected_node_id:
 		_resource_rows_node_id = _selected_node_id
-		_build_resource_rows(container)
+		_build_resource_rows(_np_res_container)
 
-	# Always update the live values (pool, rate) without rebuilding
 	_update_resource_row_values()
+	if _np_icon_ctrl != null:
+		_np_icon_ctrl.queue_redraw()
 
 
 func _build_resource_rows(container: VBoxContainer) -> void:
@@ -3085,6 +4048,7 @@ func _build_resource_rows(container: VBoxContainer) -> void:
 		child.free()
 	_resource_row_labels.clear()
 
+	var tm := ThemeManager
 	var def: Dictionary = {}
 	if game_state.has_method("get_node_definition"):
 		var d = game_state.call("get_node_definition", _selected_node_id)
@@ -3104,22 +4068,6 @@ func _build_resource_rows(container: VBoxContainer) -> void:
 		sum_w += float((o as Dictionary).get("weight", 1.0))
 	if sum_w <= 0.0: sum_w = 1.0
 
-	# Header row
-	var hdr := HBoxContainer.new()
-	hdr.add_theme_constant_override("separation", 8)
-
-	for hdr_data in [["Resource", 0, HORIZONTAL_ALIGNMENT_LEFT], ["Split", 42, HORIZONTAL_ALIGNMENT_RIGHT], ["Rate/s", 54, HORIZONTAL_ALIGNMENT_RIGHT], ["Pool", 54, HORIZONTAL_ALIGNMENT_RIGHT]]:
-		var hl := Label.new()
-		hl.text = hdr_data[0]
-		hl.add_theme_font_size_override("font_size", 11)
-		hl.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
-		hl.custom_minimum_size = Vector2(int(hdr_data[1]), 0)
-		hl.horizontal_alignment = hdr_data[2]
-		if int(hdr_data[1]) == 0:
-			hl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		hdr.add_child(hl)
-	container.add_child(hdr)
-
 	for o_variant in outputs:
 		var o: Dictionary = o_variant as Dictionary
 		var res_id: String = str(o.get("res", ""))
@@ -3127,51 +4075,73 @@ func _build_resource_rows(container: VBoxContainer) -> void:
 		var weight: float = float(o.get("weight", 1.0))
 		var pct: int = int(round(weight / sum_w * 100.0))
 
+		# Row matches header column widths exactly
 		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
-
-		var dot_tex := _make_circle_texture(12, false)
+		row.add_theme_constant_override("separation", 10)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var res_row_lpad := Control.new()
+		res_row_lpad.custom_minimum_size = Vector2(10, 0)
+		row.add_child(res_row_lpad)
+		var name_box := HBoxContainer.new()
+		name_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_box.add_theme_constant_override("separation", 6)
+		var dot_tex := _make_circle_texture(10, false)
 		var dot := TextureRect.new()
 		dot.texture = dot_tex
 		dot.modulate = _node_color_for_id(res_id)
-		dot.custom_minimum_size = Vector2(12, 12)
+		dot.custom_minimum_size = Vector2(10, 10)
 		dot.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		row.add_child(dot)
-
+		name_box.add_child(dot)
 		var lbl_name := Label.new()
 		lbl_name.text = _pretty_res(res_id)
-		lbl_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lbl_name.add_theme_font_size_override("font_size", 13)
-		row.add_child(lbl_name)
+		lbl_name.add_theme_color_override("font_color", tm.c("text_primary"))
+		name_box.add_child(lbl_name)
+		row.add_child(name_box)
 
+		# Split — 32px fixed, +4px font
 		var lbl_pct := Label.new()
-		lbl_pct.text = str(pct) + "%"
-		lbl_pct.custom_minimum_size = Vector2(42, 0)
-		lbl_pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		lbl_pct.add_theme_font_size_override("font_size", 12)
+		lbl_pct.text = "%d%%" % pct
+		lbl_pct.custom_minimum_size   = Vector2(52, 0)
+		lbl_pct.size_flags_horizontal = Control.SIZE_SHRINK_END
+		lbl_pct.horizontal_alignment  = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl_pct.clip_text             = true
+		lbl_pct.add_theme_font_size_override("font_size", 14)
+		lbl_pct.add_theme_color_override("font_color", tm.c("text_muted"))
 		row.add_child(lbl_pct)
 
+		# Rate — 46px fixed, +4px font
 		var lbl_rate := Label.new()
 		lbl_rate.text = "—"
-		lbl_rate.custom_minimum_size = Vector2(54, 0)
-		lbl_rate.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		lbl_rate.add_theme_font_size_override("font_size", 12)
+		lbl_rate.custom_minimum_size   = Vector2(56, 0)
+		lbl_rate.size_flags_horizontal = Control.SIZE_SHRINK_END
+		lbl_rate.horizontal_alignment  = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl_rate.clip_text             = true
+		lbl_rate.add_theme_font_size_override("font_size", 14)
+		lbl_rate.add_theme_color_override("font_color", tm.c("accent"))
 		row.add_child(lbl_rate)
 
+		# Stored — 42px fixed, +4px font
 		var lbl_pool := Label.new()
 		lbl_pool.text = "0"
-		lbl_pool.custom_minimum_size = Vector2(54, 0)
-		lbl_pool.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		lbl_pool.add_theme_font_size_override("font_size", 12)
+		lbl_pool.custom_minimum_size   = Vector2(52, 0)
+		lbl_pool.size_flags_horizontal = Control.SIZE_SHRINK_END
+		lbl_pool.horizontal_alignment  = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl_pool.clip_text             = true
+		lbl_pool.add_theme_font_size_override("font_size", 14)
+		lbl_pool.add_theme_color_override("font_color", tm.c("text_secondary"))
 		row.add_child(lbl_pool)
+		var pool_rpad := Control.new()
+		pool_rpad.custom_minimum_size = Vector2(20, 0)
+		row.add_child(pool_rpad)
 
 		container.add_child(row)
 		_resource_row_labels.append({
-			"res_id": res_id,
-			"weight": weight,
-			"sum_w": sum_w,
+			"res_id":   res_id,
+			"weight":   weight,
+			"sum_w":    sum_w,
 			"rate_lbl": lbl_rate,
-			"pool_lbl": lbl_pool
+			"pool_lbl": lbl_pool,
 		})
 
 
@@ -3179,11 +4149,14 @@ func _update_resource_row_values() -> void:
 	if _resource_row_labels.is_empty() or game_state == null:
 		return
 
+	# Get the node's pool dictionary directly from node state
 	var pool_amounts: Dictionary = {}
-	if game_state.has_method("get_node_pool_amounts"):
-		var pa = game_state.call("get_node_pool_amounts", _selected_node_id)
-		if typeof(pa) == TYPE_DICTIONARY:
-			pool_amounts = pa
+	if game_state.has_method("get_node_definition"):
+		# Read pool from the live node state
+		var nodes_dict = game_state.get("nodes")
+		if typeof(nodes_dict) == TYPE_DICTIONARY and nodes_dict.has(_selected_node_id):
+			var n: Dictionary = nodes_dict[_selected_node_id] as Dictionary
+			pool_amounts = (n.get("pool", {}) as Dictionary)
 
 	var yield_rate: float = 0.0
 	if game_state.has_method("get_node_rate_ui"):
@@ -3199,12 +4172,12 @@ func _update_resource_row_values() -> void:
 		var pool_lbl: Label  = entry.get("pool_lbl", null) as Label
 
 		var res_rate: float = yield_rate * (weight / sum_w)
-		var pool_val: int   = int(pool_amounts.get(res_id, 0))
+		var pool_val: int   = int(float(pool_amounts.get(res_id, 0.0)))
 
 		if rate_lbl != null and is_instance_valid(rate_lbl):
 			rate_lbl.text = _fmt_rate(res_rate)
 		if pool_lbl != null and is_instance_valid(pool_lbl):
-			pool_lbl.text = _fmt_int(pool_val)
+			pool_lbl.text = _fmt_num(pool_val)
 
 
 func _get_res_icon_texture(res_id: String) -> Texture2D:
@@ -3227,74 +4200,18 @@ func _get_res_icon_texture(res_id: String) -> Texture2D:
 # ---------------- NodePanel (Production line) ----------------
 
 func _bind_nodepanel_production() -> void:
-	var prod_row: Control = node_panel.find_child("RowProduction", true, false) as Control
-	if prod_row == null:
-		return
-	prod_value = prod_row.find_child("LblProdValue", true, false) as Label
+	pass  # prod_value assigned in _build_nodepanel_layout
+
+
+func _bind_nodepanel_upgrades() -> void:
+	pass  # upgrade rows built in _build_nodepanel_layout
 
 
 func _refresh_nodepanel_production() -> void:
-	if prod_value == null:
-		return
-	if _selected_node_id == "":
-		return
-	if game_state == null or not game_state.has_method("get_node_rate_ui"):
-		return
-
-	var rui = game_state.call("get_node_rate_ui", _selected_node_id)
-	if typeof(rui) != TYPE_DICTIONARY:
-		return
-
-	var base_r: float = float(rui.get("base_rate", 0.0))
-	var eff_r: float = float(rui.get("effective_rate", 0.0))
-	prod_value.text = _fmt_rate(base_r) + "/s → " + _fmt_rate(eff_r) + "/s"
+	pass  # Production footer removed from node panel layout
 
 
 # ---------------- NodePanel (Upgrades) ----------------
-
-func _bind_nodepanel_upgrades() -> void:
-	upgrades_box = node_panel.find_child("UpgradesBox", true, false) as Control
-	if upgrades_box == null:
-		push_warning("NodePanel: UpgradesBox not found.")
-		return
-
-	row_yield     = upgrades_box.find_child("RowYield",     true, false) as Control
-	row_frequency = upgrades_box.find_child("RowFrequency", true, false) as Control
-	row_travel    = upgrades_box.find_child("RowTravel",    true, false) as Control
-	row_carry     = upgrades_box.find_child("RowCarry",     true, false) as Control
-
-	if row_yield != null:
-		yield_name = row_yield.find_child("LblName",    true, false) as Label
-		yield_lvl  = row_yield.find_child("LblLevel",   true, false) as Label
-		yield_val  = row_yield.find_child("LblValue",   true, false) as Label
-		yield_btn  = row_yield.find_child("BtnUpgrade", true, false) as Button
-		if yield_btn != null and not yield_btn.pressed.is_connected(_on_upgrade_yield):
-			yield_btn.pressed.connect(_on_upgrade_yield)
-
-	if row_frequency != null:
-		frequency_name = row_frequency.find_child("LblName",    true, false) as Label
-		frequency_lvl  = row_frequency.find_child("LblLevel",   true, false) as Label
-		frequency_val  = row_frequency.find_child("LblValue",   true, false) as Label
-		frequency_btn  = row_frequency.find_child("BtnUpgrade", true, false) as Button
-		if frequency_btn != null and not frequency_btn.pressed.is_connected(_on_upgrade_frequency):
-			frequency_btn.pressed.connect(_on_upgrade_frequency)
-
-	if row_travel != null:
-		travel_name = row_travel.find_child("LblName",    true, false) as Label
-		travel_lvl  = row_travel.find_child("LblLevel",   true, false) as Label
-		travel_val  = row_travel.find_child("LblValue",   true, false) as Label
-		travel_btn  = row_travel.find_child("BtnUpgrade", true, false) as Button
-		if travel_btn != null and not travel_btn.pressed.is_connected(_on_upgrade_travel):
-			travel_btn.pressed.connect(_on_upgrade_travel)
-
-	if row_carry != null:
-		carry_name = row_carry.find_child("LblName",    true, false) as Label
-		carry_lvl  = row_carry.find_child("LblLevel",   true, false) as Label
-		carry_val  = row_carry.find_child("LblValue",   true, false) as Label
-		carry_btn  = row_carry.find_child("BtnUpgrade", true, false) as Button
-		if carry_btn != null and not carry_btn.pressed.is_connected(_on_upgrade_carry):
-			carry_btn.pressed.connect(_on_upgrade_carry)
-
 
 func _on_upgrade_yield() -> void:
 	_try_upgrade("yield_level")
@@ -3321,6 +4238,11 @@ func _try_upgrade(stat_key: String) -> void:
 	_refresh_currency_ui()
 	_refresh_nodepanel_all()
 	_refresh_digest_panel()
+	# Release focus so button doesn't stay highlighted after press
+	for entry in _np_upgrade_rows:
+		var btn: Button = entry.get("btn", null) as Button
+		if btn != null and is_instance_valid(btn):
+			btn.release_focus()
 
 
 func _refresh_nodepanel_upgrades() -> void:
@@ -3333,29 +4255,58 @@ func _refresh_nodepanel_upgrades() -> void:
 	if typeof(ui) != TYPE_DICTIONARY:
 		return
 
-	# Yield row
-	if yield_name != null: yield_name.text = str(ui.get("yield_label", "Yield Rate"))
-	if yield_lvl  != null: yield_lvl.text  = "Lv " + str(int(ui.get("yield_level", 1)))
-	if yield_val  != null: yield_val.text  = str(ui.get("yield_value", "0.25/s"))
-	if yield_btn  != null: yield_btn.text  = "UPGRADE  " + _fmt_int(int(ui.get("yield_cost", 0)))
+	var nutrients: int = int(game_state.call("get_amount", "nutrients")) if game_state.has_method("get_amount") else 0
+	var tm := ThemeManager
 
-	# Frequency row
-	if frequency_name != null: frequency_name.text = str(ui.get("frequency_label", "Pulse Frequency"))
-	if frequency_lvl  != null: frequency_lvl.text  = "Lv " + str(int(ui.get("frequency_level", 1)))
-	if frequency_val  != null: frequency_val.text  = str(ui.get("frequency_value", "1.0/s"))
-	if frequency_btn  != null: frequency_btn.text  = "UPGRADE  " + _fmt_int(int(ui.get("frequency_cost", 0)))
+	for entry in _np_upgrade_rows:
+		var name_lbl: Label  = entry.get("name_lbl", null) as Label
+		var lv_lbl:   Label  = entry.get("lv_lbl",   null) as Label
+		var val_lbl:  Label  = entry.get("val_lbl",  null) as Label
+		var btn:      Button = entry.get("btn",       null) as Button
+		var label_key: String = str(entry.get("label_key", ""))
+		var level_key: String = str(entry.get("level_key", ""))
+		var value_key: String = str(entry.get("value_key", ""))
+		var cost_key:  String = str(entry.get("cost_key",  ""))
 
-	# Speed row
-	if travel_name != null: travel_name.text = str(ui.get("speed_label", "Pulse Speed"))
-	if travel_lvl  != null: travel_lvl.text  = "Lv " + str(int(ui.get("speed_level", 1)))
-	if travel_val  != null: travel_val.text  = str(ui.get("speed_value", "1.0×"))
-	if travel_btn  != null: travel_btn.text  = "UPGRADE  " + _fmt_int(int(ui.get("speed_cost", 0)))
+		var label: String = str(ui.get(label_key, ""))
+		var level: int    = int(ui.get(level_key, 1))
+		var value: String = str(ui.get(value_key, "—"))
+		var cost:  int    = int(ui.get(cost_key,  0))
+		var can_afford: bool = cost > 0 and nutrients >= cost
 
-	# Carry row
-	if carry_name != null: carry_name.text = str(ui.get("carry_label", "Pulse Capacity"))
-	if carry_lvl  != null: carry_lvl.text  = "Lv " + str(int(ui.get("carry_level", 1)))
-	if carry_val  != null: carry_val.text  = str(ui.get("carry_value", "5"))
-	if carry_btn  != null: carry_btn.text  = "UPGRADE  " + _fmt_int(int(ui.get("carry_cost", 0)))
+		if name_lbl != null:
+			name_lbl.text = label
+		if lv_lbl != null:
+			lv_lbl.text = "Lv %d" % level
+		if val_lbl != null:
+			val_lbl.text = value
+
+		if btn != null:
+			btn.text = _fmt_cost(cost)
+			btn.disabled = cost <= 0 or not can_afford
+			btn.button_pressed = false
+			btn.add_theme_font_size_override("font_size", 13)
+			var sb_btn := StyleBoxFlat.new()
+			sb_btn.set_corner_radius_all(6)
+			sb_btn.set_border_width_all(1)
+			if cost <= 0:
+				sb_btn.bg_color     = tm.c("bg_deep")
+				sb_btn.border_color = tm.c("border")
+				btn.add_theme_color_override("font_color", tm.c("text_muted"))
+			elif can_afford:
+				sb_btn.bg_color     = tm.c("btn_bg")
+				sb_btn.border_color = tm.c("btn_border")
+				btn.add_theme_color_override("font_color", tm.c("accent"))
+			else:
+				sb_btn.bg_color     = tm.c("bg_deep")
+				sb_btn.border_color = tm.c("border")
+				btn.add_theme_color_override("font_color", tm.c("text_muted"))
+			btn.add_theme_stylebox_override("normal",   sb_btn)
+			btn.add_theme_stylebox_override("hover",    sb_btn)
+			btn.add_theme_stylebox_override("pressed",  sb_btn)
+			btn.add_theme_stylebox_override("focus",    sb_btn)
+			btn.add_theme_stylebox_override("disabled", sb_btn)
+			btn.release_focus()
 
 
 func _refresh_nodepanel_all() -> void:
@@ -3427,6 +4378,7 @@ func _open(panel: Control) -> void:
 	_redraw_nav_buttons()
 
 	if panel == digest_panel:
+		_layout_digest_panel()
 		_refresh_digest_panel()
 	if panel == discoveries_panel:
 		_disc_reset_view()
@@ -3445,6 +4397,9 @@ func _open(panel: Control) -> void:
 	_tween = create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_tween.tween_property(dimmer, "modulate:a", 1.0, 0.12)
 	_tween.parallel().tween_property(pc, "position:y", open_y, 0.18)
+	if panel == digest_panel:
+		_tween.tween_callback(_layout_digest_panel)
+
 
 
 func _close_current() -> void:
@@ -3479,7 +4434,84 @@ func _on_dimmer_gui_input(event: InputEvent) -> void:
 
 # ---------------- Node tap selection ----------------
 
+func _unhandled_input(_event: InputEvent) -> void:
+	pass  # digest row tap handled in _input below
+
+
+func _digest_handle_input(event: InputEvent) -> void:
+	# Called from _input — handles digest row tap/hold independently of ScrollContainer.
+	# We track touch ourselves: press starts a potential tap, drag beyond threshold cancels it.
+	if _open_panel != digest_panel or digest_inventory_list == null:
+		return
+
+	var is_press   := false
+	var is_release := false
+	var is_drag    := false
+	var ev_pos     := Vector2.ZERO
+
+	if event is InputEventScreenTouch:
+		var et := event as InputEventScreenTouch
+		if et.index != 0:
+			return  # only track primary finger for row selection
+		ev_pos     = et.position
+		is_press   = et.pressed
+		is_release = not et.pressed
+	elif event is InputEventScreenDrag:
+		var ed := event as InputEventScreenDrag
+		if ed.index != 0:
+			return
+		ev_pos  = ed.position
+		is_drag = true
+	elif event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		ev_pos     = (event as InputEventMouseButton).position
+		is_press   = (event as InputEventMouseButton).pressed
+		is_release = not is_press
+	else:
+		return
+
+	if is_press:
+		# Find hit row
+		var hit_id := ""
+		for item_id in _digest_row_refs:
+			var row: Control = _digest_row_refs[item_id] as Control
+			if row != null and is_instance_valid(row) and row.visible:
+				if row.get_global_rect().has_point(ev_pos):
+					hit_id = str(item_id)
+					break
+		if hit_id != "":
+			_digest_hold_timer    = 0.0
+			_digest_hold_id       = hit_id
+			_digest_hold_consumed = false
+			_digest_tap_start_pos = ev_pos
+
+	elif is_drag and _digest_hold_id != "":
+		# Cancel tap if finger moved more than threshold
+		if ev_pos.distance_to(_digest_tap_start_pos) > 12.0:
+			_digest_hold_id    = ""
+			_digest_hold_timer = 0.0
+
+	elif is_release and _digest_hold_id != "":
+		var press_id := _digest_hold_id
+		if _digest_hold_consumed:
+			_digest_hold_consumed = false
+		elif _digest_hold_timer < 0.6:
+			if _digest_selected_id == press_id:
+				_digest_selected_id = ""
+				_highlight_digest_row("")
+				if _digest_action_bar != null:
+					_digest_action_bar.visible = false
+				if digest_feedback != null:
+					digest_feedback.text = "Select a resource"
+			else:
+				_select_digest_row(press_id)
+		_digest_hold_id    = ""
+		_digest_hold_timer = 0.0
+
+
 func _input(event: InputEvent) -> void:
+	# Digest row tap/hold — must be in _input (fires before gui_input/accept_event)
+	_digest_handle_input(event)
+
 	# ESC always closes the open panel
 	if event.is_action_pressed("ui_cancel"):
 		if _open_panel != null:
@@ -3503,6 +4535,36 @@ func _input(event: InputEvent) -> void:
 			_disc_apply_zoom(event.factor, event.position)
 			get_viewport().set_input_as_handled()
 		return
+
+	# ── Manual two-finger pinch (fallback for Android without MagnifyGesture) ──
+	if event is InputEventScreenTouch:
+		var et := event as InputEventScreenTouch
+		if et.pressed:
+			_touch_points[et.index] = et.position
+		else:
+			_touch_points.erase(et.index)
+		if _touch_points.size() == 2:
+			var pts := _touch_points.values()
+			_pinch_last_dist = (pts[0] as Vector2).distance_to(pts[1] as Vector2)
+		else:
+			_pinch_last_dist = 0.0
+
+	if event is InputEventScreenDrag:
+		var ed := event as InputEventScreenDrag
+		_touch_points[ed.index] = ed.position
+		if _touch_points.size() == 2:
+			var pts := _touch_points.values()
+			var new_dist: float = (pts[0] as Vector2).distance_to(pts[1] as Vector2)
+			if _pinch_last_dist > 0.0 and new_dist > 0.0:
+				var factor := new_dist / _pinch_last_dist
+				var center := ((pts[0] as Vector2) + (pts[1] as Vector2)) * 0.5
+				if _open_panel == null:
+					_map_apply_zoom(factor, center)
+					get_viewport().set_input_as_handled()
+				elif _open_panel == discoveries_panel:
+					_disc_apply_zoom(factor, center)
+					get_viewport().set_input_as_handled()
+			_pinch_last_dist = new_dist
 
 	# ── Scroll-wheel zoom (desktop / testing) ──────────────────────────────
 	if event is InputEventMouseButton and event.pressed:
@@ -3580,6 +4642,9 @@ func _input(event: InputEvent) -> void:
 
 	# ── Press start: begin drag tracking ──────────────────────────────────
 	if is_press_start:
+		# Record whether a popup was open when this press began
+		_press_started_in_popup = (_disc_popup_layer != null and is_instance_valid(_disc_popup_layer)) or \
+								  (_recipe_popup_layer != null and is_instance_valid(_recipe_popup_layer))
 		_map_drag_start_screen  = ev_pos
 		_map_drag_start_map_pos = map_layer.position
 		_map_is_dragging        = true
@@ -3598,6 +4663,15 @@ func _input(event: InputEvent) -> void:
 
 	# ── Press end: tap fires node-select; drag does nothing extra ─────────
 	if is_press_end:
+		_press_started_in_popup = false
+		# Block if any popup is currently open or was closed during this press
+		if _popup_closed_this_press or \
+		   (_disc_popup_layer != null and is_instance_valid(_disc_popup_layer)) or \
+		   (_recipe_popup_layer != null and is_instance_valid(_recipe_popup_layer)):
+			_popup_closed_this_press = false
+			_map_is_dragging = false
+			return
+		_popup_closed_this_press = false
 		# If a menu panel was open, press_start was blocked so _map_is_dragging
 		# is false — treat this press_end as a tap directly.
 		var came_from_panel := (_open_panel != null and _open_panel != node_panel)
@@ -3665,6 +4739,11 @@ func _disc_apply_zoom(factor: float, screen_pivot: Vector2) -> void:
 # ── Node tap selection (extracted from old _input) ────────────────────────────
 
 func _try_select_node(screen_pos: Vector2) -> void:
+	# Block node taps whenever any popup layer is active
+	if (_disc_popup_layer != null and is_instance_valid(_disc_popup_layer)) or \
+	   (_recipe_popup_layer != null and is_instance_valid(_recipe_popup_layer)):
+		return
+
 	var canvas_xform := get_viewport().get_canvas_transform()
 
 	# If a panel is open, block any tap that lands inside the panel's screen rect
@@ -3883,22 +4962,21 @@ func _update_node_cost_labels() -> void:
 			if lbl == null or not is_instance_valid(lbl):
 				lbl = Label.new()
 				lbl.name = "CostLabel_" + node_id
-				lbl.top_level = true
+				# No top_level — parented to map_layer so it moves with the map
 				lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 				lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 				lbl.add_theme_font_size_override("font_size", 12)
 				lbl.add_theme_color_override("font_color", ThemeManager.c("accent"))
 				lbl.add_theme_color_override("font_outline_color", ThemeManager.c("bg_deep"))
 				lbl.add_theme_constant_override("outline_size", 3)
-				nodes_container.add_child(lbl)
+				map_layer.add_child(lbl)
 				_node_cost_labels[node_id] = lbl
 
 			lbl.text = _fmt_int(cost)
-			# Position above the node sprite
-			lbl.global_position = node_ref.global_position + Vector2(-lbl.size.x * 0.5, -36)
+			# Position in map_layer local space (node_ref.position is already local to map_layer)
+			lbl.position = node_ref.position + Vector2(-lbl.size.x * 0.5, -48)
 			lbl.visible = true
 		else:
-			# Hide cost label when unlocked or not visible
 			var lbl: Label = _node_cost_labels.get(node_id, null) as Label
 			if lbl != null and is_instance_valid(lbl):
 				lbl.visible = false
@@ -3992,6 +5070,26 @@ func _fmt_int(v: int) -> String:
 			out = "," + out
 			count = 0
 	return out
+
+
+func _fmt_cost(v: int) -> String:
+	if v <= 0:
+		return "MAX"
+	return _fmt_num(v)
+
+
+func _fmt_num(v: int) -> String:
+	# Like _fmt_cost but never returns MAX — use for stored/pool values
+	if v < 1000:
+		return str(v)
+	if v < 1_000_000:
+		var k := v / 1000.0
+		return ("%.0fK" if k >= 100 else ("%.1fK" if k >= 10 else "%.2fK")) % k
+	if v < 1_000_000_000:
+		var m := v / 1_000_000.0
+		return ("%.0fM" if m >= 100 else ("%.1fM" if m >= 10 else "%.2fM")) % m
+	var b := v / 1_000_000_000.0
+	return ("%.0fB" if b >= 100 else ("%.1fB" if b >= 10 else "%.2fB")) % b
 
 
 func _set_panel_closed(panel: Control) -> void:
