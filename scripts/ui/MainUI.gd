@@ -314,7 +314,7 @@ func _ready() -> void:
 
 	_refresh_panel_access_ui()
 	_refresh_currency_ui()
-	#get_tree().root.print_tree_pretty()
+	get_tree().root.print_tree_pretty()
 
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
