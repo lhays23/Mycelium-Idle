@@ -61,6 +61,67 @@ const AUTOSAVE_SEC: float = 10.0
 const NODE_ROOT_TRANSFER_KEY: String = "root_transfer"
 const LEGACY_NODE_TRANSPORT_KEY: String = "transport"
 
+# ── Prestige / Mutation system ────────────────────────────────────────────────
+const MUTATION_MINRUN_FOR_PRESTIGE: float = 10_000_000.0
+
+# GS from run value (spec table — ~half of IPM values)
+# Each entry: [min_run_value, gs_awarded]
+const GS_RUN_VALUE_TABLE: Array = [
+	[10_000_000,              5],
+	[100_000_000,            15],
+	[1_000_000_000,          30],
+	[10_000_000_000,         50],
+	[100_000_000_000,        75],
+	[1_000_000_000_000,     105],
+	[10_000_000_000_000,    142],
+	[100_000_000_000_000,   183],
+	[1_000_000_000_000_000, 229],
+]
+
+# Mutation unlock cost sequence (IPM room unlock costs, used exactly)
+const MUTATION_UNLOCK_COST_SEQUENCE: Array = [
+	3, 3, 6, 12, 21, 35, 56, 87, 133, 200,
+	298, 439, 642, 934, 1351, 1946, 2932, 4402, 6586, 9358
+]
+
+# Level-up cost tables per tier (index 0 = cost to advance from Lv1 to Lv2)
+const MUTATION_TIER_A_LEVEL_COSTS: Array = [
+	2, 4, 6, 9, 12, 17, 23, 31, 41, 54, 90, 90, 148, 148, 483, 483, 483, 483, 483, 4400
+]
+const MUTATION_TIER_B_LEVEL_COSTS: Array = [
+	13, 23, 37, 56, 80, 112, 154, 207, 276, 364
+]
+const MUTATION_TIER_C_LEVEL_COSTS: Array = [
+	4, 6, 9, 12, 17, 23, 31, 54, 54, 54
+]
+const MUTATION_TIER_D_LEVEL_COSTS: Array = [
+	3, 4, 6, 9, 12, 17, 23, 41, 41, 41
+]
+
+# Full mutation list — M01/M02/M03 are starters; M04+ unlock linearly after any starter
+const MUTATION_DEFS: Array = [
+	{"id": "M01", "name": "Mycelial Surge",    "desc": "+20% Yield Rate per level",              "tier": "A",        "effect": "yield_rate"},
+	{"id": "M02", "name": "Root Flow",         "desc": "+25% Pulse Speed per level",             "tier": "A",        "effect": "pulse_speed"},
+	{"id": "M03", "name": "Volatile Nodes",    "desc": "Rare bonus nodes appear mid-run",        "tier": "special",  "effect": "volatile_nodes"},
+	{"id": "M04", "name": "Pulse Rhythm",      "desc": "+25% Pulse Frequency per level",         "tier": "A",        "effect": "pulse_frequency"},
+	{"id": "M05", "name": "Spore Payload",     "desc": "+25% Pulse Capacity per level",          "tier": "A",        "effect": "pulse_capacity"},
+	{"id": "M06", "name": "Solution Speed",    "desc": "+10% Solution Creation Speed per level", "tier": "D",        "effect": "solution_speed"},
+	{"id": "M07", "name": "Forge Speed",       "desc": "+10% Compound Creation Speed per level", "tier": "D",        "effect": "forge_speed"},
+	{"id": "M08", "name": "Spore Current",     "desc": "+20% Aura Expansion Rate per level",     "tier": "D",        "effect": "aura_rate"},
+	{"id": "M09", "name": "Strain Harvest",    "desc": "+5% GS from Run Value per level",        "tier": "C",        "effect": "gs_run_bonus"},
+	{"id": "M10", "name": "Discovery Subsidy", "desc": "-4% Discovery cost per level",           "tier": "B",        "effect": "discovery_cost"},
+	{"id": "M11", "name": "Lean Compounds",    "desc": "-4% Compound ingredient cost per level", "tier": "B",        "effect": "compound_cost"},
+	{"id": "M12", "name": "Network Expansion", "desc": "-4% Node Unlock Cost per level",         "tier": "B",        "effect": "node_cost"},
+	{"id": "M13", "name": "Mutagen Yield",     "desc": "+5% GS from crafted Mutagens per level", "tier": "C",        "effect": "mutagen_gs"},
+	{"id": "M14", "name": "Idle Network",      "desc": "+30 min idle earnings per level",        "tier": "idle",     "effect": "idle_time"},
+	{"id": "M15", "name": "Lean Solutions",    "desc": "-4% Solution ingredient cost per level", "tier": "B",        "effect": "solution_cost"},
+	{"id": "M16", "name": "Resource Potency",  "desc": "+5% all Resource DV per level",          "tier": "C",        "effect": "resource_dv"},
+	{"id": "M17", "name": "Evolution Subsidy", "desc": "-4% Node Evolution cost per level",      "tier": "B",        "effect": "evolution_cost"},
+	{"id": "M18", "name": "Compound Potency",  "desc": "+5% Compound + Solution DV per level",   "tier": "C",        "effect": "compound_dv"},
+	{"id": "M19", "name": "Reserved",          "desc": "Coming soon.",                           "tier": "reserved", "effect": "none"},
+	{"id": "M20", "name": "Reserved",          "desc": "Coming soon.",                           "tier": "reserved", "effect": "none"},
+]
+
 var config: Dictionary = {}
 var compounds_meta: Dictionary = {}
 var compound_defs: Dictionary = {}
@@ -95,6 +156,7 @@ var synth_slots: Array = []
 
 var _accum: float = 0.0
 var _autosave_accum: float = 0.0
+var debug_rate_mult: float = 1.0
 
 # World-space positions for transport calculations
 var spore_cloud_world_pos: Vector2 = Vector2.ZERO
@@ -132,6 +194,7 @@ func tick(dt: float) -> void:
 	_tick_root_transfer(dt)
 	_tick_refinery(dt)
 	_tick_synth(dt)
+	check_and_unlock_mutation_chamber()
 
 
 # ---------------- Production ----------------
@@ -369,7 +432,7 @@ func _get_node_speed_value(node_id: String) -> float:
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var lvl: int = int(up.get("speed_level", 1))
-	return BASE_ROOT_PULSE_SPEED_PX * _ipm_speed_mult(lvl)
+	return BASE_ROOT_PULSE_SPEED_PX * _ipm_speed_mult(lvl) * get_mutation_pulse_speed_mult()
 
 
 func _get_node_carry_capacity(node_id: String) -> int:
@@ -378,7 +441,7 @@ func _get_node_carry_capacity(node_id: String) -> int:
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var lvl: int = int(up.get("carry_level", 1))
-	return _ipm_carry(lvl)
+	return max(1, int(float(_ipm_carry(lvl)) * get_mutation_pulse_capacity_mult()))
 
 
 func _get_node_frequency_sec(node_id: String) -> float:
@@ -388,7 +451,7 @@ func _get_node_frequency_sec(node_id: String) -> float:
 	var n: Dictionary = nodes[node_id] as Dictionary
 	var up: Dictionary = _ensure_upgrade_keys(n)
 	var lvl: int = int(up.get("frequency_level", 1))
-	return 1.0 / maxf(0.01, _ipm_frequency(lvl))
+	return 1.0 / maxf(0.01, _ipm_frequency(lvl) * get_mutation_pulse_freq_mult())
 
 
 func _get_node_travel_sec(node_id: String) -> float:
@@ -1295,7 +1358,8 @@ func _get_transport_default_distance_px() -> float:
 
 func _ipm_yield_rate(level: int) -> float:
 	var l := float(max(0, level - 1))
-	return IPM_YIELD_BASE + IPM_YIELD_LINEAR * l + IPM_YIELD_QUAD * l * l
+	var base: float = IPM_YIELD_BASE + IPM_YIELD_LINEAR * l + IPM_YIELD_QUAD * l * l
+	return base * get_mutation_yield_mult() * debug_rate_mult
 
 func _ipm_frequency(level: int) -> float:
 	var l := float(max(0, level - 1))
@@ -1619,7 +1683,7 @@ func get_current_digestion_modifier() -> float:
 		var d: Dictionary = discovery_defs.get(discovery_id, {}) as Dictionary
 		if str(d.get("effect_type", "")) == "digestion_return_additive":
 			base_mod += float(d.get("effect_per_level", 0.0)) * float(get_discovery_level(discovery_id))
-	return base_mod
+	return base_mod * debug_rate_mult
 
 
 func get_current_refinery_speed_multiplier() -> float:
@@ -1630,7 +1694,7 @@ func get_current_refinery_speed_multiplier() -> float:
 		var d: Dictionary = discovery_defs.get(discovery_id, {}) as Dictionary
 		if str(d.get("effect_type", "")) == "refinery_speed_mult":
 			bonus += float(d.get("effect_per_level", 0.0)) * float(get_discovery_level(discovery_id))
-	return 1.0 + bonus
+	return (1.0 + bonus) * get_mutation_forge_speed_mult()
 
 
 func get_current_synth_speed_multiplier() -> float:
@@ -1641,7 +1705,7 @@ func get_current_synth_speed_multiplier() -> float:
 		var d: Dictionary = discovery_defs.get(discovery_id, {}) as Dictionary
 		if str(d.get("effect_type", "")) == "synth_speed_mult":
 			bonus += float(d.get("effect_per_level", 0.0)) * float(get_discovery_level(discovery_id))
-	return 1.0 + bonus
+	return (1.0 + bonus) * get_mutation_solution_speed_mult()
 
 
 func _get_discovery_base_costs(discovery_id: String) -> Array:
@@ -2355,13 +2419,260 @@ func _write_node_root_transfer_dict(n: Dictionary, transfer: Dictionary) -> void
 	n[LEGACY_NODE_TRANSPORT_KEY] = transfer.duplicate(true)
 
 
+# ── Prestige / Mutation Chamber ───────────────────────────────────────────────
+
+func get_mutation_level(mutation_id: String) -> int:
+	var purchased: Dictionary = meta_state.get("purchased_mutations", {}) as Dictionary
+	return int(purchased.get(mutation_id, 0))
+
+
+func is_mutation_purchased(mutation_id: String) -> bool:
+	return get_mutation_level(mutation_id) > 0
+
+
+# ── Mutation effect getters ───────────────────────────────────────────────────
+
+func get_mutation_yield_mult() -> float:
+	return 1.0 + float(get_mutation_level("M01")) * 0.20
+
+
+func get_mutation_pulse_speed_mult() -> float:
+	return 1.0 + float(get_mutation_level("M02")) * 0.25
+
+
+func get_mutation_pulse_freq_mult() -> float:
+	return 1.0 + float(get_mutation_level("M04")) * 0.25
+
+
+func get_mutation_pulse_capacity_mult() -> float:
+	return 1.0 + float(get_mutation_level("M05")) * 0.25
+
+
+func get_mutation_solution_speed_mult() -> float:
+	return 1.0 + float(get_mutation_level("M06")) * 0.10
+
+
+func get_mutation_forge_speed_mult() -> float:
+	return 1.0 + float(get_mutation_level("M07")) * 0.10
+
+
+# ── GS calculation ────────────────────────────────────────────────────────────
+
+func get_gs_from_run_value(run_value: float) -> int:
+	var base_gs: int = 0
+	for entry_variant in GS_RUN_VALUE_TABLE:
+		var entry: Array = entry_variant as Array
+		if run_value >= float(int(entry[0])):
+			base_gs = int(entry[1])
+		else:
+			break
+	if base_gs <= 0:
+		return 0
+	var harvest_mult: float = 1.0 + float(get_mutation_level("M09")) * 0.05
+	return int(ceil(float(base_gs) * harvest_mult))
+
+
+func can_prestige() -> bool:
+	return total_nutrients_earned_run >= MUTATION_MINRUN_FOR_PRESTIGE
+
+
+func get_gs_preview_this_mutate() -> int:
+	return get_gs_from_run_value(total_nutrients_earned_run)
+
+
+func get_total_strain_points() -> int:
+	return int(meta_state.get("strain_points", 0))
+
+
+# ── Mutation Chamber unlock ───────────────────────────────────────────────────
+
+func is_mutation_chamber_unlocked() -> bool:
+	return bool(meta_state.get("mutation_chamber_unlocked", false))
+
+
+func check_and_unlock_mutation_chamber() -> bool:
+	if is_mutation_chamber_unlocked():
+		return false
+	if total_nutrients_earned_run >= MUTATION_MINRUN_FOR_PRESTIGE:
+		meta_state["mutation_chamber_unlocked"] = true
+		return true
+	return false
+
+
+# ── Mutation unlock chain ─────────────────────────────────────────────────────
+
+func get_mutation_unlock_cost() -> int:
+	var idx: int = clampi(int(meta_state.get("mutation_unlock_count", 0)), 0, MUTATION_UNLOCK_COST_SEQUENCE.size() - 1)
+	return int(MUTATION_UNLOCK_COST_SEQUENCE[idx])
+
+
+func get_mutations_available_to_unlock() -> Array[String]:
+	var purchased: Dictionary = meta_state.get("purchased_mutations", {}) as Dictionary
+	var available: Array[String] = []
+
+	# Starters are each independently purchasable until bought
+	for mid in ["M01", "M02", "M03"]:
+		if int(purchased.get(mid, 0)) == 0:
+			available.append(mid)
+
+	# Linear chain: M04+ — one at a time, available after any starter is owned
+	var any_starter_owned := (
+		int(purchased.get("M01", 0)) > 0 or
+		int(purchased.get("M02", 0)) > 0 or
+		int(purchased.get("M03", 0)) > 0
+	)
+	if any_starter_owned:
+		for i in range(4, 21):
+			var mid: String = "M%02d" % i
+			if int(purchased.get(mid, 0)) == 0:
+				available.append(mid)
+				break  # only one chain slot open at a time
+
+	return available
+
+
+func can_unlock_mutation(mutation_id: String) -> bool:
+	if not mutation_id in get_mutations_available_to_unlock():
+		return false
+	return get_total_strain_points() >= get_mutation_unlock_cost()
+
+
+func buy_mutation_unlock(mutation_id: String) -> bool:
+	if not can_unlock_mutation(mutation_id):
+		return false
+	var cost: int = get_mutation_unlock_cost()
+	meta_state["strain_points"] = int(meta_state.get("strain_points", 0)) - cost
+	var purchased: Dictionary = (meta_state.get("purchased_mutations", {}) as Dictionary).duplicate(true)
+	purchased[mutation_id] = 1
+	meta_state["purchased_mutations"] = purchased
+	meta_state["mutation_unlock_count"] = int(meta_state.get("mutation_unlock_count", 0)) + 1
+	_sync_meta_state_into_resources()
+	save_game()
+	return true
+
+
+# ── Mutation level-up ─────────────────────────────────────────────────────────
+
+func _get_mutation_tier(mutation_id: String) -> String:
+	for def_variant in MUTATION_DEFS:
+		var d: Dictionary = def_variant as Dictionary
+		if str(d.get("id", "")) == mutation_id:
+			return str(d.get("tier", "A"))
+	return "A"
+
+
+func _get_mutation_tier_cost_table(tier: String) -> Array:
+	match tier:
+		"A":        return MUTATION_TIER_A_LEVEL_COSTS
+		"B":        return MUTATION_TIER_B_LEVEL_COSTS
+		"C":        return MUTATION_TIER_C_LEVEL_COSTS
+		"D":        return MUTATION_TIER_D_LEVEL_COSTS
+		"special":  return MUTATION_TIER_A_LEVEL_COSTS
+		"idle":     return MUTATION_TIER_B_LEVEL_COSTS
+		_:          return []  # reserved / none → no leveling
+
+
+func get_mutation_levelup_cost(mutation_id: String) -> int:
+	var current_level: int = get_mutation_level(mutation_id)
+	if current_level == 0:
+		return -1  # not owned
+	var table: Array = _get_mutation_tier_cost_table(_get_mutation_tier(mutation_id))
+	if table.is_empty():
+		return -1  # no leveling for this tier (reserved)
+	var idx: int = current_level - 1  # Lv1→Lv2 uses index 0
+	return int(table[clampi(idx, 0, table.size() - 1)])
+
+
+func can_levelup_mutation(mutation_id: String) -> bool:
+	var cost: int = get_mutation_levelup_cost(mutation_id)
+	if cost < 0:
+		return false
+	return get_total_strain_points() >= cost
+
+
+func buy_mutation_levelup(mutation_id: String) -> bool:
+	if not can_levelup_mutation(mutation_id):
+		return false
+	var cost: int = get_mutation_levelup_cost(mutation_id)
+	meta_state["strain_points"] = int(meta_state.get("strain_points", 0)) - cost
+	var purchased: Dictionary = (meta_state.get("purchased_mutations", {}) as Dictionary).duplicate(true)
+	purchased[mutation_id] = int(purchased.get(mutation_id, 1)) + 1
+	meta_state["purchased_mutations"] = purchased
+	_sync_meta_state_into_resources()
+	save_game()
+	return true
+
+
+# ── Mutate (prestige reset) ───────────────────────────────────────────────────
+
+func do_mutate() -> int:
+	# Returns GS awarded, or -1 if conditions not met
+	if not can_prestige():
+		return -1
+
+	var gs_awarded: int = get_gs_preview_this_mutate()
+
+	# Award GS and increment counter in meta_state BEFORE reset
+	meta_state["strain_points"]  = int(meta_state.get("strain_points",  0)) + gs_awarded
+	meta_state["prestige_count"] = int(meta_state.get("prestige_count", 0)) + 1
+
+	# start_new_run snapshots meta_state before clearing run state
+	start_new_run()
+
+	return gs_awarded
+
+
+# ── Mutation Chamber UI data ──────────────────────────────────────────────────
+
+func get_mutation_chamber_ui() -> Dictionary:
+	var available_ids := get_mutations_available_to_unlock()
+	var unlock_cost: int = get_mutation_unlock_cost()
+
+	var mutation_rows: Array = []
+	for def_variant in MUTATION_DEFS:
+		var d: Dictionary = def_variant as Dictionary
+		var mid: String = str(d.get("id", ""))
+		var level: int = get_mutation_level(mid)
+		var is_owned: bool = level > 0
+		var is_available: bool = mid in available_ids
+		var is_reserved: bool = str(d.get("tier", "")) == "reserved"
+		var levelup_cost: int = get_mutation_levelup_cost(mid)
+
+		mutation_rows.append({
+			"id":                     mid,
+			"name":                   str(d.get("name", mid)),
+			"desc":                   str(d.get("desc", "")),
+			"level":                  level,
+			"is_reserved":            is_reserved,
+			"is_owned":               is_owned,
+			"is_available_to_unlock": is_available,
+			"can_unlock":             can_unlock_mutation(mid),
+			"levelup_cost":           levelup_cost,
+			"can_levelup":            can_levelup_mutation(mid),
+		})
+
+	return {
+		"gs_balance":       get_total_strain_points(),
+		"prestige_count":   int(meta_state.get("prestige_count", 0)),
+		"run_value":        int(total_nutrients_earned_run),
+		"gs_preview":       get_gs_preview_this_mutate(),
+		"can_prestige":     can_prestige(),
+		"chamber_unlocked": is_mutation_chamber_unlocked(),
+		"unlock_cost":      unlock_cost,
+		"mutations":        mutation_rows,
+	}
+
+
 # ---------------- Save / Load ----------------
 
 func _build_default_meta_state() -> Dictionary:
 	return {
 		"strain_points": 0,
 		"prestige_count": 0,
-		"permanent_unlocks": {}
+		"permanent_unlocks": {},
+		"mutation_chamber_unlocked": false,
+		"purchased_mutations": {},
+		"mutation_unlock_count": 0
 	}
 
 
@@ -2442,12 +2753,18 @@ func _apply_meta_state(loaded_meta: Dictionary) -> void:
 	if loaded_meta.is_empty():
 		return
 
-	meta_state["strain_points"] = max(0, int(loaded_meta.get("strain_points", meta_state.get("strain_points", 0))))
-	meta_state["prestige_count"] = max(0, int(loaded_meta.get("prestige_count", meta_state.get("prestige_count", 0))))
+	meta_state["strain_points"]             = max(0, int(loaded_meta.get("strain_points",             0)))
+	meta_state["prestige_count"]            = max(0, int(loaded_meta.get("prestige_count",            0)))
+	meta_state["mutation_chamber_unlocked"] = bool(loaded_meta.get("mutation_chamber_unlocked",       false))
+	meta_state["mutation_unlock_count"]     = max(0, int(loaded_meta.get("mutation_unlock_count",     0)))
 
 	var permanent_unlocks_variant = loaded_meta.get("permanent_unlocks", {})
 	if typeof(permanent_unlocks_variant) == TYPE_DICTIONARY:
 		meta_state["permanent_unlocks"] = (permanent_unlocks_variant as Dictionary).duplicate(true)
+
+	var purchased_mutations_variant = loaded_meta.get("purchased_mutations", {})
+	if typeof(purchased_mutations_variant) == TYPE_DICTIONARY:
+		meta_state["purchased_mutations"] = (purchased_mutations_variant as Dictionary).duplicate(true)
 
 
 func _normalize_loaded_machine_slot(

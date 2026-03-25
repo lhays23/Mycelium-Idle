@@ -438,3 +438,20 @@ text = "Production"
 [node name="LblProdValue" type="Label" parent="PanelHost/PanelContainer/NodePanel/MarginContainer/VBoxContainer/RowProduction" unique_id=232656036]
 layout_mode = 2
 text = "0.00/s → 0.00/s"
+
+[node name="MutationChamberPanel" type="PanelContainer" parent="PanelHost/PanelContainer" unique_id=1255027927]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_right = 515.0
+offset_bottom = 320.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="PanelHost/PanelContainer/MutationChamberPanel" unique_id=1170310817]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelHost/PanelContainer/MutationChamberPanel/MarginContainer" unique_id=2053890190]
+layout_mode = 2
