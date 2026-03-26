@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "rules": {
     "base_value_multiplier": 1.35,
     "base_unlock_multiplier": 1.2,
@@ -19,11 +19,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": null,
       "discovery_requirement": "primitive_refinery",
       "starts_unlocked": true,
       "unlock_cost_nutrients": 0,
-      "active_in_pass1": true
+      "active_in_pass1": true,
+      "craft_time_sec": 15
     },
     {
       "id": "hyphal_thread",
@@ -37,11 +37,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "spore_composite",
       "discovery_requirement": "primitive_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": 3000,
-      "active_in_pass1": true
+      "active_in_pass1": true,
+      "craft_time_sec": 22.5
     },
     {
       "id": "cellulose_weave",
@@ -55,243 +55,44 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "hyphal_thread",
       "discovery_requirement": "primitive_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": 10000,
-      "active_in_pass1": true
-    },
-    {
-      "id": "growth_gel",
-      "name": "Growth Gel",
-      "type": "base",
-      "inputs": [
-        {
-          "id": "mycelium",
-          "qty": 1000
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "base_chain",
-      "previous_recipe_required": "cellulose_weave",
-      "discovery_requirement": "primitive_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": 25000,
-      "active_in_pass1": true
-    },
-    {
-      "id": "sporoplasm_slurry",
-      "name": "Sporoplasm Slurry",
-      "type": "base",
-      "inputs": [
-        {
-          "id": "sporoplasm",
-          "qty": 1000
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "base_chain",
-      "previous_recipe_required": "growth_gel",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "chitin_plate",
-      "name": "Chitin Plate",
-      "type": "base",
-      "inputs": [
-        {
-          "id": "chitin",
-          "qty": 1000
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "base_chain",
-      "previous_recipe_required": "sporoplasm_slurry",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "crystal_bloom",
-      "name": "Crystal Bloom",
-      "type": "base",
-      "inputs": [
-        {
-          "id": "crystal_mold",
-          "qty": 1000
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "base_chain",
-      "previous_recipe_required": "chitin_plate",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "void_mesh",
-      "name": "Void Mesh",
-      "type": "base",
-      "inputs": [
-        {
-          "id": "voidspore",
-          "qty": 1000
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "base_chain",
-      "previous_recipe_required": "crystal_bloom",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "spore_weave",
-      "name": "Spore Weave",
-      "type": "composite",
-      "inputs": [
-        {
-          "id": "spore_composite",
-          "qty": 5
-        },
-        {
-          "id": "hyphal_thread",
-          "qty": 5
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "composite_tier",
-      "previous_recipe_required": null,
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "living_fiber",
-      "name": "Living Fiber",
-      "type": "composite",
-      "inputs": [
-        {
-          "id": "cellulose_weave",
-          "qty": 5
-        },
-        {
-          "id": "growth_gel",
-          "qty": 5
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "composite_tier",
-      "previous_recipe_required": "spore_weave",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "carapace_gel",
-      "name": "Carapace Gel",
-      "type": "composite",
-      "inputs": [
-        {
-          "id": "sporoplasm_slurry",
-          "qty": 5
-        },
-        {
-          "id": "chitin_plate",
-          "qty": 5
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "composite_tier",
-      "previous_recipe_required": "living_fiber",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "bloom_matrix",
-      "name": "Bloom Matrix",
-      "type": "composite",
-      "inputs": [
-        {
-          "id": "crystal_bloom",
-          "qty": 5
-        },
-        {
-          "id": "void_mesh",
-          "qty": 5
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "composite_tier",
-      "previous_recipe_required": "carapace_gel",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "active_in_pass1": true,
+      "craft_time_sec": 30
     },
     {
       "id": "ichor_coagulate",
       "name": "Ichor Coagulate",
-      "type": "base",
       "inputs": [
         {
           "id": "ichor",
           "qty": 1000
         }
       ],
-      "output_qty": 1,
-      "unlock_tier": "base_chain",
-      "previous_recipe_required": "void_mesh",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "craft_time_sec": 45
     },
     {
       "id": "ferment_extract",
       "name": "Ferment Extract",
-      "type": "base",
       "inputs": [
         {
           "id": "ferment",
           "qty": 1000
         }
       ],
-      "output_qty": 1,
-      "unlock_tier": "base_chain",
-      "previous_recipe_required": "ichor_coagulate",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "craft_time_sec": 60
     },
     {
       "id": "lignin_lattice",
       "name": "Lignin Lattice",
-      "type": "base",
       "inputs": [
         {
           "id": "lignin",
           "qty": 1000
         }
       ],
-      "output_qty": 1,
-      "unlock_tier": "base_chain",
-      "previous_recipe_required": "ferment_extract",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "craft_time_sec": 90
     },
     {
       "id": "rift_crust",
@@ -305,11 +106,29 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "lignin_lattice",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "active_in_pass1": false,
+      "craft_time_sec": 135
+    },
+    {
+      "id": "sporoplasm_slurry",
+      "name": "Sporoplasm Slurry",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "sporoplasm",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false,
+      "craft_time_sec": 210
     },
     {
       "id": "gloom_dust",
@@ -319,15 +138,37 @@
         {
           "id": "gloomspore",
           "qty": 1000
+        },
+        {
+          "id": "rift_crust",
+          "qty": 2
         }
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "rift_crust",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "active_in_pass1": false,
+      "craft_time_sec": 450
+    },
+    {
+      "id": "growth_gel",
+      "name": "Growth Gel",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "mycelium",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "discovery_requirement": "primitive_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 25000,
+      "active_in_pass1": true,
+      "craft_time_sec": 480
     },
     {
       "id": "lumen_gel",
@@ -337,15 +178,59 @@
         {
           "id": "biolume",
           "qty": 1000
+        },
+        {
+          "id": "gloom_dust",
+          "qty": 2
         }
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "gloom_dust",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "active_in_pass1": false,
+      "craft_time_sec": 630
+    },
+    {
+      "id": "crystal_bloom",
+      "name": "Crystal Bloom",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "crystal_mold",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false,
+      "craft_time_sec": 660
+    },
+    {
+      "id": "chitin_plate",
+      "name": "Chitin Plate",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "chitin",
+          "qty": 1000
+        },
+        {
+          "id": "lumen_gel",
+          "qty": 2
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false,
+      "craft_time_sec": 810
     },
     {
       "id": "null_strand",
@@ -359,11 +244,11 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "lumen_gel",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "active_in_pass1": false,
+      "craft_time_sec": 840
     },
     {
       "id": "enzyme_crystal",
@@ -373,15 +258,37 @@
         {
           "id": "deep_enzyme",
           "qty": 1000
+        },
+        {
+          "id": "chitin_plate",
+          "qty": 2
         }
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "null_strand",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "active_in_pass1": false,
+      "craft_time_sec": 1080
+    },
+    {
+      "id": "void_mesh",
+      "name": "Void Mesh",
+      "type": "base",
+      "inputs": [
+        {
+          "id": "voidspore",
+          "qty": 1000
+        }
+      ],
+      "output_qty": 1,
+      "unlock_tier": "base_chain",
+      "discovery_requirement": "expanded_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": -1,
+      "active_in_pass1": false,
+      "craft_time_sec": 1080
     },
     {
       "id": "void_petal",
@@ -391,15 +298,19 @@
         {
           "id": "void_bloom",
           "qty": 1000
+        },
+        {
+          "id": "enzyme_crystal",
+          "qty": 2
         }
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "enzyme_crystal",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "active_in_pass1": false,
+      "craft_time_sec": 1440
     },
     {
       "id": "amber_resin",
@@ -413,121 +324,12 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "void_petal",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "ichor_compound",
-      "name": "Ichor Compound",
-      "type": "composite",
-      "inputs": [
-        {
-          "id": "ichor_coagulate",
-          "qty": 5
-        },
-        {
-          "id": "ferment_extract",
-          "qty": 5
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "composite_tier",
-      "previous_recipe_required": "bloom_matrix",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "rift_matrix",
-      "name": "Rift Matrix",
-      "type": "composite",
-      "inputs": [
-        {
-          "id": "lignin_lattice",
-          "qty": 5
-        },
-        {
-          "id": "rift_crust",
-          "qty": 5
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "composite_tier",
-      "previous_recipe_required": "ichor_compound",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "gloom_extract",
-      "name": "Gloom Extract",
-      "type": "composite",
-      "inputs": [
-        {
-          "id": "gloom_dust",
-          "qty": 5
-        },
-        {
-          "id": "lumen_gel",
-          "qty": 5
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "composite_tier",
-      "previous_recipe_required": "rift_matrix",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "null_core",
-      "name": "Null Core",
-      "type": "composite",
-      "inputs": [
-        {
-          "id": "null_strand",
-          "qty": 5
-        },
-        {
-          "id": "enzyme_crystal",
-          "qty": 5
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "composite_tier",
-      "previous_recipe_required": "gloom_extract",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "void_amber",
-      "name": "Void Amber",
-      "type": "composite",
-      "inputs": [
-        {
-          "id": "void_petal",
-          "qty": 5
-        },
-        {
-          "id": "amber_resin",
-          "qty": 5
-        }
-      ],
-      "output_qty": 1,
-      "unlock_tier": "composite_tier",
-      "previous_recipe_required": "null_core",
-      "discovery_requirement": "expanded_refinery",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
+      "active_in_pass1": false,
+      "craft_time_sec": 1500
     }
-  ]
+  ],
+  "notes": "v4: 18 base compounds (1000:1), anchor chain compounds use 2x previous. craft_time_sec added to all."
 }
