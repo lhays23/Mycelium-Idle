@@ -157,6 +157,7 @@ var refinery_feedback: Label = null
 var refinery_tabs_row: HBoxContainer = null
 var refinery_tab_compounds: Button = null
 var refinery_tab_solutions: Button = null
+var refinery_tab_mutagens: Button = null
 var _refinery_active_category: String = "compound"
 
 # Settings panel widgets
@@ -170,11 +171,12 @@ var _last_refinery_inventory_signature: String = ""
 var _last_discovery_signature: String = ""
 
 # Mutation Chamber panel widgets
+var _mc_owned_list: VBoxContainer = null
 var _mc_gs_lbl: Label = null
-var _mc_run_lbl: Label = null
-var _mc_preview_lbl: Label = null
-var _mc_mutate_btn: Button = null
-var _mc_mutation_list: VBoxContainer = null
+# Mutation Chamber popups
+var _mc_popup_layer: CanvasLayer = null
+var _mc_popup_dimmer: ColorRect = null
+var _mc_selected_mutation_id: String = ""
 
 # Nutrients flash
 var _nutrients_base_scale: Vector2 = Vector2.ONE
@@ -2440,6 +2442,11 @@ func _bind_refinery_panel() -> void:
 	refinery_tab_solutions.pressed.connect(func(): _set_refinery_active_category("solution"))
 	refinery_tabs_row.add_child(refinery_tab_solutions)
 
+	refinery_tab_mutagens = Button.new()
+	refinery_tab_mutagens.text = "Mutagen Lab"
+	refinery_tab_mutagens.pressed.connect(func(): _set_refinery_active_category("mutagen"))
+	refinery_tabs_row.add_child(refinery_tab_mutagens)
+
 	refinery_feedback = Label.new()
 	refinery_feedback.name = "RefineryFeedback"
 	refinery_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2465,21 +2472,33 @@ func _refresh_refinery_tab_buttons() -> void:
 
 	var compounds_unlocked := false
 	var solutions_unlocked := false
+	var lab_unlocked       := false
 	if game_state != null:
 		if game_state.has_method("is_refinery_unlocked"):
 			compounds_unlocked = bool(game_state.call("is_refinery_unlocked"))
 		if game_state.has_method("is_synth_unlocked"):
 			solutions_unlocked = bool(game_state.call("is_synth_unlocked"))
+		if game_state.has_method("is_mutagen_lab_unlocked"):
+			lab_unlocked = bool(game_state.call("is_mutagen_lab_unlocked"))
 
 	refinery_tab_compounds.disabled = not compounds_unlocked
 	refinery_tab_solutions.disabled = not solutions_unlocked
 
+	# Mutagen Lab tab — visible always once unlocked (permanent), hidden before
+	if refinery_tab_mutagens != null:
+		refinery_tab_mutagens.visible  = lab_unlocked
+		refinery_tab_mutagens.disabled = false
+
 	if not solutions_unlocked and _refinery_active_category == "solution":
+		_refinery_active_category = "compound"
+	if not lab_unlocked and _refinery_active_category == "mutagen":
 		_refinery_active_category = "compound"
 
 	var ractive := _refinery_active_category
 	_theme_tab_button(refinery_tab_compounds, ractive == "compound")
 	_theme_tab_button(refinery_tab_solutions, ractive == "solution")
+	if refinery_tab_mutagens != null and lab_unlocked:
+		_theme_tab_button(refinery_tab_mutagens, ractive == "mutagen")
 
 
 func _set_refinery_active_category(category: String) -> void:
@@ -2570,6 +2589,202 @@ func _refresh_refinery_panel() -> void:
 		var placeholder := Label.new()
 		placeholder.text = "Synthesis logic not wired yet."
 		refinery_list.add_child(placeholder)
+
+	if _refinery_active_category == "mutagen":
+		_build_mutagen_lab_tab()
+
+
+func _build_mutagen_lab_tab() -> void:
+	if refinery_list == null or game_state == null:
+		return
+	if not game_state.has_method("get_mutagen_lab_ui"):
+		return
+
+	var data_v = game_state.call("get_mutagen_lab_ui")
+	if typeof(data_v) != TYPE_DICTIONARY:
+		return
+	var data: Dictionary = data_v as Dictionary
+	var tiers: Array = data.get("tiers", []) as Array
+	var total_run_gs: int = int(data.get("total_run_gs", 0))
+	var tm := ThemeManager
+
+	# ── Run GS summary bar ────────────────────────────────────────────────────
+	var summary_card := _make_refinery_card_shell()
+	var sb_sum := StyleBoxFlat.new()
+	sb_sum.bg_color     = tm.c("bg_row")
+	sb_sum.border_color = tm.c("accent_border")
+	sb_sum.set_border_width_all(1)
+	sb_sum.set_corner_radius_all(10)
+	sb_sum.content_margin_left   = 12
+	sb_sum.content_margin_right  = 12
+	sb_sum.content_margin_top    = 8
+	sb_sum.content_margin_bottom = 8
+	summary_card.add_theme_stylebox_override("panel", sb_sum)
+
+	var sum_hbox := HBoxContainer.new()
+	summary_card.add_child(sum_hbox)
+
+	var sum_lbl := Label.new()
+	sum_lbl.text = "Mutagen GS this run:"
+	sum_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sum_lbl.add_theme_font_size_override("font_size", 13)
+	sum_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+	sum_hbox.add_child(sum_lbl)
+
+	var sum_val := Label.new()
+	sum_val.text = "+%s GS" % _fmt_int(total_run_gs)
+	sum_val.add_theme_font_size_override("font_size", 14)
+	sum_val.add_theme_color_override("font_color", tm.c("accent"))
+	sum_hbox.add_child(sum_val)
+	refinery_list.add_child(summary_card)
+
+	# ── Per-tier cards ────────────────────────────────────────────────────────
+	for tier_v in tiers:
+		var tier: Dictionary = tier_v as Dictionary
+		refinery_list.add_child(_make_mutagen_tier_card(tier))
+
+
+func _make_mutagen_tier_card(tier: Dictionary) -> Control:
+	var tm := ThemeManager
+	var tier_id: String     = str(tier.get("id", ""))
+	var name_str: String    = str(tier.get("name", tier_id))
+	var input_id: String    = str(tier.get("input_id", ""))
+	var input_name: String  = str(tier.get("input_name", ""))
+	var input_held: int     = int(tier.get("input_held", 0))
+	var held: int           = int(tier.get("held", 0))
+	var crafted: int        = int(tier.get("crafted_count", 0))
+	var next_gs: int        = int(tier.get("next_gs", 0))
+	var can_craft: bool     = bool(tier.get("can_craft", false))
+	var run_gs: int         = int(tier.get("run_gs", 0))
+	var gs_table: Array     = tier.get("gs_table", []) as Array
+
+	var card := _make_refinery_card_shell()
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	card.add_child(vbox)
+
+	# ── Header row: name + run GS ─────────────────────────────────────────────
+	var hdr_row := HBoxContainer.new()
+	var lbl_name := Label.new()
+	lbl_name.text = name_str
+	lbl_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_name.add_theme_font_size_override("font_size", 15)
+	lbl_name.add_theme_color_override("font_color", tm.c("accent"))
+	hdr_row.add_child(lbl_name)
+
+	if run_gs > 0:
+		var lbl_run := Label.new()
+		lbl_run.text = "+%s GS earned" % _fmt_int(run_gs)
+		lbl_run.add_theme_font_size_override("font_size", 12)
+		lbl_run.add_theme_color_override("font_color", tm.c("accent_dim"))
+		hdr_row.add_child(lbl_run)
+	vbox.add_child(hdr_row)
+
+	# ── Input + held row ──────────────────────────────────────────────────────
+	var inv_row := HBoxContainer.new()
+	inv_row.add_theme_constant_override("separation", 16)
+
+	var lbl_input := Label.new()
+	lbl_input.text = "Input: %s  (%s held)" % [input_name, _fmt_int(input_held)]
+	lbl_input.add_theme_font_size_override("font_size", 12)
+	lbl_input.add_theme_color_override("font_color",
+		tm.c("text_primary") if input_held > 0 else tm.c("text_muted"))
+	lbl_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inv_row.add_child(lbl_input)
+
+	if held > 0:
+		var lbl_held := Label.new()
+		lbl_held.text = "%s Mutagen held" % _fmt_int(held)
+		lbl_held.add_theme_font_size_override("font_size", 12)
+		lbl_held.add_theme_color_override("font_color", tm.c("accent_dim"))
+		inv_row.add_child(lbl_held)
+	vbox.add_child(inv_row)
+
+	# ── GS value info row with hover-style breakdown ──────────────────────────
+	var gs_info_card := PanelContainer.new()
+	var sb_gs := StyleBoxFlat.new()
+	sb_gs.bg_color     = tm.c("bg_deep")
+	sb_gs.border_color = tm.c("border")
+	sb_gs.set_border_width_all(1)
+	sb_gs.set_corner_radius_all(6)
+	sb_gs.content_margin_left   = 10
+	sb_gs.content_margin_right  = 10
+	sb_gs.content_margin_top    = 6
+	sb_gs.content_margin_bottom = 6
+	gs_info_card.add_theme_stylebox_override("panel", sb_gs)
+
+	var gs_vbox := VBoxContainer.new()
+	gs_vbox.add_theme_constant_override("separation", 3)
+	gs_info_card.add_child(gs_vbox)
+
+	var gs_title := Label.new()
+	gs_title.text = "Genetic Strain Value"
+	gs_title.add_theme_font_size_override("font_size", 11)
+	gs_title.add_theme_color_override("font_color", tm.c("text_muted"))
+	gs_vbox.add_child(gs_title)
+
+	# Table rows: 1st, 2nd, 3rd, 4th+
+	var craft_labels := ["1st crafted:", "2nd crafted:", "3rd crafted:", "4th+ crafted:"]
+	for i in range(min(gs_table.size(), 4)):
+		var row := HBoxContainer.new()
+		var lbl_k := Label.new()
+		lbl_k.text = craft_labels[i]
+		lbl_k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		lbl_k.add_theme_font_size_override("font_size", 11)
+		# Highlight the row matching the next craft
+		var is_next: bool = (i == 0 and crafted == 0) or \
+							(i == 1 and crafted == 1) or \
+							(i == 2 and crafted == 2) or \
+							(i == 3 and crafted >= 3)
+		var row_fg: String = tm.c("accent").to_html() if is_next else "666666"
+		lbl_k.add_theme_color_override("font_color", Color(tm.c("text_muted") if not is_next else tm.c("accent")))
+		row.add_child(lbl_k)
+		var lbl_v := Label.new()
+		lbl_v.text = "+%d GS" % int(gs_table[i])
+		lbl_v.add_theme_font_size_override("font_size", 11)
+		lbl_v.add_theme_color_override("font_color", tm.c("accent") if is_next else tm.c("text_muted"))
+		if is_next:
+			lbl_k.add_theme_font_size_override("font_size", 12)
+			(lbl_k as Label).text = "▶ " + lbl_k.text
+		row.add_child(lbl_v)
+		gs_vbox.add_child(row)
+
+	if crafted > 0:
+		var crafted_lbl := Label.new()
+		crafted_lbl.text = "Crafted this run: %d" % crafted
+		crafted_lbl.add_theme_font_size_override("font_size", 11)
+		crafted_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+		gs_vbox.add_child(crafted_lbl)
+
+	vbox.add_child(gs_info_card)
+
+	# ── Craft button ──────────────────────────────────────────────────────────
+	var btn := Button.new()
+	btn.text = "Craft  →  +%d GS" % next_gs
+	btn.custom_minimum_size = Vector2(0, 40)
+	btn.disabled = not can_craft
+	btn.focus_mode = Control.FOCUS_NONE
+	_theme_action_button(btn)
+	btn.pressed.connect(func():
+		if game_state == null or not game_state.has_method("craft_mutagen"):
+			return
+		var result_v = game_state.call("craft_mutagen", tier_id)
+		if typeof(result_v) == TYPE_DICTIONARY:
+			var result: Dictionary = result_v as Dictionary
+			if bool(result.get("ok", false)):
+				if refinery_feedback != null:
+					refinery_feedback.text = "Crafted %s — +%d GS earned this run." % [
+						name_str, int(game_state.call("get_mutagen_run_gs_total"))]
+				_refresh_refinery_panel()
+				_refresh_currency_ui()
+			else:
+				if refinery_feedback != null:
+					refinery_feedback.text = str(result.get("reason", "Cannot craft."))
+	)
+	vbox.add_child(btn)
+
+	return card
 
 
 func _make_refinery_progress_bar(pct: int, width: int = 10) -> String:
@@ -5056,124 +5271,103 @@ func _bind_mutation_chamber_panel() -> void:
 	if mutation_chamber_panel == null:
 		return
 
-	# Hide the scene-built MarginContainer (same pattern as other panels)
 	var margin_c: Control = mutation_chamber_panel.find_child("MarginContainer", true, false) as Control
 	if margin_c != null:
 		margin_c.visible = false
 
 	var tm := ThemeManager
 
-	# ── Outer root fills the panel ────────────────────────────────────────────
+	# Root fills panel
 	var root := VBoxContainer.new()
 	root.name = "MCRoot"
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_theme_constant_override("separation", 0)
 	mutation_chamber_panel.add_child(root)
 
-	# ── Header + GS area (padded) ─────────────────────────────────────────────
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left",   16)
-	pad.add_theme_constant_override("margin_right",  16)
-	pad.add_theme_constant_override("margin_top",    14)
-	pad.add_theme_constant_override("margin_bottom", 8)
-	root.add_child(pad)
+	# ── Top bar: header + GS balance ─────────────────────────────────────────
+	var top_pad := MarginContainer.new()
+	top_pad.add_theme_constant_override("margin_left",  16)
+	top_pad.add_theme_constant_override("margin_right", 16)
+	top_pad.add_theme_constant_override("margin_top",   14)
+	top_pad.add_theme_constant_override("margin_bottom", 6)
+	root.add_child(top_pad)
 
-	var pad_vbox := VBoxContainer.new()
-	pad_vbox.add_theme_constant_override("separation", 8)
-	pad.add_child(pad_vbox)
+	var top_hbox := HBoxContainer.new()
+	top_pad.add_child(top_hbox)
 
-	# Title
-	var header := Label.new()
-	header.text = "Mutation Chamber"
-	header.add_theme_font_size_override("font_size", 18)
-	header.add_theme_color_override("font_color", tm.c("accent"))
-	pad_vbox.add_child(header)
-
-	# GS balance row
-	var gs_row := HBoxContainer.new()
-	gs_row.add_theme_constant_override("separation", 8)
-	pad_vbox.add_child(gs_row)
-
-	var lbl_gs_title := Label.new()
-	lbl_gs_title.text = "Genetic Strain:"
-	lbl_gs_title.add_theme_font_size_override("font_size", 14)
-	lbl_gs_title.add_theme_color_override("font_color", tm.c("text_secondary"))
-	gs_row.add_child(lbl_gs_title)
+	var lbl_title := Label.new()
+	lbl_title.text = "Mutation Chamber"
+	lbl_title.add_theme_font_size_override("font_size", 17)
+	lbl_title.add_theme_color_override("font_color", tm.c("accent"))
+	lbl_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_hbox.add_child(lbl_title)
 
 	_mc_gs_lbl = Label.new()
 	_mc_gs_lbl.name = "LblGSBalance"
 	_mc_gs_lbl.text = "0 GS"
-	_mc_gs_lbl.add_theme_font_size_override("font_size", 16)
+	_mc_gs_lbl.add_theme_font_size_override("font_size", 15)
 	_mc_gs_lbl.add_theme_color_override("font_color", tm.c("accent"))
-	gs_row.add_child(_mc_gs_lbl)
+	top_hbox.add_child(_mc_gs_lbl)
 
-	# ── Mutate card ───────────────────────────────────────────────────────────
-	var mutate_card := PanelContainer.new()
-	mutate_card.name = "MutateCard"
-	var sb_card := StyleBoxFlat.new()
-	sb_card.bg_color     = tm.c("bg_panel")
-	sb_card.border_color = tm.c("accent_border")
-	sb_card.set_border_width_all(1)
-	sb_card.set_corner_radius_all(10)
-	sb_card.content_margin_left   = 12
-	sb_card.content_margin_right  = 12
-	sb_card.content_margin_top    = 10
-	sb_card.content_margin_bottom = 10
-	mutate_card.add_theme_stylebox_override("panel", sb_card)
-	pad_vbox.add_child(mutate_card)
+	# ── Two action buttons ────────────────────────────────────────────────────
+	var btn_pad := MarginContainer.new()
+	btn_pad.add_theme_constant_override("margin_left",   16)
+	btn_pad.add_theme_constant_override("margin_right",  16)
+	btn_pad.add_theme_constant_override("margin_bottom",  8)
+	root.add_child(btn_pad)
 
-	var mutate_vbox := VBoxContainer.new()
-	mutate_vbox.add_theme_constant_override("separation", 6)
-	mutate_card.add_child(mutate_vbox)
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 10)
+	btn_pad.add_child(btn_row)
 
-	_mc_run_lbl = Label.new()
-	_mc_run_lbl.name = "LblRunValue"
-	_mc_run_lbl.text = "Run value: —"
-	_mc_run_lbl.add_theme_font_size_override("font_size", 12)
-	_mc_run_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
-	mutate_vbox.add_child(_mc_run_lbl)
+	var btn_mutate := Button.new()
+	btn_mutate.name = "BtnMutate"
+	btn_mutate.text = "MUTATE"
+	btn_mutate.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_mutate.custom_minimum_size = Vector2(0, 44)
+	btn_mutate.focus_mode = Control.FOCUS_NONE
+	_theme_action_button(btn_mutate)
+	btn_mutate.pressed.connect(_show_mutate_popup)
+	btn_row.add_child(btn_mutate)
 
-	_mc_preview_lbl = Label.new()
-	_mc_preview_lbl.name = "LblGSPreview"
-	_mc_preview_lbl.text = "Reach 10M nutrients to Mutate"
-	_mc_preview_lbl.add_theme_font_size_override("font_size", 13)
-	_mc_preview_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
-	mutate_vbox.add_child(_mc_preview_lbl)
+	var btn_mutations := Button.new()
+	btn_mutations.name = "BtnMutations"
+	btn_mutations.text = "MUTATIONS"
+	btn_mutations.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_mutations.custom_minimum_size = Vector2(0, 44)
+	btn_mutations.focus_mode = Control.FOCUS_NONE
+	_theme_action_button(btn_mutations)
+	btn_mutations.pressed.connect(_show_mutations_popup)
+	btn_row.add_child(btn_mutations)
 
-	_mc_mutate_btn = Button.new()
-	_mc_mutate_btn.name = "BtnMutate"
-	_mc_mutate_btn.text = "MUTATE"
-	_mc_mutate_btn.custom_minimum_size = Vector2(0, 40)
-	_mc_mutate_btn.disabled = true
-	_mc_mutate_btn.focus_mode = Control.FOCUS_NONE
-	_theme_action_button(_mc_mutate_btn)
-	_mc_mutate_btn.pressed.connect(_on_mutate_pressed)
-	mutate_vbox.add_child(_mc_mutate_btn)
+	# ── Separator + section label ─────────────────────────────────────────────
+	root.add_child(HSeparator.new())
 
-	# Separator
-	pad_vbox.add_child(HSeparator.new())
+	var owned_hdr_pad := MarginContainer.new()
+	owned_hdr_pad.add_theme_constant_override("margin_left",  16)
+	owned_hdr_pad.add_theme_constant_override("margin_top",    8)
+	owned_hdr_pad.add_theme_constant_override("margin_bottom", 4)
+	root.add_child(owned_hdr_pad)
 
-	# Mutations header
-	var mut_hdr := Label.new()
-	mut_hdr.text = "MUTATIONS"
-	mut_hdr.add_theme_font_size_override("font_size", 11)
-	mut_hdr.add_theme_color_override("font_color", tm.c("text_muted"))
-	pad_vbox.add_child(mut_hdr)
+	var owned_hdr := Label.new()
+	owned_hdr.text = "YOUR MUTATIONS"
+	owned_hdr.add_theme_font_size_override("font_size", 10)
+	owned_hdr.add_theme_color_override("font_color", tm.c("text_muted"))
+	owned_hdr_pad.add_child(owned_hdr)
 
-	# ── Scroll area fills the rest ────────────────────────────────────────────
+	# ── Owned mutations scroll list ───────────────────────────────────────────
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
 	root.add_child(scroll)
 
-	_mc_mutation_list = VBoxContainer.new()
-	_mc_mutation_list.name = "MutationList"
-	_mc_mutation_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_mc_mutation_list.add_theme_constant_override("separation", 4)
-	scroll.add_child(_mc_mutation_list)
+	_mc_owned_list = VBoxContainer.new()
+	_mc_owned_list.name = "OwnedList"
+	_mc_owned_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_mc_owned_list.add_theme_constant_override("separation", 4)
+	scroll.add_child(_mc_owned_list)
 
-	# Suppress scrollbar visual
 	await get_tree().process_frame
 	if is_instance_valid(scroll):
 		var vscroll := scroll.get_node_or_null("_v_scroll") as ScrollBar
@@ -5194,103 +5388,62 @@ func _refresh_mutation_chamber_panel() -> void:
 		return
 	var data: Dictionary = data_v as Dictionary
 
-	# GS balance
 	if _mc_gs_lbl != null:
 		_mc_gs_lbl.text = "%s GS" % _fmt_int(int(data.get("gs_balance", 0)))
 
-	# Run value + preview
-	if _mc_run_lbl != null:
-		_mc_run_lbl.text = "Run value: %s nutrients" % _fmt_num(int(data.get("run_value", 0)))
+	var btn_mutate: Button = mutation_chamber_panel.find_child("BtnMutate", true, false) as Button
+	if btn_mutate != null:
+		btn_mutate.disabled = not bool(data.get("can_prestige", false))
 
-	if _mc_preview_lbl != null:
-		var gs_p: int = int(data.get("gs_preview", 0))
-		if gs_p > 0:
-			_mc_preview_lbl.text = "+%d GS on Mutate" % gs_p
-		else:
-			_mc_preview_lbl.text = "Reach 10M nutrients to Mutate"
-
-	if _mc_mutate_btn != null:
-		_mc_mutate_btn.disabled = not bool(data.get("can_prestige", false))
-
-	# Rebuild mutation list
-	if _mc_mutation_list == null:
+	if _mc_owned_list == null:
 		return
-	for child in _mc_mutation_list.get_children():
+	for child in _mc_owned_list.get_children():
 		child.queue_free()
 
 	var mutations: Array = data.get("mutations", []) as Array
-	var unlock_cost: int = int(data.get("unlock_cost", 0))
-
-	# Starters section
-	_mc_add_section_header(_mc_mutation_list, "Starter Mutations")
+	var any_owned := false
 	for mut_v in mutations:
 		var m: Dictionary = mut_v as Dictionary
-		if str(m.get("id", "")) in ["M01", "M02", "M03"]:
-			_mc_mutation_list.add_child(_make_mutation_row(m, unlock_cost))
+		if bool(m.get("is_owned", false)) and not bool(m.get("is_reserved", false)):
+			_mc_owned_list.add_child(_make_owned_mutation_row(m))
+			any_owned = true
 
-	# Chain section
-	_mc_add_section_header(_mc_mutation_list, "Mutation Chain")
-	for mut_v in mutations:
-		var m: Dictionary = mut_v as Dictionary
-		var mid: String = str(m.get("id", ""))
-		if mid in ["M01", "M02", "M03"]:
-			continue
-		# Hide unowned reserved slots
-		if bool(m.get("is_reserved", false)) and not bool(m.get("is_owned", false)):
-			continue
-		_mc_mutation_list.add_child(_make_mutation_row(m, unlock_cost))
-
-
-func _mc_add_section_header(parent: VBoxContainer, text: String) -> void:
-	var tm := ThemeManager
-	var m := MarginContainer.new()
-	m.add_theme_constant_override("margin_top",    10)
-	m.add_theme_constant_override("margin_bottom",  2)
-	m.add_theme_constant_override("margin_left",   16)
-	var lbl := Label.new()
-	lbl.text = text.to_upper()
-	lbl.add_theme_font_size_override("font_size", 10)
-	lbl.add_theme_color_override("font_color", tm.c("text_muted"))
-	m.add_child(lbl)
-	parent.add_child(m)
+	if not any_owned:
+		var pad := MarginContainer.new()
+		pad.add_theme_constant_override("margin_left", 16)
+		pad.add_theme_constant_override("margin_top",  12)
+		var lbl := Label.new()
+		lbl.text = "No mutations unlocked yet.\nTap MUTATIONS to spend Genetic Strain."
+		lbl.add_theme_font_size_override("font_size", 13)
+		lbl.add_theme_color_override("font_color", ThemeManager.c("text_muted"))
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		pad.add_child(lbl)
+		_mc_owned_list.add_child(pad)
 
 
-func _make_mutation_row(m: Dictionary, unlock_cost: int) -> Control:
+func _make_owned_mutation_row(m: Dictionary) -> Control:
 	var tm := ThemeManager
 	var mid: String       = str(m.get("id", ""))
-	var is_owned: bool    = bool(m.get("is_owned", false))
-	var is_avail: bool    = bool(m.get("is_available_to_unlock", false))
-	var is_reserved: bool = bool(m.get("is_reserved", false))
-	var level: int        = int(m.get("level", 0))
-	var can_unlock: bool  = bool(m.get("can_unlock", false))
+	var level: int        = int(m.get("level", 1))
 	var levelup_cost: int = int(m.get("levelup_cost", -1))
 	var can_levelup: bool = bool(m.get("can_levelup", false))
+	var buff_desc: String = str(m.get("buff_description", ""))
 
-	# Padding wrapper
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left",  16)
 	pad.add_theme_constant_override("margin_right", 16)
 
-	# Card
 	var card := PanelContainer.new()
-	card.name = "MutRow_" + mid
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := StyleBoxFlat.new()
-	sb.set_corner_radius_all(8)
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("accent_border")
 	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(8)
 	sb.content_margin_left   = 10
 	sb.content_margin_right  = 10
 	sb.content_margin_top    = 8
 	sb.content_margin_bottom = 8
-	if is_owned:
-		sb.bg_color     = tm.c("bg_row")
-		sb.border_color = tm.c("accent_border")
-	elif is_avail:
-		sb.bg_color     = tm.c("bg_panel")
-		sb.border_color = tm.c("accent_dim")
-	else:
-		sb.bg_color     = tm.c("bg_deep")
-		sb.border_color = tm.c("border")
 	card.add_theme_stylebox_override("panel", sb)
 	pad.add_child(card)
 
@@ -5298,73 +5451,370 @@ func _make_mutation_row(m: Dictionary, unlock_cost: int) -> Control:
 	hbox.add_theme_constant_override("separation", 8)
 	card.add_child(hbox)
 
-	# Left: name + description
-	var info_col := VBoxContainer.new()
-	info_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var info := VBoxContainer.new()
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var name_row := HBoxContainer.new()
+	name_row.add_theme_constant_override("separation", 6)
+	var lbl_name := Label.new()
+	lbl_name.text = str(m.get("name", mid))
+	lbl_name.add_theme_font_size_override("font_size", 14)
+	lbl_name.add_theme_color_override("font_color", tm.c("accent"))
+	name_row.add_child(lbl_name)
+	var lbl_lv := Label.new()
+	lbl_lv.text = "Lv %d" % level
+	lbl_lv.add_theme_font_size_override("font_size", 12)
+	lbl_lv.add_theme_color_override("font_color", tm.c("text_muted"))
+	name_row.add_child(lbl_lv)
+	info.add_child(name_row)
+
+	var lbl_buff := Label.new()
+	lbl_buff.text = buff_desc
+	lbl_buff.add_theme_font_size_override("font_size", 12)
+	lbl_buff.add_theme_color_override("font_color", tm.c("accent_dim"))
+	info.add_child(lbl_buff)
+	hbox.add_child(info)
+
+	var btn := Button.new()
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size = Vector2(88, 32)
+	btn.size_flags_horizontal = Control.SIZE_SHRINK_END
+	btn.clip_text = true
+	if levelup_cost > 0:
+		btn.text = "Lv+\n%s GS" % _fmt_num(levelup_cost)
+		btn.disabled = not can_levelup
+		if not btn.disabled:
+			btn.pressed.connect(func(): _on_mutation_levelup_pressed(mid))
+	else:
+		btn.text = "MAX"
+		btn.disabled = true
+	_theme_action_button(btn)
+	hbox.add_child(btn)
+	return pad
+
+
+func _show_mutate_popup() -> void:
+	if game_state == null or not game_state.has_method("get_mutation_chamber_ui"):
+		return
+	_close_mc_popup()
+
+	var data_v = game_state.call("get_mutation_chamber_ui")
+	if typeof(data_v) != TYPE_DICTIONARY:
+		return
+	var data: Dictionary = data_v as Dictionary
+	var breakdown: Dictionary = data.get("mutate_breakdown", {}) as Dictionary
+	var tm := ThemeManager
+	var vp := get_viewport_rect().size
+
+	_mc_popup_layer = CanvasLayer.new()
+	_mc_popup_layer.layer = 10
+	add_child(_mc_popup_layer)
+
+	_mc_popup_dimmer = ColorRect.new()
+	_mc_popup_dimmer.color = Color(0, 0, 0, 0)
+	_mc_popup_dimmer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_mc_popup_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	_mc_popup_dimmer.gui_input.connect(func(e: InputEvent):
+		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.is_pressed():
+			_close_mc_popup()
+	)
+	_mc_popup_layer.add_child(_mc_popup_dimmer)
+
+	var popup := PanelContainer.new()
+	popup.custom_minimum_size = Vector2(vp.x * 0.82, 0)
+	var sb_popup := StyleBoxFlat.new()
+	sb_popup.bg_color     = tm.c("bg_deep")
+	sb_popup.border_color = tm.c("accent_border")
+	sb_popup.set_border_width_all(1)
+	sb_popup.set_corner_radius_all(14)
+	sb_popup.content_margin_left   = 20
+	sb_popup.content_margin_right  = 20
+	sb_popup.content_margin_top    = 18
+	sb_popup.content_margin_bottom = 18
+	popup.add_theme_stylebox_override("panel", sb_popup)
+	_mc_popup_layer.add_child(popup)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	popup.add_child(vbox)
+
+	var hdr := Label.new()
+	hdr.text = "MUTATE"
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hdr.add_theme_font_size_override("font_size", 20)
+	hdr.add_theme_color_override("font_color", tm.c("accent"))
+	vbox.add_child(hdr)
+
+	var desc := Label.new()
+	desc.text = "Convert all progress and start anew\nin exchange for Genetic Strain."
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.add_theme_font_size_override("font_size", 12)
+	desc.add_theme_color_override("font_color", tm.c("text_muted"))
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(desc)
+
+	vbox.add_child(HSeparator.new())
+
+	var rows := [
+		["Nutrient Value",       _fmt_num(int(breakdown.get("nutrient_value", 0)))],
+		["Base Reward",          "+%s GS" % _fmt_int(int(breakdown.get("base_gs", 0)))],
+		["Mutagen Reward",       "+%s GS" % _fmt_int(int(breakdown.get("mutagen_reward", 0)))],
+		["Strain Harvest (M09)", "+%s GS" % _fmt_int(int(breakdown.get("strain_harvest", 0)))],
+		["Mutagen Yield (M13)",  "included in Mutagen Reward"],
+	]
+	for row_data in rows:
+		var row := HBoxContainer.new()
+		var lbl_key := Label.new()
+		lbl_key.text = str(row_data[0])
+		lbl_key.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		lbl_key.add_theme_font_size_override("font_size", 13)
+		lbl_key.add_theme_color_override("font_color", tm.c("text_secondary"))
+		row.add_child(lbl_key)
+		var lbl_val := Label.new()
+		lbl_val.text = str(row_data[1])
+		lbl_val.add_theme_font_size_override("font_size", 13)
+		lbl_val.add_theme_color_override("font_color", tm.c("text_primary"))
+		row.add_child(lbl_val)
+		vbox.add_child(row)
+
+	vbox.add_child(HSeparator.new())
+
+	var total_row := HBoxContainer.new()
+	var lbl_total_key := Label.new()
+	lbl_total_key.text = "Total GS"
+	lbl_total_key.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_total_key.add_theme_font_size_override("font_size", 16)
+	lbl_total_key.add_theme_color_override("font_color", tm.c("accent"))
+	total_row.add_child(lbl_total_key)
+	var lbl_total_val := Label.new()
+	lbl_total_val.text = "+%s GS" % _fmt_int(int(breakdown.get("total_gs", 0)))
+	lbl_total_val.add_theme_font_size_override("font_size", 16)
+	lbl_total_val.add_theme_color_override("font_color", tm.c("accent"))
+	total_row.add_child(lbl_total_val)
+	vbox.add_child(total_row)
+
+	var confirm_btn := Button.new()
+	confirm_btn.text = "MUTATE"
+	confirm_btn.custom_minimum_size = Vector2(0, 44)
+	confirm_btn.disabled = not bool(data.get("can_prestige", false))
+	confirm_btn.focus_mode = Control.FOCUS_NONE
+	_theme_action_button(confirm_btn)
+	confirm_btn.pressed.connect(_on_mutate_confirm_pressed)
+	vbox.add_child(confirm_btn)
+
+	await get_tree().process_frame
+	if is_instance_valid(popup):
+		popup.position = Vector2(
+			(vp.x - popup.size.x) * 0.5,
+			(vp.y - popup.size.y) * 0.5
+		)
+	var tw := create_tween()
+	tw.tween_property(_mc_popup_dimmer, "color:a", 0.55, 0.15)
+
+
+func _show_mutations_popup() -> void:
+	if game_state == null or not game_state.has_method("get_mutation_chamber_ui"):
+		return
+	_close_mc_popup()
+	_mc_selected_mutation_id = ""
+
+	var data_v = game_state.call("get_mutation_chamber_ui")
+	if typeof(data_v) != TYPE_DICTIONARY:
+		return
+	var data: Dictionary = data_v as Dictionary
+	var mutations: Array = data.get("mutations", []) as Array
+	var unlock_cost: int = int(data.get("unlock_cost", 0))
+	var gs_balance: int  = int(data.get("gs_balance", 0))
+	var tm := ThemeManager
+	var vp := get_viewport_rect().size
+
+	var available: Array = []
+	for mut_v in mutations:
+		var m: Dictionary = mut_v as Dictionary
+		if bool(m.get("is_available_to_unlock", false)) and not bool(m.get("is_reserved", false)):
+			available.append(m)
+
+	_mc_popup_layer = CanvasLayer.new()
+	_mc_popup_layer.layer = 10
+	add_child(_mc_popup_layer)
+
+	_mc_popup_dimmer = ColorRect.new()
+	_mc_popup_dimmer.color = Color(0, 0, 0, 0)
+	_mc_popup_dimmer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_mc_popup_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	_mc_popup_dimmer.gui_input.connect(func(e: InputEvent):
+		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.is_pressed():
+			_close_mc_popup()
+	)
+	_mc_popup_layer.add_child(_mc_popup_dimmer)
+
+	var popup := PanelContainer.new()
+	popup.name = "MutationsPopup"
+	popup.custom_minimum_size = Vector2(vp.x * 0.82, 0)
+	var sb_popup := StyleBoxFlat.new()
+	sb_popup.bg_color     = tm.c("bg_deep")
+	sb_popup.border_color = tm.c("accent_border")
+	sb_popup.set_border_width_all(1)
+	sb_popup.set_corner_radius_all(14)
+	sb_popup.content_margin_left   = 20
+	sb_popup.content_margin_right  = 20
+	sb_popup.content_margin_top    = 18
+	sb_popup.content_margin_bottom = 18
+	popup.add_theme_stylebox_override("panel", sb_popup)
+	_mc_popup_layer.add_child(popup)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	popup.add_child(vbox)
+
+	var hdr := Label.new()
+	hdr.text = "SELECT A MUTATION"
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hdr.add_theme_font_size_override("font_size", 18)
+	hdr.add_theme_color_override("font_color", tm.c("accent"))
+	vbox.add_child(hdr)
+
+	var gs_lbl := Label.new()
+	gs_lbl.text = "Balance: %s GS" % _fmt_int(gs_balance)
+	gs_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	gs_lbl.add_theme_font_size_override("font_size", 13)
+	gs_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+	vbox.add_child(gs_lbl)
+
+	if available.is_empty():
+		var lbl := Label.new()
+		lbl.text = "All mutations unlocked!"
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		vbox.add_child(lbl)
+	else:
+		var cards_vbox := VBoxContainer.new()
+		cards_vbox.add_theme_constant_override("separation", 6)
+		vbox.add_child(cards_vbox)
+		for m_v in available:
+			var m: Dictionary = m_v as Dictionary
+			cards_vbox.add_child(_make_mutation_select_card(m, unlock_cost, cards_vbox))
+
+	vbox.add_child(HSeparator.new())
+
+	var confirm_btn := Button.new()
+	confirm_btn.name = "MutationConfirmBtn"
+	confirm_btn.text = "Unlock  —  %s GS" % _fmt_int(unlock_cost)
+	confirm_btn.custom_minimum_size = Vector2(0, 44)
+	confirm_btn.disabled = true
+	confirm_btn.focus_mode = Control.FOCUS_NONE
+	_theme_action_button(confirm_btn)
+	confirm_btn.pressed.connect(func():
+		if _mc_selected_mutation_id != "":
+			_on_mutation_unlock_pressed(_mc_selected_mutation_id)
+	)
+	vbox.add_child(confirm_btn)
+
+	await get_tree().process_frame
+	if is_instance_valid(popup):
+		popup.position = Vector2(
+			(vp.x - popup.size.x) * 0.5,
+			(vp.y - popup.size.y) * 0.5
+		)
+	var tw := create_tween()
+	tw.tween_property(_mc_popup_dimmer, "color:a", 0.55, 0.15)
+
+
+func _make_mutation_select_card(m: Dictionary, unlock_cost: int, cards_parent: VBoxContainer) -> Control:
+	var tm := ThemeManager
+	var mid: String      = str(m.get("id", ""))
+	var can_unlock: bool = bool(m.get("can_unlock", false))
+
+	var card := PanelContainer.new()
+	card.name = "Card_" + mid
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var sb_card := StyleBoxFlat.new()
+	sb_card.bg_color     = tm.c("bg_panel")
+	sb_card.border_color = tm.c("accent_dim") if can_unlock else tm.c("border")
+	sb_card.set_border_width_all(1)
+	sb_card.set_corner_radius_all(8)
+	sb_card.content_margin_left   = 12
+	sb_card.content_margin_right  = 12
+	sb_card.content_margin_top    = 10
+	sb_card.content_margin_bottom = 10
+	card.add_theme_stylebox_override("panel", sb_card)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 3)
+	card.add_child(vbox)
+
+	var name_row := HBoxContainer.new()
+	var lbl_id := Label.new()
+	lbl_id.text = mid
+	lbl_id.add_theme_font_size_override("font_size", 11)
+	lbl_id.add_theme_color_override("font_color", tm.c("text_muted"))
+	name_row.add_child(lbl_id)
+	name_row.add_child(Control.new())  # spacer
+	(name_row.get_child(1) as Control).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(name_row)
 
 	var lbl_name := Label.new()
-	lbl_name.text = "%s  %s" % [mid, str(m.get("name", mid))]
-	lbl_name.add_theme_font_size_override("font_size", 14)
+	lbl_name.text = str(m.get("name", mid))
+	lbl_name.add_theme_font_size_override("font_size", 15)
 	lbl_name.add_theme_color_override("font_color",
-		tm.c("accent") if is_owned else (tm.c("text_primary") if is_avail else tm.c("text_muted")))
-	info_col.add_child(lbl_name)
+		tm.c("text_primary") if can_unlock else tm.c("text_muted"))
+	vbox.add_child(lbl_name)
 
 	var lbl_desc := Label.new()
-	lbl_desc.text = str(m.get("desc", ""))
-	lbl_desc.add_theme_font_size_override("font_size", 11)
+	lbl_desc.text = str(m.get("buff_description", str(m.get("desc", ""))))
+	lbl_desc.add_theme_font_size_override("font_size", 12)
 	lbl_desc.add_theme_color_override("font_color", tm.c("text_muted"))
-	lbl_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	info_col.add_child(lbl_desc)
-	hbox.add_child(info_col)
+	vbox.add_child(lbl_desc)
 
-	# Right: level badge + action button
-	var action_col := VBoxContainer.new()
-	action_col.size_flags_horizontal = Control.SIZE_SHRINK_END
-	action_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	card.gui_input.connect(func(e: InputEvent):
+		if not can_unlock:
+			return
+		if (e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and e.pressed) or \
+		   (e is InputEventScreenTouch and e.pressed):
+			_mc_selected_mutation_id = mid
+			for sibling in cards_parent.get_children():
+				if not is_instance_valid(sibling):
+					continue
+				var is_sel: bool = sibling.name == "Card_" + mid
+				var sb_upd := StyleBoxFlat.new()
+				sb_upd.set_corner_radius_all(8)
+				sb_upd.set_border_width_all(1)
+				sb_upd.content_margin_left   = 12
+				sb_upd.content_margin_right  = 12
+				sb_upd.content_margin_top    = 10
+				sb_upd.content_margin_bottom = 10
+				if is_sel:
+					sb_upd.bg_color     = tm.c("bg_row")
+					sb_upd.border_color = tm.c("accent")
+					sb_upd.border_width_left = 3
+				else:
+					sb_upd.bg_color     = tm.c("bg_panel")
+					sb_upd.border_color = tm.c("accent_dim")
+				(sibling as PanelContainer).add_theme_stylebox_override("panel", sb_upd)
+			var popup_node: Control = _mc_popup_layer.get_node_or_null("MutationsPopup") as Control
+			if popup_node != null:
+				var confirm: Button = popup_node.find_child("MutationConfirmBtn", true, false) as Button
+				if confirm != null:
+					confirm.disabled = false
+	)
+	return card
 
-	if is_owned:
-		var lbl_lv := Label.new()
-		lbl_lv.text = "Lv %d" % level
-		lbl_lv.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		lbl_lv.add_theme_font_size_override("font_size", 12)
-		lbl_lv.add_theme_color_override("font_color", tm.c("accent_dim"))
-		action_col.add_child(lbl_lv)
 
-	if not is_reserved:
-		var btn := Button.new()
-		btn.focus_mode = Control.FOCUS_NONE
-		btn.custom_minimum_size = Vector2(90, 28)
-		btn.clip_text = true
-
-		if is_owned:
-			if levelup_cost > 0:
-				btn.text = "Lv+  %s" % _fmt_num(levelup_cost)
-				btn.disabled = not can_levelup
-				if not btn.disabled:
-					btn.pressed.connect(func(): _on_mutation_levelup_pressed(mid))
-			else:
-				btn.text = "MAX"
-				btn.disabled = true
-		elif is_avail:
-			btn.text = "Unlock\n%s GS" % _fmt_int(unlock_cost)
-			btn.disabled = not can_unlock
-			if not btn.disabled:
-				btn.pressed.connect(func(): _on_mutation_unlock_pressed(mid))
-		else:
-			btn.text = "Locked"
-			btn.disabled = true
-
-		_theme_action_button(btn)
-		action_col.add_child(btn)
-
-	hbox.add_child(action_col)
-	return pad
+func _close_mc_popup() -> void:
+	_mc_selected_mutation_id = ""
+	if _mc_popup_layer != null and is_instance_valid(_mc_popup_layer):
+		_mc_popup_layer.queue_free()
+	_mc_popup_layer  = null
+	_mc_popup_dimmer = null
 
 
 func _on_mutation_unlock_pressed(mutation_id: String) -> void:
 	if game_state == null or not game_state.has_method("buy_mutation_unlock"):
 		return
 	if bool(game_state.call("buy_mutation_unlock", mutation_id)):
+		_close_mc_popup()
 		_refresh_mutation_chamber_panel()
 		_refresh_currency_ui()
 
@@ -5377,7 +5827,7 @@ func _on_mutation_levelup_pressed(mutation_id: String) -> void:
 		_refresh_currency_ui()
 
 
-func _on_mutate_pressed() -> void:
+func _on_mutate_confirm_pressed() -> void:
 	if game_state == null or not game_state.has_method("do_mutate"):
 		return
 
@@ -5385,12 +5835,11 @@ func _on_mutate_pressed() -> void:
 	if gs_awarded < 0:
 		return
 
-	# Clear stale refs immediately — _process runs before the await
+	_close_mc_popup()
 	_root_pulse_visuals.clear()
 	_node_list.clear()
 	_node_lookup.clear()
 
-	# Free stale cost labels from the previous run
 	for node_id_v in _node_cost_labels.keys():
 		var lbl = _node_cost_labels[node_id_v]
 		if lbl != null and is_instance_valid(lbl):
@@ -5401,7 +5850,6 @@ func _on_mutate_pressed() -> void:
 	_last_refinery_inventory_signature = ""
 	_last_discovery_signature = ""
 
-	# Rebuild visual registry first, THEN refresh state against the new GameState
 	_build_node_registry()
 	_refresh_node_world_state()
 	_register_root_transfer_positions()
@@ -5411,7 +5859,6 @@ func _on_mutate_pressed() -> void:
 	_refresh_panel_access_ui()
 	_redraw_nav_buttons()
 
-	# Re-open chamber so player can spend GS immediately
 	await get_tree().process_frame
 	if is_instance_valid(mutation_chamber_panel):
 		_toggle_panel(mutation_chamber_panel)

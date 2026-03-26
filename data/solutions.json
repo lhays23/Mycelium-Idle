@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "rules": {
     "value_multiplier": 1.45,
     "unlock_multiplier": 1.25,
@@ -37,7 +37,7 @@
           "qty": 1
         },
         {
-          "id": "ichor_sap",
+          "id": "ichor_coagulate",
           "qty": 1
         }
       ],
@@ -54,11 +54,11 @@
       "phase": 1,
       "inputs": [
         {
-          "id": "ferment_mash",
+          "id": "ferment_extract",
           "qty": 1
         },
         {
-          "id": "lignin_resin",
+          "id": "lignin_lattice",
           "qty": 1
         }
       ],
@@ -75,11 +75,11 @@
       "phase": 1,
       "inputs": [
         {
-          "id": "ichor_sap",
+          "id": "ichor_coagulate",
           "qty": 1
         },
         {
-          "id": "ferment_mash",
+          "id": "ferment_extract",
           "qty": 1
         },
         {
@@ -451,6 +451,32 @@
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
       "active_in_pass1": false
+    },
+    {
+      "id": "strain_primer",
+      "name": "Strain Primer",
+      "phase": 1,
+      "inputs": [
+        {
+          "id": "ichor_coagulate",
+          "qty": 1
+        },
+        {
+          "id": "ferment_extract",
+          "qty": 1
+        },
+        {
+          "id": "lignin_lattice",
+          "qty": 1
+        }
+      ],
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "special_use": "mutagen_lab_unlock_trigger"
     }
   ]
 }

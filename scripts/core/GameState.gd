@@ -61,6 +61,10 @@ const AUTOSAVE_SEC: float = 10.0
 const NODE_ROOT_TRANSFER_KEY: String = "root_transfer"
 const LEGACY_NODE_TRANSPORT_KEY: String = "transport"
 
+# ── Mutagen Lab ───────────────────────────────────────────────────────────────
+# Update this ID once the Lignin solution name is confirmed in the design phase
+const MUTAGEN_LAB_UNLOCK_SOLUTION_ID: String = "strain_primer"
+
 # ── Prestige / Mutation system ────────────────────────────────────────────────
 const MUTATION_MINRUN_FOR_PRESTIGE: float = 10_000_000.0
 
@@ -98,26 +102,26 @@ const MUTATION_TIER_D_LEVEL_COSTS: Array = [
 	3, 4, 6, 9, 12, 17, 23, 41, 41, 41
 ]
 
-# Full mutation list — M01/M02/M03 are starters; M04+ unlock linearly after any starter
+# Full mutation list — M01/M02/M03 are first shown; first 3 unowned always shown in popup
 const MUTATION_DEFS: Array = [
-	{"id": "M01", "name": "Mycelial Surge",    "desc": "+20% Yield Rate per level",              "tier": "A",        "effect": "yield_rate"},
-	{"id": "M02", "name": "Root Flow",         "desc": "+25% Pulse Speed per level",             "tier": "A",        "effect": "pulse_speed"},
-	{"id": "M03", "name": "Volatile Nodes",    "desc": "Rare bonus nodes appear mid-run",        "tier": "special",  "effect": "volatile_nodes"},
-	{"id": "M04", "name": "Pulse Rhythm",      "desc": "+25% Pulse Frequency per level",         "tier": "A",        "effect": "pulse_frequency"},
-	{"id": "M05", "name": "Spore Payload",     "desc": "+25% Pulse Capacity per level",          "tier": "A",        "effect": "pulse_capacity"},
-	{"id": "M06", "name": "Solution Speed",    "desc": "+10% Solution Creation Speed per level", "tier": "D",        "effect": "solution_speed"},
-	{"id": "M07", "name": "Forge Speed",       "desc": "+10% Compound Creation Speed per level", "tier": "D",        "effect": "forge_speed"},
-	{"id": "M08", "name": "Spore Current",     "desc": "+20% Aura Expansion Rate per level",     "tier": "D",        "effect": "aura_rate"},
-	{"id": "M09", "name": "Strain Harvest",    "desc": "+5% GS from Run Value per level",        "tier": "C",        "effect": "gs_run_bonus"},
-	{"id": "M10", "name": "Discovery Subsidy", "desc": "-4% Discovery cost per level",           "tier": "B",        "effect": "discovery_cost"},
-	{"id": "M11", "name": "Lean Compounds",    "desc": "-4% Compound ingredient cost per level", "tier": "B",        "effect": "compound_cost"},
-	{"id": "M12", "name": "Network Expansion", "desc": "-4% Node Unlock Cost per level",         "tier": "B",        "effect": "node_cost"},
-	{"id": "M13", "name": "Mutagen Yield",     "desc": "+5% GS from crafted Mutagens per level", "tier": "C",        "effect": "mutagen_gs"},
-	{"id": "M14", "name": "Idle Network",      "desc": "+30 min idle earnings per level",        "tier": "idle",     "effect": "idle_time"},
-	{"id": "M15", "name": "Lean Solutions",    "desc": "-4% Solution ingredient cost per level", "tier": "B",        "effect": "solution_cost"},
-	{"id": "M16", "name": "Resource Potency",  "desc": "+5% all Resource DV per level",          "tier": "C",        "effect": "resource_dv"},
-	{"id": "M17", "name": "Evolution Subsidy", "desc": "-4% Node Evolution cost per level",      "tier": "B",        "effect": "evolution_cost"},
-	{"id": "M18", "name": "Compound Potency",  "desc": "+5% Compound + Solution DV per level",   "tier": "C",        "effect": "compound_dv"},
+	{"id": "M01", "name": "Mycelial Surge",    "desc": "+20% Yield Rate per level",              "tier": "A", "effect": "yield_rate"},
+	{"id": "M02", "name": "Root Flow",         "desc": "+25% Pulse Speed per level",             "tier": "A", "effect": "pulse_speed"},
+	{"id": "M03", "name": "Pulse Rhythm",      "desc": "+25% Pulse Frequency per level",         "tier": "A", "effect": "pulse_frequency"},
+	{"id": "M04", "name": "Spore Payload",     "desc": "+25% Pulse Capacity per level",          "tier": "A", "effect": "pulse_capacity"},
+	{"id": "M05", "name": "Forge Speed",       "desc": "+10% Compound Creation Speed per level", "tier": "D", "effect": "forge_speed"},
+	{"id": "M06", "name": "Solution Speed",    "desc": "+10% Solution Creation Speed per level", "tier": "D", "effect": "solution_speed"},
+	{"id": "M07", "name": "Volatile Magnitude","desc": "+5% Volatile Node Value per level",      "tier": "C", "effect": "volatile_magnitude"},
+	{"id": "M08", "name": "Network Expansion", "desc": "-4% Node Unlock Cost per level",         "tier": "B", "effect": "node_cost"},
+	{"id": "M09", "name": "Strain Harvest",    "desc": "+5% GS from Run Value per level",        "tier": "C", "effect": "gs_run_bonus"},
+	{"id": "M10", "name": "Spore Current",     "desc": "+20% Aura Expansion Rate per level",     "tier": "D", "effect": "aura_rate"},
+	{"id": "M11", "name": "Discovery Subsidy", "desc": "-4% Discovery Cost per level",           "tier": "B", "effect": "discovery_cost"},
+	{"id": "M12", "name": "Lean Compounds",    "desc": "-4% Compound Ingredient Cost per level", "tier": "B", "effect": "compound_cost"},
+	{"id": "M13", "name": "Mutagen Yield",     "desc": "+5% GS from crafted Mutagens per level", "tier": "C", "effect": "mutagen_gs"},
+	{"id": "M14", "name": "Idle Network",      "desc": "+30 min idle earnings per level",        "tier": "idle", "effect": "idle_time"},
+	{"id": "M15", "name": "Lean Solutions",    "desc": "-4% Solution Ingredient Cost per level", "tier": "B", "effect": "solution_cost"},
+	{"id": "M16", "name": "Resource Potency",  "desc": "+5% all Resource DV per level",          "tier": "C", "effect": "resource_dv"},
+	{"id": "M17", "name": "Evolution Subsidy", "desc": "-4% Node Evolution Cost per level",      "tier": "B", "effect": "evolution_cost"},
+	{"id": "M18", "name": "Compound Potency",  "desc": "+5% Compound + Solution DV per level",   "tier": "C", "effect": "compound_dv"},
 	{"id": "M19", "name": "Reserved",          "desc": "Coming soon.",                           "tier": "reserved", "effect": "none"},
 	{"id": "M20", "name": "Reserved",          "desc": "Coming soon.",                           "tier": "reserved", "effect": "none"},
 ]
@@ -143,6 +147,8 @@ var discovery_notes: Dictionary = {}
 var unlocked_discoveries: Dictionary = {}  # discovery_id -> bool
 var discovery_levels: Dictionary = {}      # discovery_id -> current level
 var total_nutrients_earned_run: float = 0.0
+# Mutagen Lab tracking — resets each run, contributes to GS on Mutate
+var mutagen_crafted_counts: Dictionary = {}  # mutagen_tier_id -> int count this run
 var meta_state: Dictionary = {}
 
 var refinery_slot_costs: Array = []
@@ -2336,6 +2342,10 @@ func _grant_solution_output(recipe_id: String) -> void:
 		resources[recipe_id] = 0.0
 	resources[recipe_id] = float(resources.get(recipe_id, 0.0)) + float(qty)
 
+	# Mutagen Lab permanent unlock — fires on first ever craft of the trigger solution
+	if recipe_id == MUTAGEN_LAB_UNLOCK_SOLUTION_ID:
+		_unlock_mutagen_lab_permanent()
+
 
 func assign_synth_recipe(slot_number: int, recipe_id: String) -> bool:
 	_ensure_synth_slots_initialized()
@@ -2441,19 +2451,23 @@ func get_mutation_pulse_speed_mult() -> float:
 
 
 func get_mutation_pulse_freq_mult() -> float:
-	return 1.0 + float(get_mutation_level("M04")) * 0.25
+	return 1.0 + float(get_mutation_level("M03")) * 0.25
 
 
 func get_mutation_pulse_capacity_mult() -> float:
-	return 1.0 + float(get_mutation_level("M05")) * 0.25
+	return 1.0 + float(get_mutation_level("M04")) * 0.25
+
+
+func get_mutation_forge_speed_mult() -> float:
+	return 1.0 + float(get_mutation_level("M05")) * 0.10
 
 
 func get_mutation_solution_speed_mult() -> float:
 	return 1.0 + float(get_mutation_level("M06")) * 0.10
 
 
-func get_mutation_forge_speed_mult() -> float:
-	return 1.0 + float(get_mutation_level("M07")) * 0.10
+func get_mutation_volatile_magnitude_mult() -> float:
+	return 1.0 + float(get_mutation_level("M07")) * 0.05
 
 
 # ── GS calculation ────────────────────────────────────────────────────────────
@@ -2486,6 +2500,172 @@ func get_total_strain_points() -> int:
 
 # ── Mutation Chamber unlock ───────────────────────────────────────────────────
 
+# ── Mutation Chamber unlock ───────────────────────────────────────────────────
+
+func is_mutagen_lab_unlocked() -> bool:
+	var permanent: Dictionary = meta_state.get("permanent_unlocks", {}) as Dictionary
+	return bool(permanent.get("mutagen_lab", false))
+
+
+func _unlock_mutagen_lab_permanent() -> void:
+	if is_mutagen_lab_unlocked():
+		return
+	var permanent: Dictionary = (meta_state.get("permanent_unlocks", {}) as Dictionary).duplicate(true)
+	permanent["mutagen_lab"] = true
+	meta_state["permanent_unlocks"] = permanent
+	save_game()
+
+
+# ── Mutagen Lab — crafting & GS contribution ──────────────────────────────────
+
+# GS payout table per tier: [1st, 2nd, 3rd, 4th+]
+const MUTAGEN_GS_TABLE: Dictionary = {
+	"t1_mutagen": [5, 2, 1, 1],
+	"t2_mutagen": [10, 5, 2, 1],
+	"t3_mutagen": [20, 10, 5, 2],
+	"t4_mutagen": [35, 17, 8, 4],
+	"t5_mutagen": [55, 27, 13, 6],
+}
+
+# All defined mutagen tier IDs in order
+const MUTAGEN_TIER_IDS: Array = [
+	"t1_mutagen", "t2_mutagen", "t3_mutagen", "t4_mutagen", "t5_mutagen"
+]
+
+# Input solution per mutagen tier (Strain Primer → T1, etc.)
+const MUTAGEN_SOLUTION_INPUTS: Dictionary = {
+	"t1_mutagen": "strain_primer",
+}
+
+
+func get_mutagen_gs_for_craft(tier_id: String) -> int:
+	if not MUTAGEN_GS_TABLE.has(tier_id):
+		return 0
+	var table: Array = MUTAGEN_GS_TABLE[tier_id] as Array
+	var count: int = int(mutagen_crafted_counts.get(tier_id, 0))
+	# count is how many have been crafted BEFORE this one
+	if count == 0:   return int(table[0])
+	elif count == 1: return int(table[1])
+	elif count == 2: return int(table[2])
+	else:            return int(table[3])
+
+
+func craft_mutagen(tier_id: String) -> Dictionary:
+	var out := {"ok": false, "reason": "", "gs_gained": 0}
+
+	if not is_mutagen_lab_unlocked():
+		out["reason"] = "Mutagen Lab not unlocked."
+		return out
+
+	var input_solution_id: String = str(MUTAGEN_SOLUTION_INPUTS.get(tier_id, ""))
+	if input_solution_id == "":
+		out["reason"] = "Unknown mutagen tier."
+		return out
+
+	if get_amount(input_solution_id) < 1:
+		out["reason"] = "Requires 1 %s." % get_resource_name(input_solution_id)
+		return out
+
+	# Spend the solution
+	resources[input_solution_id] = maxf(0.0, float(resources.get(input_solution_id, 0.0)) - 1.0)
+
+	# Calculate GS gain (apply M13 Mutagen Yield bonus)
+	var base_gs: int = get_mutagen_gs_for_craft(tier_id)
+	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
+	var gs_gained: int = int(ceil(float(base_gs) * yield_mult))
+
+	# Track count
+	mutagen_crafted_counts[tier_id] = int(mutagen_crafted_counts.get(tier_id, 0)) + 1
+
+	# Add to mutagen resource inventory (held until Mutate)
+	if not resources.has(tier_id):
+		resources[tier_id] = 0.0
+	resources[tier_id] = float(resources.get(tier_id, 0.0)) + 1.0
+
+	out["ok"] = true
+	out["gs_gained"] = gs_gained
+	return out
+
+
+func get_mutagen_run_gs_total() -> int:
+	# Total GS this run from mutagens — calculated from craft history
+	var total: int = 0
+	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
+	for tier_id in MUTAGEN_TIER_IDS:
+		if not MUTAGEN_GS_TABLE.has(tier_id):
+			continue
+		var table: Array = MUTAGEN_GS_TABLE[tier_id] as Array
+		var count: int = int(mutagen_crafted_counts.get(tier_id, 0))
+		for i in range(count):
+			var base: int
+			if i == 0:   base = int(table[0])
+			elif i == 1: base = int(table[1])
+			elif i == 2: base = int(table[2])
+			else:        base = int(table[3])
+			total += int(ceil(float(base) * yield_mult))
+	return total
+
+
+func get_mutagen_lab_ui() -> Dictionary:
+	var tiers: Array = []
+	for tier_id in MUTAGEN_TIER_IDS:
+		if not MUTAGEN_GS_TABLE.has(tier_id):
+			continue
+		var table: Array = MUTAGEN_GS_TABLE[tier_id] as Array
+		var count: int = int(mutagen_crafted_counts.get(tier_id, 0))
+		var input_id: String = str(MUTAGEN_SOLUTION_INPUTS.get(tier_id, ""))
+		var next_gs: int = get_mutagen_gs_for_craft(tier_id)
+		var held: int = get_amount(tier_id)
+		var can_craft: bool = (input_id != "" and get_amount(input_id) >= 1)
+
+		tiers.append({
+			"id":            tier_id,
+			"name":          _get_mutagen_display_name(tier_id),
+			"input_id":      input_id,
+			"input_name":    get_resource_name(input_id) if input_id != "" else "",
+			"input_held":    get_amount(input_id) if input_id != "" else 0,
+			"held":          held,
+			"crafted_count": count,
+			"next_gs":       next_gs,
+			"can_craft":     can_craft,
+			"gs_table":      table.duplicate(),
+			"run_gs":        _get_mutagen_tier_run_gs(tier_id),
+		})
+
+	return {
+		"lab_unlocked":   is_mutagen_lab_unlocked(),
+		"tiers":          tiers,
+		"total_run_gs":   get_mutagen_run_gs_total(),
+	}
+
+
+func _get_mutagen_display_name(tier_id: String) -> String:
+	match tier_id:
+		"t1_mutagen": return "T1 Mutagen"
+		"t2_mutagen": return "T2 Mutagen"
+		"t3_mutagen": return "T3 Mutagen"
+		"t4_mutagen": return "T4 Mutagen"
+		"t5_mutagen": return "T5 Mutagen"
+		_: return tier_id
+
+
+func _get_mutagen_tier_run_gs(tier_id: String) -> int:
+	if not MUTAGEN_GS_TABLE.has(tier_id):
+		return 0
+	var table: Array = MUTAGEN_GS_TABLE[tier_id] as Array
+	var count: int = int(mutagen_crafted_counts.get(tier_id, 0))
+	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
+	var total: int = 0
+	for i in range(count):
+		var base: int
+		if i == 0:   base = int(table[0])
+		elif i == 1: base = int(table[1])
+		elif i == 2: base = int(table[2])
+		else:        base = int(table[3])
+		total += int(ceil(float(base) * yield_mult))
+	return total
+
+
 func is_mutation_chamber_unlocked() -> bool:
 	return bool(meta_state.get("mutation_chamber_unlocked", false))
 
@@ -2507,28 +2687,61 @@ func get_mutation_unlock_cost() -> int:
 
 
 func get_mutations_available_to_unlock() -> Array[String]:
+	# Always show the first 3 unowned mutations in ascending M# order
 	var purchased: Dictionary = meta_state.get("purchased_mutations", {}) as Dictionary
 	var available: Array[String] = []
-
-	# Starters are each independently purchasable until bought
-	for mid in ["M01", "M02", "M03"]:
+	for i in range(1, 21):
+		var mid: String = "M%02d" % i
 		if int(purchased.get(mid, 0)) == 0:
 			available.append(mid)
-
-	# Linear chain: M04+ — one at a time, available after any starter is owned
-	var any_starter_owned := (
-		int(purchased.get("M01", 0)) > 0 or
-		int(purchased.get("M02", 0)) > 0 or
-		int(purchased.get("M03", 0)) > 0
-	)
-	if any_starter_owned:
-		for i in range(4, 21):
-			var mid: String = "M%02d" % i
-			if int(purchased.get(mid, 0)) == 0:
-				available.append(mid)
-				break  # only one chain slot open at a time
-
+			if available.size() >= 3:
+				break
 	return available
+
+
+func _get_mutation_buff_description(mutation_id: String, level: int) -> String:
+	if level == 0:
+		match mutation_id:
+			"M01": return "+20% Yield Rate per level"
+			"M02": return "+25% Pulse Speed per level"
+			"M03": return "+25% Pulse Frequency per level"
+			"M04": return "+25% Pulse Capacity per level"
+			"M05": return "+10% Forge Speed per level"
+			"M06": return "+10% Solution Speed per level"
+			"M07": return "+5% Volatile Node Value per level"
+			"M08": return "-4% Node Unlock Cost per level"
+			"M09": return "+5% GS from Run Value per level"
+			"M10": return "+20% Aura Expansion Rate per level"
+			"M11": return "-4% Discovery Cost per level"
+			"M12": return "-4% Compound Cost per level"
+			"M13": return "+5% GS from Mutagens per level"
+			"M14": return "+30 min Idle Earnings per level"
+			"M15": return "-4% Solution Cost per level"
+			"M16": return "+5% Resource Value per level"
+			"M17": return "-4% Evolution Cost per level"
+			"M18": return "+5% Compound Value per level"
+			_: return "Coming soon"
+	else:
+		match mutation_id:
+			"M01": return "Yield Rate x%.2f" % (1.0 + level * 0.20)
+			"M02": return "Pulse Speed x%.2f" % (1.0 + level * 0.25)
+			"M03": return "Pulse Frequency x%.2f" % (1.0 + level * 0.25)
+			"M04": return "Pulse Capacity x%.2f" % (1.0 + level * 0.25)
+			"M05": return "Forge Speed x%.2f" % (1.0 + level * 0.10)
+			"M06": return "Solution Speed x%.2f" % (1.0 + level * 0.10)
+			"M07": return "Volatile Value x%.2f" % (1.0 + level * 0.05)
+			"M08": return "Node Cost -%d%%" % (level * 4)
+			"M09": return "GS Harvest +%d%%" % (level * 5)
+			"M10": return "Aura Rate x%.2f" % (1.0 + level * 0.20)
+			"M11": return "Discovery Cost -%d%%" % (level * 4)
+			"M12": return "Compound Cost -%d%%" % (level * 4)
+			"M13": return "Mutagen GS +%d%%" % (level * 5)
+			"M14": return "Idle +%d min" % (level * 30)
+			"M15": return "Solution Cost -%d%%" % (level * 4)
+			"M16": return "Resource Value +%d%%" % (level * 5)
+			"M17": return "Evolution Cost -%d%%" % (level * 4)
+			"M18": return "Compound Value +%d%%" % (level * 5)
+			_: return "Coming soon"
 
 
 func can_unlock_mutation(mutation_id: String) -> bool:
@@ -2642,6 +2855,7 @@ func get_mutation_chamber_ui() -> Dictionary:
 			"id":                     mid,
 			"name":                   str(d.get("name", mid)),
 			"desc":                   str(d.get("desc", "")),
+			"buff_description":       _get_mutation_buff_description(mid, level),
 			"level":                  level,
 			"is_reserved":            is_reserved,
 			"is_owned":               is_owned,
@@ -2651,15 +2865,31 @@ func get_mutation_chamber_ui() -> Dictionary:
 			"can_levelup":            can_levelup_mutation(mid),
 		})
 
+	# Mutate popup breakdown
+	var base_gs: int = get_gs_from_run_value(total_nutrients_earned_run)
+	var harvest_level: int = get_mutation_level("M09")
+	var harvest_bonus: int = 0
+	if base_gs > 0 and harvest_level > 0:
+		harvest_bonus = int(ceil(float(base_gs) * float(harvest_level) * 0.05))
+	var mutagen_reward: int = get_mutagen_run_gs_total()
+	var mutagen_yield_bonus: int = 0  # already baked into get_mutagen_run_gs_total via M13
+	var total_gs: int = base_gs + harvest_bonus + mutagen_reward
+
 	return {
-		"gs_balance":       get_total_strain_points(),
-		"prestige_count":   int(meta_state.get("prestige_count", 0)),
-		"run_value":        int(total_nutrients_earned_run),
-		"gs_preview":       get_gs_preview_this_mutate(),
-		"can_prestige":     can_prestige(),
-		"chamber_unlocked": is_mutation_chamber_unlocked(),
-		"unlock_cost":      unlock_cost,
-		"mutations":        mutation_rows,
+		"gs_balance":         get_total_strain_points(),
+		"run_value":          int(total_nutrients_earned_run),
+		"can_prestige":       can_prestige(),
+		"chamber_unlocked":   is_mutation_chamber_unlocked(),
+		"unlock_cost":        unlock_cost,
+		"mutations":          mutation_rows,
+		"mutate_breakdown": {
+			"nutrient_value":     int(total_nutrients_earned_run),
+			"base_gs":            base_gs,
+			"mutagen_reward":     mutagen_reward,
+			"strain_harvest":     harvest_bonus,
+			"mutagen_yield":      mutagen_yield_bonus,
+			"total_gs":           total_gs,
+		},
 	}
 
 
@@ -2711,6 +2941,7 @@ func _build_run_save_data() -> Dictionary:
 		"unlocked_discoveries": unlocked_discoveries.duplicate(true),
 		"discovery_levels": discovery_levels.duplicate(true),
 		"total_nutrients_earned_run": total_nutrients_earned_run,
+		"mutagen_crafted_counts": mutagen_crafted_counts.duplicate(true),
 		"paid_compound_unlocks": paid_compound_unlocks.duplicate(true),
 		"paid_solution_unlocks": paid_solution_unlocks.duplicate(true),
 		"unlocked_refinery_slots": unlocked_refinery_slots,
@@ -2871,6 +3102,10 @@ func _apply_run_state(loaded_run: Dictionary) -> void:
 
 	total_nutrients_earned_run = float(loaded_run.get("total_nutrients_earned_run", 0.0))
 
+	var loaded_mutagen_variant = loaded_run.get("mutagen_crafted_counts", {})
+	if typeof(loaded_mutagen_variant) == TYPE_DICTIONARY:
+		mutagen_crafted_counts = (loaded_mutagen_variant as Dictionary).duplicate(true)
+
 	var loaded_unlocked_discoveries_variant = loaded_run.get("unlocked_discoveries", {})
 	if typeof(loaded_unlocked_discoveries_variant) == TYPE_DICTIONARY:
 		var loaded_unlocked_discoveries: Dictionary = loaded_unlocked_discoveries_variant as Dictionary
@@ -2991,6 +3226,7 @@ func _load_all() -> void:
 	node_world_positions.clear()
 	spore_cloud_world_pos = Vector2.ZERO
 	total_nutrients_earned_run = 0.0
+	mutagen_crafted_counts = {}
 	refinery_slot_costs.clear()
 	refinery_slots.clear()
 	unlocked_refinery_slots = 0

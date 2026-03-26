@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "rules": {
     "base_value_multiplier": 1.35,
     "base_unlock_multiplier": 1.2,
@@ -240,8 +240,8 @@
       "active_in_pass1": false
     },
     {
-      "id": "ichor_sap",
-      "name": "Ichor Sap",
+      "id": "ichor_coagulate",
+      "name": "Ichor Coagulate",
       "type": "base",
       "inputs": [
         {
@@ -258,8 +258,8 @@
       "active_in_pass1": false
     },
     {
-      "id": "ferment_mash",
-      "name": "Ferment Mash",
+      "id": "ferment_extract",
+      "name": "Ferment Extract",
       "type": "base",
       "inputs": [
         {
@@ -269,15 +269,15 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "ichor_sap",
+      "previous_recipe_required": "ichor_coagulate",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
       "active_in_pass1": false
     },
     {
-      "id": "lignin_resin",
-      "name": "Lignin Resin",
+      "id": "lignin_lattice",
+      "name": "Lignin Lattice",
       "type": "base",
       "inputs": [
         {
@@ -287,7 +287,7 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "ferment_mash",
+      "previous_recipe_required": "ferment_extract",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
@@ -305,7 +305,7 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "previous_recipe_required": "lignin_resin",
+      "previous_recipe_required": "lignin_lattice",
       "discovery_requirement": "expanded_refinery",
       "starts_unlocked": false,
       "unlock_cost_nutrients": -1,
@@ -425,11 +425,11 @@
       "type": "composite",
       "inputs": [
         {
-          "id": "ichor_sap",
+          "id": "ichor_coagulate",
           "qty": 5
         },
         {
-          "id": "ferment_mash",
+          "id": "ferment_extract",
           "qty": 5
         }
       ],
@@ -447,7 +447,7 @@
       "type": "composite",
       "inputs": [
         {
-          "id": "lignin_resin",
+          "id": "lignin_lattice",
           "qty": 5
         },
         {
