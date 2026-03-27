@@ -1,482 +1,545 @@
 {
-  "version": 3,
-  "rules": {
-    "value_multiplier": 1.45,
-    "unlock_multiplier": 1.25,
-    "default_output_qty": 1
-  },
+  "version": 10,
+  "notes": "v10: Strain tiers removed (now in strains.json). Lattice Extract triggers Mutagen Lab unlock gate. Mutagen Lab Unlock recipe (100k nutrients) activates Lab tab per-run.",
   "solutions": [
     {
-      "id": "spore_resin",
-      "name": "Spore Resin",
       "phase": 1,
-      "inputs": [
-        {
-          "id": "spore_composite",
-          "qty": 1
-        },
-        {
-          "id": "hyphal_thread",
-          "qty": 1
-        }
-      ],
       "output_qty": 1,
       "previous_recipe_required": null,
       "discovery_requirement": "synthesis",
       "starts_unlocked": true,
       "unlock_cost_nutrients": 0,
-      "active_in_pass1": true
+      "active_in_pass1": true,
+      "id": "spore_medium",
+      "name": "Spore Medium",
+      "inputs": [
+        {
+          "id": "spore_composite",
+          "qty": 5
+        }
+      ],
+      "craft_time_sec": 45
     },
     {
-      "id": "fiber_broth",
-      "name": "Fiber Broth",
       "phase": 1,
-      "inputs": [
-        {
-          "id": "cellulose_weave",
-          "qty": 1
-        },
-        {
-          "id": "ichor_coagulate",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "spore_resin",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": 50000,
-      "active_in_pass1": true
-    },
-    {
-      "id": "ferment_brew",
-      "name": "Ferment Brew",
-      "phase": 1,
-      "inputs": [
-        {
-          "id": "ferment_extract",
-          "qty": 1
-        },
-        {
-          "id": "lignin_lattice",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "fiber_broth",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": 150000,
-      "active_in_pass1": true
-    },
-    {
-      "id": "rift_tonic",
-      "name": "Rift Tonic",
-      "phase": 1,
-      "inputs": [
-        {
-          "id": "ichor_coagulate",
-          "qty": 1
-        },
-        {
-          "id": "ferment_extract",
-          "qty": 1
-        },
-        {
-          "id": "rift_crust",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "ferment_brew",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": 500000,
-      "active_in_pass1": true
-    },
-    {
-      "id": "spore_serum",
-      "name": "Spore Serum",
-      "phase": 2,
-      "inputs": [
-        {
-          "id": "rift_crust",
-          "qty": 1
-        },
-        {
-          "id": "sporoplasm_slurry",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "rift_tonic",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "gloom_extract_sol",
-      "name": "Gloom Extract",
-      "phase": 2,
-      "inputs": [
-        {
-          "id": "gloom_dust",
-          "qty": 1
-        },
-        {
-          "id": "growth_gel",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "spore_serum",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "lumen_tincture",
-      "name": "Lumen Tincture",
-      "phase": 2,
-      "inputs": [
-        {
-          "id": "lumen_gel",
-          "qty": 1
-        },
-        {
-          "id": "crystal_bloom",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "gloom_extract_sol",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "weave_serum",
-      "name": "Weave Serum",
-      "phase": 2,
-      "inputs": [
-        {
-          "id": "spore_weave",
-          "qty": 1
-        },
-        {
-          "id": "ichor_compound",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "lumen_tincture",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "living_extract",
-      "name": "Living Extract",
-      "phase": 2,
-      "inputs": [
-        {
-          "id": "living_fiber",
-          "qty": 1
-        },
-        {
-          "id": "rift_matrix",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "weave_serum",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "rift_serum",
-      "name": "Rift Serum",
-      "phase": 2,
-      "inputs": [
-        {
-          "id": "rift_crust",
-          "qty": 1
-        },
-        {
-          "id": "gloom_dust",
-          "qty": 1
-        },
-        {
-          "id": "lumen_gel",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "living_extract",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "chitin_infusion",
-      "name": "Chitin Infusion",
-      "phase": 3,
-      "inputs": [
-        {
-          "id": "chitin_plate",
-          "qty": 1
-        },
-        {
-          "id": "null_strand",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "rift_serum",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "enzyme_draft",
-      "name": "Enzyme Draft",
-      "phase": 3,
-      "inputs": [
-        {
-          "id": "enzyme_crystal",
-          "qty": 1
-        },
-        {
-          "id": "void_mesh",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "chitin_infusion",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "carapace_infusion",
-      "name": "Carapace Infusion",
-      "phase": 3,
-      "inputs": [
-        {
-          "id": "carapace_gel",
-          "qty": 1
-        },
-        {
-          "id": "gloom_extract",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "enzyme_draft",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "bloom_tincture",
-      "name": "Bloom Tincture",
-      "phase": 3,
-      "inputs": [
-        {
-          "id": "bloom_matrix",
-          "qty": 1
-        },
-        {
-          "id": "null_core",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "carapace_infusion",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "null_elixir",
-      "name": "Null Elixir",
-      "phase": 3,
-      "inputs": [
-        {
-          "id": "null_strand",
-          "qty": 1
-        },
-        {
-          "id": "enzyme_crystal",
-          "qty": 1
-        },
-        {
-          "id": "void_mesh",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "bloom_tincture",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "void_infusion",
-      "name": "Void Infusion",
-      "phase": 4,
-      "inputs": [
-        {
-          "id": "void_petal",
-          "qty": 1
-        },
-        {
-          "id": "amber_resin",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "null_elixir",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "amber_elixir",
-      "name": "Amber Elixir",
-      "phase": 4,
-      "inputs": [
-        {
-          "id": "void_amber",
-          "qty": 1
-        },
-        {
-          "id": "bloom_matrix",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "void_infusion",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "void_ascension",
-      "name": "Void Ascension",
-      "phase": 4,
-      "inputs": [
-        {
-          "id": "void_petal",
-          "qty": 1
-        },
-        {
-          "id": "amber_resin",
-          "qty": 1
-        },
-        {
-          "id": "null_core",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "previous_recipe_required": "amber_elixir",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "root_catalyst",
-      "name": "Root Catalyst",
-      "phase": 3,
-      "inputs": [
-        {
-          "id": "null_core",
-          "qty": 1
-        },
-        {
-          "id": "crystal_bloom",
-          "qty": 1
-        },
-        {
-          "id": "carapace_infusion",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "special_use": "milestone_node_unlock_gate",
-      "previous_recipe_required": "void_ascension",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "bloom_ascendant",
-      "name": "Bloom Ascendant",
-      "phase": 4,
-      "inputs": [
-        {
-          "id": "void_amber",
-          "qty": 1
-        },
-        {
-          "id": "bloom_matrix",
-          "qty": 1
-        },
-        {
-          "id": "root_catalyst",
-          "qty": 1
-        }
-      ],
-      "output_qty": 1,
-      "special_use": "prestige_trigger",
-      "previous_recipe_required": "root_catalyst",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false
-    },
-    {
-      "id": "strain_primer",
-      "name": "Strain Primer",
-      "phase": 1,
-      "inputs": [
-        {
-          "id": "ichor_coagulate",
-          "qty": 1
-        },
-        {
-          "id": "ferment_extract",
-          "qty": 1
-        },
-        {
-          "id": "lignin_lattice",
-          "qty": 1
-        }
-      ],
       "output_qty": 1,
       "previous_recipe_required": null,
       "discovery_requirement": "synthesis",
       "starts_unlocked": false,
       "unlock_cost_nutrients": 0,
       "active_in_pass1": true,
+      "id": "hyphal_medium",
+      "name": "Hyphal Medium",
+      "inputs": [
+        {
+          "id": "hyphal_thread",
+          "qty": 5
+        }
+      ],
+      "craft_time_sec": 90
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "spore_culture",
+      "name": "Spore Culture",
+      "inputs": [
+        {
+          "id": "spore_medium",
+          "qty": 2
+        },
+        {
+          "id": "spore_composite",
+          "qty": 10
+        }
+      ],
+      "craft_time_sec": 195
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "hyphal_culture",
+      "name": "Hyphal Culture",
+      "inputs": [
+        {
+          "id": "hyphal_medium",
+          "qty": 2
+        },
+        {
+          "id": "hyphal_thread",
+          "qty": 10
+        }
+      ],
+      "craft_time_sec": 315
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "cellulose_culture",
+      "name": "Cellulose Culture",
+      "inputs": [
+        {
+          "id": "cellulose_weave",
+          "qty": 10
+        },
+        {
+          "id": "hyphal_medium",
+          "qty": 1
+        },
+        {
+          "id": "spore_medium",
+          "qty": 1
+        }
+      ],
+      "craft_time_sec": 368
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "ichor_extract",
+      "name": "Ichor Extract",
+      "inputs": [
+        {
+          "id": "ichor_coagulate",
+          "qty": 10
+        }
+      ],
+      "craft_time_sec": 450
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "reactive_extract",
+      "name": "Reactive Extract",
+      "inputs": [
+        {
+          "id": "ichor_coagulate",
+          "qty": 5
+        },
+        {
+          "id": "ferment_extract",
+          "qty": 5
+        },
+        {
+          "id": "spore_culture",
+          "qty": 2
+        }
+      ],
+      "craft_time_sec": 592
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "lattice_extract",
+      "name": "Lattice Extract",
+      "inputs": [
+        {
+          "id": "ichor_extract",
+          "qty": 1
+        },
+        {
+          "id": "lignin_lattice",
+          "qty": 5
+        }
+      ],
+      "craft_time_sec": 675,
       "special_use": "mutagen_lab_unlock_trigger"
+    },
+    {
+      "id": "mutagen_lab_unlock",
+      "name": "Mutagen Lab",
+      "phase": 1,
+      "inputs": [],
+      "output_qty": 1,
+      "previous_recipe_required": "lattice_extract",
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 100000,
+      "active_in_pass1": true,
+      "craft_time_sec": 0,
+      "special_use": "mutagen_lab_activate"
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "rift_substrate",
+      "name": "Rift Substrate",
+      "inputs": [
+        {
+          "id": "rift_crust",
+          "qty": 5
+        },
+        {
+          "id": "lattice_extract",
+          "qty": 1
+        },
+        {
+          "id": "hyphal_culture",
+          "qty": 5
+        }
+      ],
+      "craft_time_sec": 2140
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "volatile_substrate",
+      "name": "Volatile Substrate",
+      "inputs": [
+        {
+          "id": "reactive_extract",
+          "qty": 5
+        },
+        {
+          "id": "lignin_lattice",
+          "qty": 5
+        }
+      ],
+      "craft_time_sec": 3185
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "merged_substrate",
+      "name": "Merged Substrate",
+      "inputs": [
+        {
+          "id": "cellulose_culture",
+          "qty": 10
+        },
+        {
+          "id": "hyphal_culture",
+          "qty": 10
+        },
+        {
+          "id": "spore_culture",
+          "qty": 10
+        }
+      ],
+      "craft_time_sec": 6190
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "ichor_serum",
+      "name": "Ichor Serum",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 2
+        },
+        {
+          "id": "ichor_extract",
+          "qty": 8
+        }
+      ],
+      "craft_time_sec": 8170
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "spore_serum",
+      "name": "Spore Serum",
+      "inputs": [
+        {
+          "id": "rift_substrate",
+          "qty": 2
+        },
+        {
+          "id": "gloom_dust",
+          "qty": 3
+        },
+        {
+          "id": "sporoplasm_slurry",
+          "qty": 5
+        }
+      ],
+      "craft_time_sec": 5480
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "growth_serum",
+      "name": "Growth Serum",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 2
+        },
+        {
+          "id": "growth_gel",
+          "qty": 5
+        },
+        {
+          "id": "gloom_dust",
+          "qty": 3
+        }
+      ],
+      "craft_time_sec": 8245
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "gloom_substrate",
+      "name": "Gloom Substrate",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 2
+        },
+        {
+          "id": "gloom_dust",
+          "qty": 5
+        },
+        {
+          "id": "growth_gel",
+          "qty": 3
+        }
+      ],
+      "craft_time_sec": 8215
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "lumen_serum",
+      "name": "Lumen Serum",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 2
+        },
+        {
+          "id": "lumen_gel",
+          "qty": 4
+        }
+      ],
+      "craft_time_sec": 7630
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "crystal_substrate",
+      "name": "Crystal Substrate",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 2
+        },
+        {
+          "id": "lumen_gel",
+          "qty": 3
+        },
+        {
+          "id": "crystal_bloom",
+          "qty": 3
+        }
+      ],
+      "craft_time_sec": 8305
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "chitin_serum",
+      "name": "Chitin Serum",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 3
+        },
+        {
+          "id": "chitin_plate",
+          "qty": 2
+        },
+        {
+          "id": "lumen_gel",
+          "qty": 2
+        }
+      ],
+      "craft_time_sec": 10995
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "null_serum",
+      "name": "Null Serum",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 3
+        },
+        {
+          "id": "null_strand",
+          "qty": 3
+        },
+        {
+          "id": "chitin_plate",
+          "qty": 2
+        }
+      ],
+      "craft_time_sec": 11625
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "enzyme_substrate",
+      "name": "Enzyme Substrate",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 3
+        },
+        {
+          "id": "enzyme_crystal",
+          "qty": 2
+        },
+        {
+          "id": "null_strand",
+          "qty": 3
+        }
+      ],
+      "craft_time_sec": 11895
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "void_serum",
+      "name": "Void Serum",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 4
+        },
+        {
+          "id": "void_mesh",
+          "qty": 3
+        },
+        {
+          "id": "enzyme_crystal",
+          "qty": 1
+        }
+      ],
+      "craft_time_sec": 14900
+    },
+    {
+      "phase": 1,
+      "output_qty": 1,
+      "previous_recipe_required": null,
+      "discovery_requirement": "synthesis",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 0,
+      "active_in_pass1": true,
+      "id": "bloom_substrate",
+      "name": "Bloom Substrate",
+      "inputs": [
+        {
+          "id": "volatile_substrate",
+          "qty": 4
+        },
+        {
+          "id": "void_petal",
+          "qty": 3
+        },
+        {
+          "id": "void_mesh",
+          "qty": 1
+        }
+      ],
+      "craft_time_sec": 15440
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 6,
   "rules": {
     "base_value_multiplier": 1.35,
     "base_unlock_multiplier": 1.2,
@@ -70,7 +70,11 @@
           "qty": 1000
         }
       ],
-      "craft_time_sec": 45
+      "craft_time_sec": 45,
+      "discovery_requirement": "primitive_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 18000,
+      "active_in_pass1": true
     },
     {
       "id": "ferment_extract",
@@ -81,7 +85,11 @@
           "qty": 1000
         }
       ],
-      "craft_time_sec": 60
+      "craft_time_sec": 60,
+      "discovery_requirement": "primitive_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 28000,
+      "active_in_pass1": true
     },
     {
       "id": "lignin_lattice",
@@ -92,7 +100,11 @@
           "qty": 1000
         }
       ],
-      "craft_time_sec": 90
+      "craft_time_sec": 90,
+      "discovery_requirement": "primitive_refinery",
+      "starts_unlocked": false,
+      "unlock_cost_nutrients": 45000,
+      "active_in_pass1": true
     },
     {
       "id": "rift_crust",
@@ -106,10 +118,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "primitive_refinery",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 70000,
+      "active_in_pass1": true,
       "craft_time_sec": 135
     },
     {
@@ -124,10 +136,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "primitive_refinery",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 110000,
+      "active_in_pass1": true,
       "craft_time_sec": 210
     },
     {
@@ -146,10 +158,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "primitive_refinery",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 170000,
+      "active_in_pass1": true,
       "craft_time_sec": 450
     },
     {
@@ -166,7 +178,7 @@
       "unlock_tier": "base_chain",
       "discovery_requirement": "primitive_refinery",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": 25000,
+      "unlock_cost_nutrients": 250000,
       "active_in_pass1": true,
       "craft_time_sec": 480
     },
@@ -186,10 +198,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "synthesis",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 400000,
+      "active_in_pass1": true,
       "craft_time_sec": 630
     },
     {
@@ -204,10 +216,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "synthesis",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 600000,
+      "active_in_pass1": true,
       "craft_time_sec": 660
     },
     {
@@ -226,10 +238,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "synthesis",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 900000,
+      "active_in_pass1": true,
       "craft_time_sec": 810
     },
     {
@@ -244,10 +256,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "synthesis",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 1400000,
+      "active_in_pass1": true,
       "craft_time_sec": 840
     },
     {
@@ -266,10 +278,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "synthesis",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 2200000,
+      "active_in_pass1": true,
       "craft_time_sec": 1080
     },
     {
@@ -284,10 +296,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "synthesis",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 3500000,
+      "active_in_pass1": true,
       "craft_time_sec": 1080
     },
     {
@@ -306,10 +318,10 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "synthesis",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 5500000,
+      "active_in_pass1": true,
       "craft_time_sec": 1440
     },
     {
@@ -324,12 +336,12 @@
       ],
       "output_qty": 1,
       "unlock_tier": "base_chain",
-      "discovery_requirement": "expanded_refinery",
+      "discovery_requirement": "synthesis",
       "starts_unlocked": false,
-      "unlock_cost_nutrients": -1,
-      "active_in_pass1": false,
+      "unlock_cost_nutrients": 8500000,
+      "active_in_pass1": true,
       "craft_time_sec": 1500
     }
   ],
-  "notes": "v4: 18 base compounds (1000:1), anchor chain compounds use 2x previous. craft_time_sec added to all."
+  "notes": "v6: All compounds active_in_pass1=true so they appear in refinery unlock panel."
 }

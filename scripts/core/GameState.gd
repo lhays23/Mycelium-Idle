@@ -63,7 +63,8 @@ const LEGACY_NODE_TRANSPORT_KEY: String = "transport"
 
 # ── Mutagen Lab ───────────────────────────────────────────────────────────────
 # Update this ID once the Lignin solution name is confirmed in the design phase
-const MUTAGEN_LAB_UNLOCK_SOLUTION_ID: String = "strain_primer"
+const MUTAGEN_LAB_UNLOCK_SOLUTION_ID: String = "lattice_extract"
+const MUTAGEN_LAB_ACTIVATE_SOLUTION_ID: String = "mutagen_lab_unlock"
 
 # ── Prestige / Mutation system ────────────────────────────────────────────────
 const MUTATION_MINRUN_FOR_PRESTIGE: float = 10_000_000.0
@@ -133,6 +134,10 @@ var compound_order: Array[String] = []
 var solutions_meta: Dictionary = {}
 var solution_defs: Dictionary = {}
 var solution_order: Array[String] = ["mycelial_resin", "spore_resin", "weave_serum", "root_catalyst"]
+var strain_defs: Dictionary = {}
+var strain_order: Array[String] = []
+var paid_strain_unlocks: Dictionary = {}   # strain_id -> bool, resets on prestige
+var run_state_flags: Dictionary = {}       # per-run flags: mutagen_lab_active, solutions_crafted
 var raw_resource_order: Array[String] = []
 
 var resource_defs: Dictionary = {}   # res_id -> metadata
@@ -149,6 +154,15 @@ var discovery_levels: Dictionary = {}      # discovery_id -> current level
 var total_nutrients_earned_run: float = 0.0
 # Mutagen Lab tracking — resets each run, contributes to GS on Mutate
 var mutagen_crafted_counts: Dictionary = {}  # mutagen_tier_id -> int count this run
+
+# ── Mutagen Lab slots ─────────────────────────────────────────────────────────
+const MUTAGEN_LAB_MAX_SLOTS:      int = 3
+const MUTAGEN_LAB_SLOT2_TRIGGER:  String = "strain_serum"    # T3 solution → slot 2
+const MUTAGEN_LAB_SLOT3_TRIGGER:  String = "strain_elixir"   # T5 solution → slot 3
+
+# Per-run slot state — resets on prestige
+# Each slot: {"tier_id": String, "progress_sec": float, "craft_time_sec": float}
+var mutagen_lab_slots: Array = []
 var meta_state: Dictionary = {}
 
 var refinery_slot_costs: Array = []
@@ -200,6 +214,7 @@ func tick(dt: float) -> void:
 	_tick_root_transfer(dt)
 	_tick_refinery(dt)
 	_tick_synth(dt)
+	_tick_mutagen_lab(dt)
 	check_and_unlock_mutation_chamber()
 
 
@@ -1673,6 +1688,30 @@ func is_refinery_unlocked() -> bool:
 	return has_discovery("primitive_refinery")
 
 
+func has_refinery_ever_been_seen() -> bool:
+	var p: Dictionary = meta_state.get("permanent_unlocks", {}) as Dictionary
+	return bool(p.get("refinery_ever_seen", false))
+
+
+func has_synth_ever_been_seen() -> bool:
+	var p: Dictionary = meta_state.get("permanent_unlocks", {}) as Dictionary
+	return bool(p.get("synth_ever_seen", false))
+
+
+func _mark_refinery_ever_seen() -> void:
+	var p: Dictionary = (meta_state.get("permanent_unlocks", {}) as Dictionary).duplicate(true)
+	if bool(p.get("refinery_ever_seen", false)): return
+	p["refinery_ever_seen"] = true
+	meta_state["permanent_unlocks"] = p
+
+
+func _mark_synth_ever_seen() -> void:
+	var p: Dictionary = (meta_state.get("permanent_unlocks", {}) as Dictionary).duplicate(true)
+	if bool(p.get("synth_ever_seen", false)): return
+	p["synth_ever_seen"] = true
+	meta_state["permanent_unlocks"] = p
+
+
 func is_aura_active() -> bool:
 	return has_discovery("aura_activation")
 
@@ -1815,9 +1854,11 @@ func buy_discovery(discovery_id: String) -> Dictionary:
 	if discovery_id == "primitive_refinery":
 		_ensure_refinery_slots_initialized()
 		unlocked_refinery_slots = max(unlocked_refinery_slots, 1)
+		_mark_refinery_ever_seen()
 	elif discovery_id == "synthesis":
 		_ensure_synth_slots_initialized()
 		unlocked_synth_slots = max(unlocked_synth_slots, 1)
+		_mark_synth_ever_seen()
 	elif discovery_id == "aura_activation":
 		_update_node_reveals()
 	check["ok"] = true
@@ -2342,9 +2383,16 @@ func _grant_solution_output(recipe_id: String) -> void:
 		resources[recipe_id] = 0.0
 	resources[recipe_id] = float(resources.get(recipe_id, 0.0)) + float(qty)
 
-	# Mutagen Lab permanent unlock — fires on first ever craft of the trigger solution
+	# Lattice Extract crafted — mark that Mutagen Lab has ever been seen (permanent)
 	if recipe_id == MUTAGEN_LAB_UNLOCK_SOLUTION_ID:
-		_unlock_mutagen_lab_permanent()
+		_mark_mutagen_lab_ever_seen()
+
+	# Mutagen Lab Unlock purchased — activate lab for this run
+	if recipe_id == MUTAGEN_LAB_ACTIVATE_SOLUTION_ID:
+		_activate_mutagen_lab_this_run()
+
+	# Track which solutions have been crafted this run (used as strain unlock gates)
+	_record_solution_crafted_this_run(recipe_id)
 
 
 func assign_synth_recipe(slot_number: int, recipe_id: String) -> bool:
@@ -2394,6 +2442,12 @@ func _tick_synth(dt: float) -> void:
 		Callable(self, "_grant_solution_output"),
 		Callable(self, "_get_solution_recipe_craft_time_sec")
 	)
+
+
+func _tick_mutagen_lab(dt: float) -> void:
+	if not is_mutagen_lab_unlocked():
+		return
+	tick_mutagen_lab_slots(dt)
 
 
 func get_synth_ui_entries() -> Array:
@@ -2503,39 +2557,383 @@ func get_total_strain_points() -> int:
 # ── Mutation Chamber unlock ───────────────────────────────────────────────────
 
 func is_mutagen_lab_unlocked() -> bool:
-	var permanent: Dictionary = meta_state.get("permanent_unlocks", {}) as Dictionary
-	return bool(permanent.get("mutagen_lab", false))
+	return bool(run_state_flags.get("mutagen_lab_active", false))
 
 
-func _unlock_mutagen_lab_permanent() -> void:
-	if is_mutagen_lab_unlocked():
+func has_mutagen_lab_ever_been_seen() -> bool:
+	var p: Dictionary = meta_state.get("permanent_unlocks", {}) as Dictionary
+	return bool(p.get("mutagen_lab_ever_seen", false))
+
+
+func _mark_mutagen_lab_ever_seen() -> void:
+	var p: Dictionary = (meta_state.get("permanent_unlocks", {}) as Dictionary).duplicate(true)
+	if bool(p.get("mutagen_lab_ever_seen", false)):
 		return
-	var permanent: Dictionary = (meta_state.get("permanent_unlocks", {}) as Dictionary).duplicate(true)
-	permanent["mutagen_lab"] = true
-	meta_state["permanent_unlocks"] = permanent
+	p["mutagen_lab_ever_seen"] = true
+	meta_state["permanent_unlocks"] = p
 	save_game()
 
 
-# ── Mutagen Lab — crafting & GS contribution ──────────────────────────────────
+func _activate_mutagen_lab_this_run() -> void:
+	run_state_flags["mutagen_lab_active"] = true
+	_mark_mutagen_lab_ever_seen()
+	_ensure_mutagen_lab_slots_initialized()
+	save_game()
 
-# GS payout table per tier: [1st, 2nd, 3rd, 4th+]
-const MUTAGEN_GS_TABLE: Dictionary = {
-	"t1_mutagen": [5, 2, 1, 1],
-	"t2_mutagen": [10, 5, 2, 1],
-	"t3_mutagen": [20, 10, 5, 2],
-	"t4_mutagen": [35, 17, 8, 4],
-	"t5_mutagen": [55, 27, 13, 6],
-}
 
-# All defined mutagen tier IDs in order
-const MUTAGEN_TIER_IDS: Array = [
-	"t1_mutagen", "t2_mutagen", "t3_mutagen", "t4_mutagen", "t5_mutagen"
-]
+func _record_solution_crafted_this_run(recipe_id: String) -> void:
+	if not run_state_flags.has("solutions_crafted"):
+		run_state_flags["solutions_crafted"] = {}
+	(run_state_flags["solutions_crafted"] as Dictionary)[recipe_id] = true
 
-# Input solution per mutagen tier (Strain Primer → T1, etc.)
-const MUTAGEN_SOLUTION_INPUTS: Dictionary = {
-	"t1_mutagen": "strain_primer",
-}
+
+func has_crafted_solution_this_run(recipe_id: String) -> bool:
+	var crafted = run_state_flags.get("solutions_crafted", {})
+	if typeof(crafted) == TYPE_DICTIONARY:
+		return bool((crafted as Dictionary).get(recipe_id, false))
+	return false
+
+
+func get_mutagen_lab_slot_count() -> int:
+	if not is_mutagen_lab_unlocked():
+		return 0
+	var permanent: Dictionary = meta_state.get("permanent_unlocks", {}) as Dictionary
+	if bool(permanent.get("mutagen_lab_slot3", false)):
+		return 3
+	if bool(permanent.get("mutagen_lab_slot2", false)):
+		return 2
+	return 1
+
+
+func _try_unlock_mutagen_lab_slot2() -> void:
+	var permanent: Dictionary = meta_state.get("permanent_unlocks", {}) as Dictionary
+	if bool(permanent.get("mutagen_lab_slot2", false)):
+		return
+	permanent = permanent.duplicate(true)
+	permanent["mutagen_lab_slot2"] = true
+	meta_state["permanent_unlocks"] = permanent
+	# Ensure slot array has room
+	_ensure_mutagen_lab_slots_initialized()
+	save_game()
+
+
+func _try_unlock_mutagen_lab_slot3() -> void:
+	var permanent: Dictionary = meta_state.get("permanent_unlocks", {}) as Dictionary
+	if bool(permanent.get("mutagen_lab_slot3", false)):
+		return
+	permanent = permanent.duplicate(true)
+	permanent["mutagen_lab_slot3"] = true
+	meta_state["permanent_unlocks"] = permanent
+	_ensure_mutagen_lab_slots_initialized()
+	save_game()
+
+
+func _ensure_mutagen_lab_slots_initialized() -> void:
+	var needed: int = get_mutagen_lab_slot_count()
+	while mutagen_lab_slots.size() < needed:
+		mutagen_lab_slots.append({
+			"tier_id":        "",
+			"progress_sec":   0.0,
+			"craft_time_sec": 0.0,
+		})
+
+
+# ── Mutagen Lab — slot crafting ───────────────────────────────────────────────
+
+func assign_mutagen_slot(slot_index: int, tier_id: String) -> Dictionary:
+	var out := {"ok": false, "reason": ""}
+	_ensure_mutagen_lab_slots_initialized()
+
+	if slot_index < 0 or slot_index >= mutagen_lab_slots.size():
+		out["reason"] = "Slot not available."
+		return out
+
+	if tier_id != "" and not MUTAGEN_GS_TABLE.has(tier_id):
+		out["reason"] = "Unknown mutagen tier."
+		return out
+
+	var slot: Dictionary = mutagen_lab_slots[slot_index] as Dictionary
+	slot["tier_id"]        = tier_id
+	slot["progress_sec"]   = 0.0
+	slot["craft_time_sec"] = float((strain_defs.get(tier_id,{}) as Dictionary).get("craft_time_sec", 675.0)) if tier_id != "" else 0.0
+	mutagen_lab_slots[slot_index] = slot
+	out["ok"] = true
+	return out
+
+
+func _get_mutagen_tier_craft_time(tier_id: String) -> float:
+	var sol_id: String = str(MUTAGEN_SOLUTION_INPUTS.get(tier_id, ""))
+	if sol_id == "":
+		return 675.0
+	if solution_defs.has(sol_id):
+		return float((solution_defs[sol_id] as Dictionary).get("craft_time_sec", 675.0))
+	return 675.0
+
+
+func tick_mutagen_lab_slots(delta: float) -> Array:
+	"""Called from _process. Returns list of completed tier_ids this tick."""
+	var completed: Array = []
+	if not is_mutagen_lab_unlocked():
+		return completed
+	_ensure_mutagen_lab_slots_initialized()
+
+	for i in range(mutagen_lab_slots.size()):
+		var slot: Dictionary = mutagen_lab_slots[i] as Dictionary
+		var tier_id: String = str(slot.get("tier_id", ""))
+		if tier_id == "":
+			continue
+
+		var craft_time: float = float(slot.get("craft_time_sec", 675.0))
+		if craft_time <= 0.0:
+			continue
+
+		# Apply M06 Solution Speed bonus (same mutation that speeds solutions)
+		var speed_mult: float = 1.0 + float(get_mutation_level("M06")) * 0.10
+		var effective_delta: float = delta * speed_mult
+
+		var progress: float = float(slot.get("progress_sec", 0.0)) + effective_delta
+		if progress >= craft_time:
+			# Complete — consume all inputs, grant strain item
+			if strain_defs.has(tier_id):
+				var inputs: Array = (strain_defs[tier_id] as Dictionary).get("inputs", []) as Array
+				var can_afford: bool = true
+				for inp_v in inputs:
+					var inp: Dictionary = inp_v as Dictionary
+					if get_amount(str(inp.get("id",""))) < int(inp.get("qty",0)):
+						can_afford = false; break
+				if can_afford:
+					for inp_v in inputs:
+						var inp: Dictionary = inp_v as Dictionary
+						var rid: String = str(inp.get("id",""))
+						var qty: int = int(inp.get("qty",0))
+						resources[rid] = maxf(0.0, float(resources.get(rid,0.0)) - float(qty))
+					_grant_mutagen_item(tier_id)
+					completed.append(tier_id)
+					slot["progress_sec"] = 0.0
+				else:
+					slot["progress_sec"] = craft_time  # stall
+		else:
+			slot["progress_sec"] = progress
+		mutagen_lab_slots[i] = slot
+
+	return completed
+
+
+func _unlock_mutagen_lab_permanent() -> void:
+	pass  # Replaced by _activate_mutagen_lab_this_run()
+
+
+# ── Strain system — Lab crafting ──────────────────────────────────────────────
+
+func get_strain_def(strain_id: String) -> Dictionary:
+	return (strain_defs.get(strain_id, {}) as Dictionary).duplicate(true)
+
+
+func is_strain_unlocked(strain_id: String) -> bool:
+	if not strain_defs.has(strain_id):
+		return false
+	var d: Dictionary = strain_defs[strain_id] as Dictionary
+	if bool(d.get("starts_unlocked", false)):
+		return true
+	return bool(paid_strain_unlocks.get(strain_id, false))
+
+
+func can_unlock_strain(strain_id: String) -> Dictionary:
+	var out := {"ok": false, "reason": ""}
+	if not strain_defs.has(strain_id):
+		out["reason"] = "Unknown strain."; return out
+	if is_strain_unlocked(strain_id):
+		out["reason"] = "Already unlocked."; return out
+	var d: Dictionary = strain_defs[strain_id] as Dictionary
+	var gate: String = str(d.get("unlock_gate_solution", ""))
+	if gate != "" and gate != "null":
+		if not has_crafted_solution_this_run(gate):
+			out["reason"] = "Requires %s to be crafted first." % get_resource_name(gate)
+			return out
+	var cost: int = int(d.get("unlock_cost_nutrients", 0))
+	if get_amount("nutrients") < cost:
+		out["reason"] = "Requires %s nutrients." % _fmt_int(cost)
+		return out
+	out["ok"] = true
+	return out
+
+
+func unlock_strain(strain_id: String) -> Dictionary:
+	var check := can_unlock_strain(strain_id)
+	if not check["ok"]:
+		return check
+	var d: Dictionary = strain_defs[strain_id] as Dictionary
+	var cost: int = int(d.get("unlock_cost_nutrients", 0))
+	if cost > 0:
+		resources["nutrients"] = maxf(0.0, float(resources.get("nutrients", 0.0)) - float(cost))
+	paid_strain_unlocks[strain_id] = true
+	# Auto-unlock lab slot if this strain grants one
+	var slot_unlock: int = int(d.get("unlocks_lab_slot", 0))
+	if slot_unlock == 2:
+		_try_unlock_mutagen_lab_slot2()
+	elif slot_unlock == 3:
+		_try_unlock_mutagen_lab_slot3()
+	save_game()
+	return {"ok": true, "reason": ""}
+
+
+func get_strain_gs_for_craft(strain_id: String) -> int:
+	if not strain_defs.has(strain_id):
+		return 0
+	var table: Array = (strain_defs[strain_id] as Dictionary).get("gs_table", []) as Array
+	if table.is_empty():
+		return 0
+	var count: int = int(mutagen_crafted_counts.get(strain_id, 0))
+	if count == 0:   return int(table[0])
+	elif count == 1: return int(table[1] if table.size() > 1 else table[0])
+	elif count == 2: return int(table[2] if table.size() > 2 else table[0])
+	else:            return int(table[3] if table.size() > 3 else table[0])
+
+
+func _grant_mutagen_item(strain_id: String) -> void:
+	var base_gs: int = get_strain_gs_for_craft(strain_id)
+	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
+	var _gs_gained: int = int(ceil(float(base_gs) * yield_mult))
+	mutagen_crafted_counts[strain_id] = int(mutagen_crafted_counts.get(strain_id, 0)) + 1
+	if not resources.has(strain_id):
+		resources[strain_id] = 0.0
+	resources[strain_id] = float(resources.get(strain_id, 0.0)) + 1.0
+
+
+func get_mutagen_run_gs_total() -> int:
+	var total: int = 0
+	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
+	for strain_id in strain_order:
+		if not strain_defs.has(strain_id):
+			continue
+		var table: Array = (strain_defs[strain_id] as Dictionary).get("gs_table", []) as Array
+		var count: int = int(mutagen_crafted_counts.get(strain_id, 0))
+		for i in range(count):
+			var base: int
+			if i == 0:   base = int(table[0]) if table.size() > 0 else 0
+			elif i == 1: base = int(table[1]) if table.size() > 1 else int(table[0])
+			elif i == 2: base = int(table[2]) if table.size() > 2 else int(table[0])
+			else:        base = int(table[3]) if table.size() > 3 else int(table[0])
+			total += int(ceil(float(base) * yield_mult))
+	return total
+
+
+func get_strain_run_gs(strain_id: String) -> int:
+	if not strain_defs.has(strain_id):
+		return 0
+	var table: Array = (strain_defs[strain_id] as Dictionary).get("gs_table", []) as Array
+	var count: int = int(mutagen_crafted_counts.get(strain_id, 0))
+	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
+	var total: int = 0
+	for i in range(count):
+		var base: int
+		if i == 0:   base = int(table[0]) if table.size() > 0 else 0
+		elif i == 1: base = int(table[1]) if table.size() > 1 else int(table[0])
+		elif i == 2: base = int(table[2]) if table.size() > 2 else int(table[0])
+		else:        base = int(table[3]) if table.size() > 3 else int(table[0])
+		total += int(ceil(float(base) * yield_mult))
+	return total
+
+
+func get_visible_strain_unlock_ids() -> Array:
+	var out: Array = []
+	if not is_mutagen_lab_unlocked():
+		return out
+	for strain_id in strain_order:
+		if is_strain_unlocked(strain_id):
+			continue
+		var d: Dictionary = strain_defs.get(strain_id, {}) as Dictionary
+		var gate: String = str(d.get("unlock_gate_solution", ""))
+		if gate != "" and gate != "null" and not has_crafted_solution_this_run(gate):
+			continue
+		out.append(strain_id)
+		break  # Show only next available
+	return out
+
+
+func get_mutagen_lab_ui() -> Dictionary:
+	_ensure_mutagen_lab_slots_initialized()
+	var slot_count: int = get_mutagen_lab_slot_count()
+	var slots_ui: Array = []
+
+	for i in range(slot_count):
+		var slot: Dictionary = mutagen_lab_slots[i] as Dictionary if i < mutagen_lab_slots.size() else {}
+		var strain_id: String  = str(slot.get("tier_id", ""))
+		var progress: float    = float(slot.get("progress_sec", 0.0))
+		var craft_time: float  = float(slot.get("craft_time_sec", 0.0))
+		var pct: int           = 0
+		if craft_time > 0.0:
+			pct = int(round(clamp(progress / craft_time, 0.0, 1.0) * 100.0))
+
+		var stalled: bool = false
+		if strain_id != "" and craft_time > 0.0 and progress >= craft_time:
+			# Check all inputs
+			if strain_defs.has(strain_id):
+				var inputs: Array = (strain_defs[strain_id] as Dictionary).get("inputs", []) as Array
+				for inp_v in inputs:
+					var inp: Dictionary = inp_v as Dictionary
+					if get_amount(str(inp.get("id",""))) < int(inp.get("qty",0)):
+						stalled = true; break
+
+		slots_ui.append({
+			"slot_index":    i,
+			"tier_id":       strain_id,
+			"tier_name":     str((strain_defs.get(strain_id,{}) as Dictionary).get("name","Empty")) if strain_id != "" else "Empty",
+			"progress_sec":  progress,
+			"craft_time_sec":craft_time,
+			"progress_pct":  pct,
+			"stalled":       stalled,
+			"held":          get_amount(strain_id) if strain_id != "" else 0,
+			"next_gs":       get_strain_gs_for_craft(strain_id) if strain_id != "" else 0,
+			"run_gs":        get_strain_run_gs(strain_id) if strain_id != "" else 0,
+			"gs_table":      ((strain_defs[strain_id] as Dictionary).get("gs_table",[]) as Array).duplicate() if strain_defs.has(strain_id) else [],
+			"crafted_count": int(mutagen_crafted_counts.get(strain_id, 0)) if strain_id != "" else 0,
+		})
+
+	# Available strains for slot assignment
+	var available: Array = []
+	for sid in strain_order:
+		if not is_strain_unlocked(sid):
+			continue
+		if not strain_defs.has(sid):
+			continue
+		var d: Dictionary = strain_defs[sid] as Dictionary
+		var inputs: Array = d.get("inputs", []) as Array
+		var has_inputs: bool = true
+		for inp_v in inputs:
+			var inp: Dictionary = inp_v as Dictionary
+			if get_amount(str(inp.get("id",""))) < int(inp.get("qty",0)):
+				has_inputs = false; break
+		available.append({
+			"id":         sid,
+			"name":       str(d.get("name", sid)),
+			"craft_time": float(d.get("craft_time_sec", 675.0)),
+			"next_gs":    get_strain_gs_for_craft(sid),
+			"can_craft":  has_inputs,
+			"inputs":     inputs.duplicate(),
+		})
+
+	# Next unlock
+	var visible_unlocks := get_visible_strain_unlock_ids()
+
+	return {
+		"lab_unlocked":    is_mutagen_lab_unlocked(),
+		"slot_count":      slot_count,
+		"slots":           slots_ui,
+		"available":       available,
+		"visible_unlocks": visible_unlocks,
+		"total_run_gs":    get_mutagen_run_gs_total(),
+	}
+
+
+# ── Old mutagen constants kept for GS table compatibility ─────────────────────
+const MUTAGEN_GS_TABLE: Dictionary = {}
+const MUTAGEN_TIER_IDS: Array = []
+const MUTAGEN_SOLUTION_INPUTS: Dictionary = {}
+func get_mutagen_gs_for_craft(_tier_id: String) -> int: return 0
+func _get_mutagen_tier_run_gs(_tier_id: String) -> int: return 0
+func _get_mutagen_display_name(tier_id: String) -> String: return tier_id
+func _get_mutagen_tier_craft_time(_tier_id: String) -> float: return 675.0
 
 
 func get_mutagen_gs_for_craft(tier_id: String) -> int:
@@ -2606,39 +3004,6 @@ func get_mutagen_run_gs_total() -> int:
 	return total
 
 
-func get_mutagen_lab_ui() -> Dictionary:
-	var tiers: Array = []
-	for tier_id in MUTAGEN_TIER_IDS:
-		if not MUTAGEN_GS_TABLE.has(tier_id):
-			continue
-		var table: Array = MUTAGEN_GS_TABLE[tier_id] as Array
-		var count: int = int(mutagen_crafted_counts.get(tier_id, 0))
-		var input_id: String = str(MUTAGEN_SOLUTION_INPUTS.get(tier_id, ""))
-		var next_gs: int = get_mutagen_gs_for_craft(tier_id)
-		var held: int = get_amount(tier_id)
-		var can_craft: bool = (input_id != "" and get_amount(input_id) >= 1)
-
-		tiers.append({
-			"id":            tier_id,
-			"name":          _get_mutagen_display_name(tier_id),
-			"input_id":      input_id,
-			"input_name":    get_resource_name(input_id) if input_id != "" else "",
-			"input_held":    get_amount(input_id) if input_id != "" else 0,
-			"held":          held,
-			"crafted_count": count,
-			"next_gs":       next_gs,
-			"can_craft":     can_craft,
-			"gs_table":      table.duplicate(),
-			"run_gs":        _get_mutagen_tier_run_gs(tier_id),
-		})
-
-	return {
-		"lab_unlocked":   is_mutagen_lab_unlocked(),
-		"tiers":          tiers,
-		"total_run_gs":   get_mutagen_run_gs_total(),
-	}
-
-
 func _get_mutagen_display_name(tier_id: String) -> String:
 	match tier_id:
 		"t1_mutagen": return "T1 Mutagen"
@@ -2646,6 +3011,7 @@ func _get_mutagen_display_name(tier_id: String) -> String:
 		"t3_mutagen": return "T3 Mutagen"
 		"t4_mutagen": return "T4 Mutagen"
 		"t5_mutagen": return "T5 Mutagen"
+		"t6_mutagen": return "T6 Mutagen"
 		_: return tier_id
 
 
@@ -2942,8 +3308,11 @@ func _build_run_save_data() -> Dictionary:
 		"discovery_levels": discovery_levels.duplicate(true),
 		"total_nutrients_earned_run": total_nutrients_earned_run,
 		"mutagen_crafted_counts": mutagen_crafted_counts.duplicate(true),
+		"mutagen_lab_slots":      mutagen_lab_slots.duplicate(true),
 		"paid_compound_unlocks": paid_compound_unlocks.duplicate(true),
 		"paid_solution_unlocks": paid_solution_unlocks.duplicate(true),
+		"paid_strain_unlocks":   paid_strain_unlocks.duplicate(true),
+		"run_state_flags":       run_state_flags.duplicate(true),
 		"unlocked_refinery_slots": unlocked_refinery_slots,
 		"refinery_slots": refinery_slots.duplicate(true),
 		"unlocked_synth_slots": unlocked_synth_slots,
@@ -3106,6 +3475,19 @@ func _apply_run_state(loaded_run: Dictionary) -> void:
 	if typeof(loaded_mutagen_variant) == TYPE_DICTIONARY:
 		mutagen_crafted_counts = (loaded_mutagen_variant as Dictionary).duplicate(true)
 
+	var loaded_slots_variant = loaded_run.get("mutagen_lab_slots", [])
+	if typeof(loaded_slots_variant) == TYPE_ARRAY:
+		mutagen_lab_slots = (loaded_slots_variant as Array).duplicate(true)
+	_ensure_mutagen_lab_slots_initialized()
+
+	var loaded_strain_unlocks = loaded_run.get("paid_strain_unlocks", {})
+	if typeof(loaded_strain_unlocks) == TYPE_DICTIONARY:
+		paid_strain_unlocks = (loaded_strain_unlocks as Dictionary).duplicate(true)
+
+	var loaded_run_flags = loaded_run.get("run_state_flags", {})
+	if typeof(loaded_run_flags) == TYPE_DICTIONARY:
+		run_state_flags = (loaded_run_flags as Dictionary).duplicate(true)
+
 	var loaded_unlocked_discoveries_variant = loaded_run.get("unlocked_discoveries", {})
 	if typeof(loaded_unlocked_discoveries_variant) == TYPE_DICTIONARY:
 		var loaded_unlocked_discoveries: Dictionary = loaded_unlocked_discoveries_variant as Dictionary
@@ -3227,6 +3609,9 @@ func _load_all() -> void:
 	spore_cloud_world_pos = Vector2.ZERO
 	total_nutrients_earned_run = 0.0
 	mutagen_crafted_counts = {}
+	mutagen_lab_slots = []
+	paid_strain_unlocks = {}
+	run_state_flags = {}
 	refinery_slot_costs.clear()
 	refinery_slots.clear()
 	unlocked_refinery_slots = 0
@@ -3292,6 +3677,16 @@ func _load_all() -> void:
 				continue
 			solution_order.append(sid)
 			solution_defs[sid] = ssrc.duplicate(true)
+
+	var strains_data = _load_json("res://data/strains.json")
+	if strains_data is Dictionary:
+		for s_variant in ((strains_data as Dictionary).get("strains", []) as Array):
+			var ssrc: Dictionary = s_variant as Dictionary
+			var sid: String = str(ssrc.get("id", ""))
+			if sid == "":
+				continue
+			strain_order.append(sid)
+			strain_defs[sid] = ssrc.duplicate(true)
 
 	# seed starting amounts
 	var starts: Dictionary = (config.get("starting_resources", {}) as Dictionary)

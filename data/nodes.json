@@ -2,1209 +2,1209 @@
   "version": 5,
   "notes": "Angles are per-run randomized at runtime; values here are defaults. Pool cap removed. is_starter removed. v5: full 18-resource remap across all 40 nodes.",
   "nodes": [
-    {
-      "id": "damp_soil",
-      "number": 1,
-      "name": "Damp Soil",
-      "ring": 1,
-      "distance_px": 100,
-      "angle_deg": 230.19,
-      "unlock_cost": 100,
-      "base_rate": 0.25,
-      "reveal_rule": "starter",
-      "reveal_nutrients": 0,
-      "starts_visible": true,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "spores",
-          "weight": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "rotting_log",
-      "number": 2,
-      "name": "Rotting Log",
-      "ring": 1,
-      "distance_px": 100,
-      "angle_deg": 9.0,
-      "unlock_cost": 200,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 0,
-      "starts_visible": true,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "hyphae",
-          "weight": 0.25
-        },
-        {
-          "res": "spores",
-          "weight": 0.75
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "root_cluster",
-      "number": 3,
-      "name": "Root Cluster",
-      "ring": 1,
-      "distance_px": 100,
-      "angle_deg": 99.01,
-      "unlock_cost": 500,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 250,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "hyphae",
-          "weight": 0.75
-        },
-        {
-          "res": "spores",
-          "weight": 0.25
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "compost_heap",
-      "number": 4,
-      "name": "Compost Heap",
-      "ring": 1,
-      "distance_px": 100,
-      "angle_deg": 265.13,
-      "unlock_cost": 1250,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 625,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "cellulose",
-          "weight": 0.25
-        },
-        {
-          "res": "spores",
-          "weight": 0.75
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "moss_patch",
-      "number": 5,
-      "name": "Moss Patch",
-      "ring": 2,
-      "distance_px": 160,
-      "angle_deg": 321.18,
-      "unlock_cost": 5000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 2500,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "cellulose",
-          "weight": 0.45
-        },
-        {
-          "res": "hyphae",
-          "weight": 0.55
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "wet_hollow",
-      "number": 6,
-      "name": "Wet Hollow",
-      "ring": 2,
-      "distance_px": 160,
-      "angle_deg": 151.89,
-      "unlock_cost": 9000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 4500,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "cellulose",
-          "weight": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "fallen_bark",
-      "number": 7,
-      "name": "Fallen Bark",
-      "ring": 2,
-      "distance_px": 160,
-      "angle_deg": 181.93,
-      "unlock_cost": 15000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 7500,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "ichor",
-          "weight": 0.3
-        },
-        {
-          "res": "cellulose",
-          "weight": 0.7
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "fungal_mat",
-      "number": 8,
-      "name": "Fungal Mat",
-      "ring": 2,
-      "distance_px": 160,
-      "angle_deg": 233.96,
-      "unlock_cost": 25000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 12500,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "ichor",
-          "weight": 0.75
-        },
-        {
-          "res": "hyphae",
-          "weight": 0.25
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "decayed_stump",
-      "number": 9,
-      "name": "Decayed Stump",
-      "ring": 3,
-      "distance_px": 200,
-      "angle_deg": 79.36,
-      "unlock_cost": 40000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 20000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "ferment",
-          "weight": 0.25
-        },
-        {
-          "res": "hyphae",
-          "weight": 0.75
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "shaded_grove",
-      "number": 10,
-      "name": "Shaded Grove",
-      "ring": 3,
-      "distance_px": 200,
-      "angle_deg": 2.34,
-      "unlock_cost": 75000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 37500,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "ferment",
-          "weight": 0.45
-        },
-        {
-          "res": "ichor",
-          "weight": 0.55
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "mud_pocket",
-      "number": 11,
-      "name": "Mud Pocket",
-      "ring": 3,
-      "distance_px": 200,
-      "angle_deg": 290.09,
-      "unlock_cost": 150000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 75000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "ferment",
-          "weight": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "broken_trunk",
-      "number": 12,
-      "name": "Broken Trunk",
-      "ring": 3,
-      "distance_px": 200,
-      "angle_deg": 122.49,
-      "unlock_cost": 250000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 125000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "lignin",
-          "weight": 0.3
-        },
-        {
-          "res": "ferment",
-          "weight": 0.7
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "litter_bed",
-      "number": 13,
-      "name": "Litter Bed",
-      "ring": 3,
-      "distance_px": 200,
-      "angle_deg": 33.39,
-      "unlock_cost": 400000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 200000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "lignin",
-          "weight": 0.75
-        },
-        {
-          "res": "ichor",
-          "weight": 0.25
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "loam_basin",
-      "number": 14,
-      "name": "Loam Basin",
-      "ring": 4,
-      "distance_px": 280,
-      "angle_deg": 217.34,
-      "unlock_cost": 800000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 400000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "rift_mold",
-          "weight": 0.25
-        },
-        {
-          "res": "lignin",
-          "weight": 0.75
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "mycelial_knot",
-      "number": 15,
-      "name": "Mycelial Knot",
-      "ring": 4,
-      "distance_px": 280,
-      "angle_deg": 253.65,
-      "unlock_cost": 1500000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 750000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "rift_mold",
-          "weight": 0.45
-        },
-        {
-          "res": "lignin",
-          "weight": 0.55
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "sap_run",
-      "number": 16,
-      "name": "Sap Run",
-      "ring": 4,
-      "distance_px": 280,
-      "angle_deg": 82.04,
-      "unlock_cost": 3000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 1500000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "rift_mold",
-          "weight": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "hollow_root",
-      "number": 17,
-      "name": "Hollow Root",
-      "ring": 4,
-      "distance_px": 280,
-      "angle_deg": 337.2,
-      "unlock_cost": 6000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 3000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "sporoplasm",
-          "weight": 0.3
-        },
-        {
-          "res": "rift_mold",
-          "weight": 0.7
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "buried_husk",
-      "number": 18,
-      "name": "Buried Husk",
-      "ring": 4,
-      "distance_px": 280,
-      "angle_deg": 136.6,
-      "unlock_cost": 12000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 6000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "sporoplasm",
-          "weight": 0.75
-        },
-        {
-          "res": "lignin",
-          "weight": 0.25
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "rot_chamber",
-      "number": 19,
-      "name": "Rot Chamber",
-      "ring": 5,
-      "distance_px": 330,
-      "angle_deg": 303.43,
-      "unlock_cost": 25000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 12500000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "gloomspore",
-          "weight": 0.25
-        },
-        {
-          "res": "sporoplasm",
-          "weight": 0.75
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "dense_thicket",
-      "number": 20,
-      "name": "Dense Thicket",
-      "ring": 5,
-      "distance_px": 330,
-      "angle_deg": 11.56,
-      "unlock_cost": 50000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 25000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "gloomspore",
-          "weight": 0.45
-        },
-        {
-          "res": "sporoplasm",
-          "weight": 0.55
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "moist_cavern",
-      "number": 21,
-      "name": "Moist Cavern",
-      "ring": 5,
-      "distance_px": 330,
-      "angle_deg": 202.09,
-      "unlock_cost": 100000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 50000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "gloomspore",
-          "weight": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "nutrient_bed",
-      "number": 22,
-      "name": "Nutrient Bed",
-      "ring": 5,
-      "distance_px": 330,
-      "angle_deg": 94.59,
-      "unlock_cost": 200000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 100000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "mycelium",
-          "weight": 0.3
-        },
-        {
-          "res": "gloomspore",
-          "weight": 0.7
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "collapsed_burrow",
-      "number": 23,
-      "name": "Collapsed Burrow",
-      "ring": 5,
-      "distance_px": 330,
-      "angle_deg": 259.46,
-      "unlock_cost": 400000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 200000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "mycelium",
-          "weight": 0.75
-        },
-        {
-          "res": "sporoplasm",
-          "weight": 0.25
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "resin_pool",
-      "number": 24,
-      "name": "Resin Pool",
-      "ring": 5,
-      "distance_px": 330,
-      "angle_deg": 156.52,
-      "unlock_cost": 800000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 400000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "biolume",
-          "weight": 0.25
-        },
-        {
-          "res": "mycelium",
-          "weight": 0.75
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "core_nest",
-      "number": 25,
-      "name": "Core Nest",
-      "ring": 6,
-      "distance_px": 370,
-      "angle_deg": 315.31,
-      "unlock_cost": 1600000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 800000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "biolume",
-          "weight": 0.45
-        },
-        {
-          "res": "mycelium",
-          "weight": 0.55
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "catalyst_scar",
-      "number": 26,
-      "name": "Catalyst Scar",
-      "ring": 6,
-      "distance_px": 370,
-      "angle_deg": 64.31,
-      "unlock_cost": 3200000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 1600000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "biolume",
-          "weight": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "veiled_hollow",
-      "number": 27,
-      "name": "Veiled Hollow",
-      "ring": 6,
-      "distance_px": 370,
-      "angle_deg": 194.18,
-      "unlock_cost": 6400000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 3200000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "crystal_mold",
-          "weight": 0.3
-        },
-        {
-          "res": "biolume",
-          "weight": 0.7
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "bloom_ridge",
-      "number": 28,
-      "name": "Bloom Ridge",
-      "ring": 6,
-      "distance_px": 370,
-      "angle_deg": 0.21,
-      "unlock_cost": 12500000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 6250000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "crystal_mold",
-          "weight": 0.75
-        },
-        {
-          "res": "mycelium",
-          "weight": 0.25
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "undergrowth_vault",
-      "number": 29,
-      "name": "Undergrowth Vault",
-      "ring": 6,
-      "distance_px": 370,
-      "angle_deg": 116.7,
-      "unlock_cost": 25000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 12500000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "chitin",
-          "weight": 0.3
-        },
-        {
-          "res": "crystal_mold",
-          "weight": 0.7
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "substrate_vein",
-      "number": 30,
-      "name": "Substrate Vein",
-      "ring": 6,
-      "distance_px": 370,
-      "angle_deg": 30.84,
-      "unlock_cost": 50000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 25000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "chitin",
-          "weight": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "enzyme_shelf",
-      "number": 31,
-      "name": "Enzyme Shelf",
-      "ring": 7,
-      "distance_px": 420,
-      "angle_deg": 273.82,
-      "unlock_cost": 100000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 50000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "null_fiber",
-          "weight": 0.3
-        },
-        {
-          "res": "chitin",
-          "weight": 0.7
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "mycelial_archive",
-      "number": 32,
-      "name": "Mycelial Archive",
-      "ring": 7,
-      "distance_px": 420,
-      "angle_deg": 76.25,
-      "unlock_cost": 200000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 100000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "null_fiber",
-          "weight": 0.75
-        },
-        {
-          "res": "crystal_mold",
-          "weight": 0.25
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "ancient_rot",
-      "number": 33,
-      "name": "Ancient Rot",
-      "ring": 7,
-      "distance_px": 420,
-      "angle_deg": 186.33,
-      "unlock_cost": 400000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 200000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "deep_enzyme",
-          "weight": 0.3
-        },
-        {
-          "res": "null_fiber",
-          "weight": 0.7
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "luminous_pit",
-      "number": 34,
-      "name": "Luminous Pit",
-      "ring": 7,
-      "distance_px": 420,
-      "angle_deg": 227.2,
-      "unlock_cost": 800000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 400000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "deep_enzyme",
-          "weight": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "network_heart",
-      "number": 35,
-      "name": "Network Heart",
-      "ring": 7,
-      "distance_px": 420,
-      "angle_deg": 325.95,
-      "unlock_cost": 1600000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 800000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "voidspore",
-          "weight": 0.3
-        },
-        {
-          "res": "deep_enzyme",
-          "weight": 0.7
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "deep_bloom",
-      "number": 36,
-      "name": "Deep Bloom",
-      "ring": 8,
-      "distance_px": 490,
-      "angle_deg": 25.51,
-      "unlock_cost": 3200000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 1600000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "voidspore",
-          "weight": 0.75
-        },
-        {
-          "res": "null_fiber",
-          "weight": 0.25
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "world_root",
-      "number": 37,
-      "name": "World Root",
-      "ring": 8,
-      "distance_px": 490,
-      "angle_deg": 282.46,
-      "unlock_cost": 6400000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 3200000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "void_bloom",
-          "weight": 0.35
-        },
-        {
-          "res": "voidspore",
-          "weight": 0.65
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "spore_spire",
-      "number": 38,
-      "name": "Spore Spire",
-      "ring": 8,
-      "distance_px": 490,
-      "angle_deg": 68.55,
-      "unlock_cost": 12500000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 6250000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "void_bloom",
-          "weight": 1.0
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "elder_rot",
-      "number": 39,
-      "name": "Elder Rot",
-      "ring": 8,
-      "distance_px": 490,
-      "angle_deg": 168.13,
-      "unlock_cost": 25000000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 12500000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "amber_dust",
-          "weight": 0.4
-        },
-        {
-          "res": "void_bloom",
-          "weight": 0.6
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    },
-    {
-      "id": "crown_shelf",
-      "number": 40,
-      "name": "Crown Shelf",
-      "ring": 8,
-      "distance_px": 490,
-      "angle_deg": 242.41,
-      "unlock_cost": 50000000000000,
-      "base_rate": 0.25,
-      "reveal_rule": "aura",
-      "reveal_nutrients": 25000000000000,
-      "starts_visible": false,
-      "starts_unlocked": false,
-      "starts_connected": false,
-      "outputs": [
-        {
-          "res": "amber_dust",
-          "weight": 0.8
-        },
-        {
-          "res": "voidspore",
-          "weight": 0.2
-        }
-      ],
-      "upgrades": {
-        "yield_level": 1,
-        "frequency_level": 1,
-        "speed_level": 1,
-        "carry_level": 1
-      }
-    }
+	{
+	  "id": "damp_soil",
+	  "number": 1,
+	  "name": "Damp Soil",
+	  "ring": 1,
+	  "distance_px": 100,
+	  "angle_deg": 230.19,
+	  "unlock_cost": 100,
+	  "base_rate": 0.25,
+	  "reveal_rule": "starter",
+	  "reveal_nutrients": 0,
+	  "starts_visible": true,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "spores",
+		  "weight": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "rotting_log",
+	  "number": 2,
+	  "name": "Rotting Log",
+	  "ring": 1,
+	  "distance_px": 100,
+	  "angle_deg": 9.0,
+	  "unlock_cost": 200,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 0,
+	  "starts_visible": true,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "hyphae",
+		  "weight": 0.25
+		},
+		{
+		  "res": "spores",
+		  "weight": 0.75
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "root_cluster",
+	  "number": 3,
+	  "name": "Root Cluster",
+	  "ring": 1,
+	  "distance_px": 100,
+	  "angle_deg": 99.01,
+	  "unlock_cost": 500,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 250,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "hyphae",
+		  "weight": 0.75
+		},
+		{
+		  "res": "spores",
+		  "weight": 0.25
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "compost_heap",
+	  "number": 4,
+	  "name": "Compost Heap",
+	  "ring": 1,
+	  "distance_px": 100,
+	  "angle_deg": 265.13,
+	  "unlock_cost": 1250,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 625,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "cellulose",
+		  "weight": 0.25
+		},
+		{
+		  "res": "spores",
+		  "weight": 0.75
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "moss_patch",
+	  "number": 5,
+	  "name": "Moss Patch",
+	  "ring": 2,
+	  "distance_px": 160,
+	  "angle_deg": 321.18,
+	  "unlock_cost": 5000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 2500,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "cellulose",
+		  "weight": 0.45
+		},
+		{
+		  "res": "hyphae",
+		  "weight": 0.55
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "wet_hollow",
+	  "number": 6,
+	  "name": "Wet Hollow",
+	  "ring": 2,
+	  "distance_px": 160,
+	  "angle_deg": 151.89,
+	  "unlock_cost": 9000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 4500,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "cellulose",
+		  "weight": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "fallen_bark",
+	  "number": 7,
+	  "name": "Fallen Bark",
+	  "ring": 2,
+	  "distance_px": 160,
+	  "angle_deg": 181.93,
+	  "unlock_cost": 15000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 7500,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "ichor",
+		  "weight": 0.3
+		},
+		{
+		  "res": "cellulose",
+		  "weight": 0.7
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "fungal_mat",
+	  "number": 8,
+	  "name": "Fungal Mat",
+	  "ring": 2,
+	  "distance_px": 160,
+	  "angle_deg": 233.96,
+	  "unlock_cost": 25000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 12500,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "ichor",
+		  "weight": 0.75
+		},
+		{
+		  "res": "hyphae",
+		  "weight": 0.25
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "decayed_stump",
+	  "number": 9,
+	  "name": "Decayed Stump",
+	  "ring": 3,
+	  "distance_px": 200,
+	  "angle_deg": 79.36,
+	  "unlock_cost": 40000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 20000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "ferment",
+		  "weight": 0.25
+		},
+		{
+		  "res": "hyphae",
+		  "weight": 0.75
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "shaded_grove",
+	  "number": 10,
+	  "name": "Shaded Grove",
+	  "ring": 3,
+	  "distance_px": 200,
+	  "angle_deg": 2.34,
+	  "unlock_cost": 75000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 37500,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "ferment",
+		  "weight": 0.45
+		},
+		{
+		  "res": "ichor",
+		  "weight": 0.55
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "mud_pocket",
+	  "number": 11,
+	  "name": "Mud Pocket",
+	  "ring": 3,
+	  "distance_px": 200,
+	  "angle_deg": 290.09,
+	  "unlock_cost": 150000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 75000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "ferment",
+		  "weight": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "broken_trunk",
+	  "number": 12,
+	  "name": "Broken Trunk",
+	  "ring": 3,
+	  "distance_px": 200,
+	  "angle_deg": 122.49,
+	  "unlock_cost": 250000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 125000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "lignin",
+		  "weight": 0.3
+		},
+		{
+		  "res": "ferment",
+		  "weight": 0.7
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "litter_bed",
+	  "number": 13,
+	  "name": "Litter Bed",
+	  "ring": 3,
+	  "distance_px": 200,
+	  "angle_deg": 33.39,
+	  "unlock_cost": 400000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 200000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "lignin",
+		  "weight": 0.75
+		},
+		{
+		  "res": "ichor",
+		  "weight": 0.25
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "loam_basin",
+	  "number": 14,
+	  "name": "Loam Basin",
+	  "ring": 4,
+	  "distance_px": 280,
+	  "angle_deg": 217.34,
+	  "unlock_cost": 800000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 400000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "rift_mold",
+		  "weight": 0.25
+		},
+		{
+		  "res": "lignin",
+		  "weight": 0.75
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "mycelial_knot",
+	  "number": 15,
+	  "name": "Mycelial Knot",
+	  "ring": 4,
+	  "distance_px": 280,
+	  "angle_deg": 253.65,
+	  "unlock_cost": 1500000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 750000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "rift_mold",
+		  "weight": 0.45
+		},
+		{
+		  "res": "lignin",
+		  "weight": 0.55
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "sap_run",
+	  "number": 16,
+	  "name": "Sap Run",
+	  "ring": 4,
+	  "distance_px": 280,
+	  "angle_deg": 82.04,
+	  "unlock_cost": 3000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 1500000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "rift_mold",
+		  "weight": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "hollow_root",
+	  "number": 17,
+	  "name": "Hollow Root",
+	  "ring": 4,
+	  "distance_px": 280,
+	  "angle_deg": 337.2,
+	  "unlock_cost": 6000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 3000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "sporoplasm",
+		  "weight": 0.3
+		},
+		{
+		  "res": "rift_mold",
+		  "weight": 0.7
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "buried_husk",
+	  "number": 18,
+	  "name": "Buried Husk",
+	  "ring": 4,
+	  "distance_px": 280,
+	  "angle_deg": 136.6,
+	  "unlock_cost": 12000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 6000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "sporoplasm",
+		  "weight": 0.75
+		},
+		{
+		  "res": "lignin",
+		  "weight": 0.25
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "rot_chamber",
+	  "number": 19,
+	  "name": "Rot Chamber",
+	  "ring": 5,
+	  "distance_px": 330,
+	  "angle_deg": 303.43,
+	  "unlock_cost": 25000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 12500000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "gloomspore",
+		  "weight": 0.25
+		},
+		{
+		  "res": "sporoplasm",
+		  "weight": 0.75
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "dense_thicket",
+	  "number": 20,
+	  "name": "Dense Thicket",
+	  "ring": 5,
+	  "distance_px": 330,
+	  "angle_deg": 11.56,
+	  "unlock_cost": 50000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 25000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "gloomspore",
+		  "weight": 0.45
+		},
+		{
+		  "res": "sporoplasm",
+		  "weight": 0.55
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "moist_cavern",
+	  "number": 21,
+	  "name": "Moist Cavern",
+	  "ring": 5,
+	  "distance_px": 330,
+	  "angle_deg": 202.09,
+	  "unlock_cost": 100000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 50000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "gloomspore",
+		  "weight": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "nutrient_bed",
+	  "number": 22,
+	  "name": "Nutrient Bed",
+	  "ring": 5,
+	  "distance_px": 330,
+	  "angle_deg": 94.59,
+	  "unlock_cost": 200000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 100000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "mycelium",
+		  "weight": 0.3
+		},
+		{
+		  "res": "gloomspore",
+		  "weight": 0.7
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "collapsed_burrow",
+	  "number": 23,
+	  "name": "Collapsed Burrow",
+	  "ring": 5,
+	  "distance_px": 330,
+	  "angle_deg": 259.46,
+	  "unlock_cost": 400000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 200000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "mycelium",
+		  "weight": 0.75
+		},
+		{
+		  "res": "sporoplasm",
+		  "weight": 0.25
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "resin_pool",
+	  "number": 24,
+	  "name": "Resin Pool",
+	  "ring": 5,
+	  "distance_px": 330,
+	  "angle_deg": 156.52,
+	  "unlock_cost": 800000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 400000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "biolume",
+		  "weight": 0.25
+		},
+		{
+		  "res": "mycelium",
+		  "weight": 0.75
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "core_nest",
+	  "number": 25,
+	  "name": "Core Nest",
+	  "ring": 6,
+	  "distance_px": 370,
+	  "angle_deg": 315.31,
+	  "unlock_cost": 1600000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 800000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "biolume",
+		  "weight": 0.45
+		},
+		{
+		  "res": "mycelium",
+		  "weight": 0.55
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "catalyst_scar",
+	  "number": 26,
+	  "name": "Catalyst Scar",
+	  "ring": 6,
+	  "distance_px": 370,
+	  "angle_deg": 64.31,
+	  "unlock_cost": 3200000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 1600000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "biolume",
+		  "weight": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "veiled_hollow",
+	  "number": 27,
+	  "name": "Veiled Hollow",
+	  "ring": 6,
+	  "distance_px": 370,
+	  "angle_deg": 194.18,
+	  "unlock_cost": 6400000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 3200000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "crystal_mold",
+		  "weight": 0.3
+		},
+		{
+		  "res": "biolume",
+		  "weight": 0.7
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "bloom_ridge",
+	  "number": 28,
+	  "name": "Bloom Ridge",
+	  "ring": 6,
+	  "distance_px": 370,
+	  "angle_deg": 0.21,
+	  "unlock_cost": 12500000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 6250000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "crystal_mold",
+		  "weight": 0.75
+		},
+		{
+		  "res": "mycelium",
+		  "weight": 0.25
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "undergrowth_vault",
+	  "number": 29,
+	  "name": "Undergrowth Vault",
+	  "ring": 6,
+	  "distance_px": 370,
+	  "angle_deg": 116.7,
+	  "unlock_cost": 25000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 12500000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "chitin",
+		  "weight": 0.3
+		},
+		{
+		  "res": "crystal_mold",
+		  "weight": 0.7
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "substrate_vein",
+	  "number": 30,
+	  "name": "Substrate Vein",
+	  "ring": 6,
+	  "distance_px": 370,
+	  "angle_deg": 30.84,
+	  "unlock_cost": 50000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 25000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "chitin",
+		  "weight": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "enzyme_shelf",
+	  "number": 31,
+	  "name": "Enzyme Shelf",
+	  "ring": 7,
+	  "distance_px": 420,
+	  "angle_deg": 273.82,
+	  "unlock_cost": 100000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 50000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "null_fiber",
+		  "weight": 0.3
+		},
+		{
+		  "res": "chitin",
+		  "weight": 0.7
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "mycelial_archive",
+	  "number": 32,
+	  "name": "Mycelial Archive",
+	  "ring": 7,
+	  "distance_px": 420,
+	  "angle_deg": 76.25,
+	  "unlock_cost": 200000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 100000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "null_fiber",
+		  "weight": 0.75
+		},
+		{
+		  "res": "crystal_mold",
+		  "weight": 0.25
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "ancient_rot",
+	  "number": 33,
+	  "name": "Ancient Rot",
+	  "ring": 7,
+	  "distance_px": 420,
+	  "angle_deg": 186.33,
+	  "unlock_cost": 400000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 200000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "deep_enzyme",
+		  "weight": 0.3
+		},
+		{
+		  "res": "null_fiber",
+		  "weight": 0.7
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "luminous_pit",
+	  "number": 34,
+	  "name": "Luminous Pit",
+	  "ring": 7,
+	  "distance_px": 420,
+	  "angle_deg": 227.2,
+	  "unlock_cost": 800000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 400000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "deep_enzyme",
+		  "weight": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "network_heart",
+	  "number": 35,
+	  "name": "Network Heart",
+	  "ring": 7,
+	  "distance_px": 420,
+	  "angle_deg": 325.95,
+	  "unlock_cost": 1600000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 800000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "voidspore",
+		  "weight": 0.3
+		},
+		{
+		  "res": "deep_enzyme",
+		  "weight": 0.7
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "deep_bloom",
+	  "number": 36,
+	  "name": "Deep Bloom",
+	  "ring": 8,
+	  "distance_px": 490,
+	  "angle_deg": 25.51,
+	  "unlock_cost": 3200000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 1600000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "voidspore",
+		  "weight": 0.75
+		},
+		{
+		  "res": "null_fiber",
+		  "weight": 0.25
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "world_root",
+	  "number": 37,
+	  "name": "World Root",
+	  "ring": 8,
+	  "distance_px": 490,
+	  "angle_deg": 282.46,
+	  "unlock_cost": 6400000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 3200000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "void_bloom",
+		  "weight": 0.35
+		},
+		{
+		  "res": "voidspore",
+		  "weight": 0.65
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "spore_spire",
+	  "number": 38,
+	  "name": "Spore Spire",
+	  "ring": 8,
+	  "distance_px": 490,
+	  "angle_deg": 68.55,
+	  "unlock_cost": 12500000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 6250000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "void_bloom",
+		  "weight": 1.0
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "elder_rot",
+	  "number": 39,
+	  "name": "Elder Rot",
+	  "ring": 8,
+	  "distance_px": 490,
+	  "angle_deg": 168.13,
+	  "unlock_cost": 25000000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 12500000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "amber_dust",
+		  "weight": 0.4
+		},
+		{
+		  "res": "void_bloom",
+		  "weight": 0.6
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	},
+	{
+	  "id": "crown_shelf",
+	  "number": 40,
+	  "name": "Crown Shelf",
+	  "ring": 8,
+	  "distance_px": 490,
+	  "angle_deg": 242.41,
+	  "unlock_cost": 50000000000000,
+	  "base_rate": 0.25,
+	  "reveal_rule": "aura",
+	  "reveal_nutrients": 25000000000000,
+	  "starts_visible": false,
+	  "starts_unlocked": false,
+	  "starts_connected": false,
+	  "outputs": [
+		{
+		  "res": "amber_dust",
+		  "weight": 0.8
+		},
+		{
+		  "res": "voidspore",
+		  "weight": 0.2
+		}
+	  ],
+	  "upgrades": {
+		"yield_level": 1,
+		"frequency_level": 1,
+		"speed_level": 1,
+		"carry_level": 1
+	  }
+	}
   ]
 }

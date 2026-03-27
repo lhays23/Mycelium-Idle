@@ -1387,20 +1387,36 @@ func _clear_digest_rows() -> void:
 func _refresh_digest_tab_buttons() -> void:
 	if digest_tab_resources == null:
 		return
-	var compounds_unlocked := false
-	var solutions_unlocked := false
+
+	var refinery_ever    := false
+	var synth_ever       := false
+	var refinery_active  := false
+	var synth_active     := false
+
 	if game_state != null:
+		if game_state.has_method("has_refinery_ever_been_seen"):
+			refinery_ever = bool(game_state.call("has_refinery_ever_been_seen"))
+		if game_state.has_method("has_synth_ever_been_seen"):
+			synth_ever = bool(game_state.call("has_synth_ever_been_seen"))
 		if game_state.has_method("is_refinery_unlocked"):
-			compounds_unlocked = bool(game_state.call("is_refinery_unlocked"))
+			refinery_active = bool(game_state.call("is_refinery_unlocked"))
 		if game_state.has_method("is_synth_unlocked"):
-			solutions_unlocked = bool(game_state.call("is_synth_unlocked"))
+			synth_active = bool(game_state.call("is_synth_unlocked"))
 
-	digest_tab_compounds.disabled = not compounds_unlocked
-	digest_tab_solutions.disabled = not solutions_unlocked
+	# Compounds tab: hidden until refinery ever unlocked, grey when not active
+	digest_tab_compounds.visible  = refinery_ever
+	digest_tab_compounds.disabled = not refinery_active
+	digest_tab_compounds.modulate.a = 1.0 if refinery_active else 0.4
 
-	if not compounds_unlocked and _digest_active_category == "compound":
+	# Solutions tab: hidden until synth ever unlocked, grey when not active
+	digest_tab_solutions.visible  = synth_ever
+	digest_tab_solutions.disabled = not synth_active
+	digest_tab_solutions.modulate.a = 1.0 if synth_active else 0.4
+
+	# Fall back to Raw if active tab is hidden/disabled
+	if not refinery_active and _digest_active_category == "compound":
 		_digest_active_category = "resource"
-	if not solutions_unlocked and _digest_active_category == "solution":
+	if not synth_active and _digest_active_category == "solution":
 		_digest_active_category = "resource"
 
 	_theme_tab_button(digest_tab_resources, _digest_active_category == "resource")
@@ -1885,29 +1901,62 @@ func _bind_discoveries_panel() -> void:
 
 
 func _refresh_panel_access_ui() -> void:
-	var can_show_discoveries := false
-	var can_show_refinery    := false
-	var can_show_chamber     := false
-	if game_state != null:
-		if game_state.has_method("can_show_discoveries_tab"):
-			can_show_discoveries = bool(game_state.call("can_show_discoveries_tab"))
-		if game_state.has_method("is_refinery_unlocked"):
-			can_show_refinery = bool(game_state.call("is_refinery_unlocked"))
-		if game_state.has_method("is_mutation_chamber_unlocked"):
-			can_show_chamber = bool(game_state.call("is_mutation_chamber_unlocked"))
+	if game_state == null:
+		return
 
+	var node_count := 0
+	if game_state != null and game_state.has_method("get_connected_node_count"):
+		node_count = int(game_state.call("get_connected_node_count"))
+
+	# ── What has ever been unlocked (permanent, survives prestige) ────────────
+	var refinery_ever    := false
+	var synth_ever       := false
+	var lab_ever         := false
+	var discoveries_ever := node_count >= 2
+
+	if game_state.has_method("has_refinery_ever_been_seen"):
+		refinery_ever = bool(game_state.call("has_refinery_ever_been_seen"))
+	if game_state.has_method("has_synth_ever_been_seen"):
+		synth_ever = bool(game_state.call("has_synth_ever_been_seen"))
+	if game_state.has_method("has_mutagen_lab_ever_been_seen"):
+		lab_ever = bool(game_state.call("has_mutagen_lab_ever_been_seen"))
+
+	# ── What is active this run ───────────────────────────────────────────────
+	var refinery_active    := false
+	var discoveries_active := node_count >= 2
+	var chamber_active     := false
+
+	if game_state.has_method("is_refinery_unlocked"):
+		refinery_active = bool(game_state.call("is_refinery_unlocked"))
+	if game_state.has_method("is_mutation_chamber_unlocked"):
+		chamber_active = bool(game_state.call("is_mutation_chamber_unlocked"))
+
+	# ── Nav buttons ───────────────────────────────────────────────────────────
+	# Digest: always visible (from game start)
+	if btn_digest != null:
+		btn_digest.modulate.a = 1.0
+		btn_digest.disabled   = false
+
+	# Discovery: visible once 2nd node connected, always active thereafter
 	if btn_discoveries != null:
-		btn_discoveries.modulate.a = 1.0 if can_show_discoveries else 0.3
-		btn_discoveries.disabled   = not can_show_discoveries
-	if btn_refinery != null:
-		btn_refinery.modulate.a = 1.0 if can_show_refinery else 0.3
-		btn_refinery.disabled   = not can_show_refinery
-	if btn_prestige != null:
-		btn_prestige.visible    = can_show_chamber
-		btn_prestige.disabled   = not can_show_chamber
-		btn_prestige.modulate.a = 1.0 if can_show_chamber else 0.0
+		btn_discoveries.visible   = discoveries_ever
+		btn_discoveries.modulate.a = 1.0
+		btn_discoveries.disabled  = not discoveries_active
 
-	if not can_show_refinery and _open_panel == refinery_panel:
+	# Refinery: visible once ever unlocked, grey until active this run
+	if btn_refinery != null:
+		btn_refinery.visible   = refinery_ever
+		btn_refinery.modulate.a = 1.0 if refinery_active else 0.4
+		btn_refinery.disabled   = not refinery_active
+
+	# Prestige: visible only when chamber unlocked
+	if btn_prestige != null:
+		btn_prestige.visible   = chamber_active
+		btn_prestige.disabled  = not chamber_active
+		btn_prestige.modulate.a = 1.0 if chamber_active else 0.0
+
+	# Close refinery panel if not active
+	if not refinery_active and _open_panel == refinery_panel:
 		_close_current()
 
 	_redraw_nav_buttons()
@@ -2470,34 +2519,48 @@ func _refresh_refinery_tab_buttons() -> void:
 	if refinery_tab_compounds == null or refinery_tab_solutions == null:
 		return
 
-	var compounds_unlocked := false
-	var solutions_unlocked := false
-	var lab_unlocked       := false
+	var synth_ever      := false
+	var lab_ever        := false
+	var synth_active    := false
+	var lab_active      := false
+
 	if game_state != null:
-		if game_state.has_method("is_refinery_unlocked"):
-			compounds_unlocked = bool(game_state.call("is_refinery_unlocked"))
+		if game_state.has_method("has_synth_ever_been_seen"):
+			synth_ever = bool(game_state.call("has_synth_ever_been_seen"))
+		if game_state.has_method("has_mutagen_lab_ever_been_seen"):
+			lab_ever = bool(game_state.call("has_mutagen_lab_ever_been_seen"))
 		if game_state.has_method("is_synth_unlocked"):
-			solutions_unlocked = bool(game_state.call("is_synth_unlocked"))
+			synth_active = bool(game_state.call("is_synth_unlocked"))
 		if game_state.has_method("is_mutagen_lab_unlocked"):
-			lab_unlocked = bool(game_state.call("is_mutagen_lab_unlocked"))
+			lab_active = bool(game_state.call("is_mutagen_lab_unlocked"))
 
-	refinery_tab_compounds.disabled = not compounds_unlocked
-	refinery_tab_solutions.disabled = not solutions_unlocked
+	# Compounds tab: always visible when refinery panel is open
+	refinery_tab_compounds.visible  = true
+	refinery_tab_compounds.disabled = false
+	refinery_tab_compounds.modulate.a = 1.0
 
-	# Mutagen Lab tab — visible always once unlocked (permanent), hidden before
+	# Solutions tab: hidden until synth ever seen, grey when not active this run
+	refinery_tab_solutions.visible   = synth_ever
+	refinery_tab_solutions.disabled  = not synth_active
+	refinery_tab_solutions.modulate.a = 1.0 if synth_active else 0.4
+
+	# Lab tab: hidden until lab ever seen, grey when not active this run
 	if refinery_tab_mutagens != null:
-		refinery_tab_mutagens.visible  = lab_unlocked
-		refinery_tab_mutagens.disabled = false
+		refinery_tab_mutagens.visible   = lab_ever
+		refinery_tab_mutagens.disabled  = not lab_active
+		refinery_tab_mutagens.modulate.a = 1.0 if lab_active else 0.4
 
-	if not solutions_unlocked and _refinery_active_category == "solution":
+	# Fall back to compounds if active tab becomes unavailable
+	if not synth_active and _refinery_active_category == "solution":
 		_refinery_active_category = "compound"
-	if not lab_unlocked and _refinery_active_category == "mutagen":
+	if not lab_active and _refinery_active_category == "mutagen":
 		_refinery_active_category = "compound"
 
 	var ractive := _refinery_active_category
 	_theme_tab_button(refinery_tab_compounds, ractive == "compound")
-	_theme_tab_button(refinery_tab_solutions, ractive == "solution")
-	if refinery_tab_mutagens != null and lab_unlocked:
+	if synth_ever:
+		_theme_tab_button(refinery_tab_solutions, ractive == "solution")
+	if lab_ever and refinery_tab_mutagens != null:
 		_theme_tab_button(refinery_tab_mutagens, ractive == "mutagen")
 
 
@@ -2600,191 +2663,438 @@ func _build_mutagen_lab_tab() -> void:
 	if not game_state.has_method("get_mutagen_lab_ui"):
 		return
 
-	var data_v = game_state.call("get_mutagen_lab_ui")
-	if typeof(data_v) != TYPE_DICTIONARY:
+	var data: Dictionary = game_state.call("get_mutagen_lab_ui") as Dictionary
+	var slots: Array          = data.get("slots", []) as Array
+	var slot_count: int       = int(data.get("slot_count", 1))
+	var available: Array      = data.get("available", []) as Array
+	var visible_unlocks: Array= data.get("visible_unlocks", []) as Array
+	var total_run_gs: int     = int(data.get("total_run_gs", 0))
+	var tm := ThemeManager
+
+	# ── GS summary ────────────────────────────────────────────────────────────
+	var summary := _make_refinery_card_shell()
+	var sb_s := StyleBoxFlat.new()
+	sb_s.bg_color = tm.c("bg_row"); sb_s.border_color = tm.c("accent_border")
+	sb_s.set_border_width_all(1); sb_s.set_corner_radius_all(10)
+	sb_s.content_margin_left = 12; sb_s.content_margin_right = 12
+	sb_s.content_margin_top = 8;   sb_s.content_margin_bottom = 8
+	summary.add_theme_stylebox_override("panel", sb_s)
+	var sh := HBoxContainer.new()
+	summary.add_child(sh)
+	var sl := Label.new(); sl.text = "Mutagen GS this run:"
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.add_theme_font_size_override("font_size", 13)
+	sl.add_theme_color_override("font_color", tm.c("text_secondary"))
+	sh.add_child(sl)
+	var sv := Label.new(); sv.text = "+%s GS" % _fmt_int(total_run_gs)
+	sv.add_theme_font_size_override("font_size", 14)
+	sv.add_theme_color_override("font_color", tm.c("accent"))
+	sh.add_child(sv)
+	refinery_list.add_child(summary)
+
+	# ── Recipe slots ──────────────────────────────────────────────────────────
+	for i in range(slot_count):
+		var slot_data: Dictionary = slots[i] as Dictionary if i < slots.size() else {}
+		refinery_list.add_child(_make_mutagen_slot_card(i, slot_data, available))
+
+	# ── Next strain unlock card ───────────────────────────────────────────────
+	for strain_id in visible_unlocks:
+		refinery_list.add_child(_make_strain_unlock_card(strain_id))
+
+	# ── Locked future strains (show gate requirement) ─────────────────────────
+	if game_state.has_method("get_strain_def"):
+		var shown_unlock := visible_unlocks.size() > 0
+		for sid in (game_state.call("strain_order") if game_state.has_method("strain_order") else []):
+			pass  # handled below via strain_order
+	_build_strain_future_hints(visible_unlocks)
+
+
+func _build_strain_future_hints(visible_unlocks: Array) -> void:
+	if game_state == null or not game_state.has_method("get_strain_def"):
 		return
-	var data: Dictionary = data_v as Dictionary
-	var tiers: Array = data.get("tiers", []) as Array
-	var total_run_gs: int = int(data.get("total_run_gs", 0))
+	if not game_state.has_property("strain_order"):
+		return
+	var strain_order: Array = game_state.get("strain_order") as Array
 	var tm := ThemeManager
-
-	# ── Run GS summary bar ────────────────────────────────────────────────────
-	var summary_card := _make_refinery_card_shell()
-	var sb_sum := StyleBoxFlat.new()
-	sb_sum.bg_color     = tm.c("bg_row")
-	sb_sum.border_color = tm.c("accent_border")
-	sb_sum.set_border_width_all(1)
-	sb_sum.set_corner_radius_all(10)
-	sb_sum.content_margin_left   = 12
-	sb_sum.content_margin_right  = 12
-	sb_sum.content_margin_top    = 8
-	sb_sum.content_margin_bottom = 8
-	summary_card.add_theme_stylebox_override("panel", sb_sum)
-
-	var sum_hbox := HBoxContainer.new()
-	summary_card.add_child(sum_hbox)
-
-	var sum_lbl := Label.new()
-	sum_lbl.text = "Mutagen GS this run:"
-	sum_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sum_lbl.add_theme_font_size_override("font_size", 13)
-	sum_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
-	sum_hbox.add_child(sum_lbl)
-
-	var sum_val := Label.new()
-	sum_val.text = "+%s GS" % _fmt_int(total_run_gs)
-	sum_val.add_theme_font_size_override("font_size", 14)
-	sum_val.add_theme_color_override("font_color", tm.c("accent"))
-	sum_hbox.add_child(sum_val)
-	refinery_list.add_child(summary_card)
-
-	# ── Per-tier cards ────────────────────────────────────────────────────────
-	for tier_v in tiers:
-		var tier: Dictionary = tier_v as Dictionary
-		refinery_list.add_child(_make_mutagen_tier_card(tier))
+	for sid in strain_order:
+		# Skip already unlocked and the one currently showing as unlock card
+		if game_state.call("is_strain_unlocked", sid):
+			continue
+		if sid in visible_unlocks:
+			continue
+		# Show as locked hint
+		var d: Dictionary = game_state.call("get_strain_def", sid) as Dictionary
+		var gate: String = str(d.get("unlock_gate_solution", ""))
+		if gate == "" or gate == "null":
+			continue
+		var gate_name: String = str(game_state.call("get_resource_name", gate))
+		var card := _make_refinery_card_shell()
+		var vbox := VBoxContainer.new()
+		vbox.add_theme_constant_override("separation", 4)
+		card.add_child(vbox)
+		var lbl := Label.new()
+		lbl.text = str(d.get("name", sid))
+		lbl.add_theme_font_size_override("font_size", 14)
+		lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		vbox.add_child(lbl)
+		var hint := Label.new()
+		hint.text = "Unlocks after crafting %s" % gate_name
+		hint.add_theme_font_size_override("font_size", 11)
+		hint.add_theme_color_override("font_color", tm.c("text_muted"))
+		hint.modulate.a = 0.6
+		vbox.add_child(hint)
+		refinery_list.add_child(card)
+		break  # Only show the next locked one
 
 
-func _make_mutagen_tier_card(tier: Dictionary) -> Control:
+func _make_strain_unlock_card(strain_id: String) -> Control:
 	var tm := ThemeManager
-	var tier_id: String     = str(tier.get("id", ""))
-	var name_str: String    = str(tier.get("name", tier_id))
-	var input_id: String    = str(tier.get("input_id", ""))
-	var input_name: String  = str(tier.get("input_name", ""))
-	var input_held: int     = int(tier.get("input_held", 0))
-	var held: int           = int(tier.get("held", 0))
-	var crafted: int        = int(tier.get("crafted_count", 0))
-	var next_gs: int        = int(tier.get("next_gs", 0))
-	var can_craft: bool     = bool(tier.get("can_craft", false))
-	var run_gs: int         = int(tier.get("run_gs", 0))
-	var gs_table: Array     = tier.get("gs_table", []) as Array
+	var d: Dictionary = {}
+	if game_state != null and game_state.has_method("get_strain_def"):
+		d = game_state.call("get_strain_def", strain_id) as Dictionary
+
+	var name_str: String = str(d.get("name", strain_id))
+	var cost: int        = int(d.get("unlock_cost_nutrients", 0))
+	var inputs: Array    = d.get("inputs", []) as Array
+	var gs_table: Array  = d.get("gs_table", []) as Array
+	var slot_unlock: int = int(d.get("unlocks_lab_slot", 0))
+
+	var can_unlock := false
+	if game_state != null and game_state.has_method("can_unlock_strain"):
+		var check: Dictionary = game_state.call("can_unlock_strain", strain_id) as Dictionary
+		can_unlock = bool(check.get("ok", false))
 
 	var card := _make_refinery_card_shell()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = Color(tm.c("accent_border"), 0.08)
+	sb.border_color = tm.c("accent_border")
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left = 12; sb.content_margin_right = 12
+	sb.content_margin_top  = 10; sb.content_margin_bottom = 10
+	card.add_theme_stylebox_override("panel", sb)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 8)
 	card.add_child(vbox)
 
-	# ── Header row: name + run GS ─────────────────────────────────────────────
-	var hdr_row := HBoxContainer.new()
+	# Header
+	var hdr := HBoxContainer.new()
 	var lbl_name := Label.new()
-	lbl_name.text = name_str
+	lbl_name.text = "Unlock: %s" % name_str
 	lbl_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lbl_name.add_theme_font_size_override("font_size", 15)
+	lbl_name.add_theme_font_size_override("font_size", 14)
 	lbl_name.add_theme_color_override("font_color", tm.c("accent"))
-	hdr_row.add_child(lbl_name)
+	hdr.add_child(lbl_name)
+	if slot_unlock > 0:
+		var slot_lbl := Label.new()
+		slot_lbl.text = "+Slot %d" % slot_unlock
+		slot_lbl.add_theme_font_size_override("font_size", 11)
+		slot_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+		hdr.add_child(slot_lbl)
+	vbox.add_child(hdr)
 
-	if run_gs > 0:
-		var lbl_run := Label.new()
-		lbl_run.text = "+%s GS earned" % _fmt_int(run_gs)
-		lbl_run.add_theme_font_size_override("font_size", 12)
-		lbl_run.add_theme_color_override("font_color", tm.c("accent_dim"))
-		hdr_row.add_child(lbl_run)
-	vbox.add_child(hdr_row)
+	# Recipe ingredients
+	if not inputs.is_empty():
+		var ing_lbl := Label.new()
+		var parts: Array[String] = []
+		for inp_v in inputs:
+			var inp: Dictionary = inp_v as Dictionary
+			var iid: String = str(inp.get("id",""))
+			var qty: int    = int(inp.get("qty", 0))
+			var iname: String = iid
+			if game_state != null and game_state.has_method("get_resource_name"):
+				iname = str(game_state.call("get_resource_name", iid))
+			parts.append("%d× %s" % [qty, iname])
+		ing_lbl.text = "Recipe: %s" % "  +  ".join(parts)
+		ing_lbl.add_theme_font_size_override("font_size", 11)
+		ing_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+		ing_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		vbox.add_child(ing_lbl)
 
-	# ── Input + held row ──────────────────────────────────────────────────────
-	var inv_row := HBoxContainer.new()
-	inv_row.add_theme_constant_override("separation", 16)
+	# GS table preview
+	if not gs_table.is_empty():
+		var gs_lbl := Label.new()
+		gs_lbl.text = "GS: %d / %d / %d / %d+" % [
+			int(gs_table[0]) if gs_table.size() > 0 else 0,
+			int(gs_table[1]) if gs_table.size() > 1 else 0,
+			int(gs_table[2]) if gs_table.size() > 2 else 0,
+			int(gs_table[3]) if gs_table.size() > 3 else 0,
+		]
+		gs_lbl.add_theme_font_size_override("font_size", 11)
+		gs_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		vbox.add_child(gs_lbl)
 
-	var lbl_input := Label.new()
-	lbl_input.text = "Input: %s  (%s held)" % [input_name, _fmt_int(input_held)]
-	lbl_input.add_theme_font_size_override("font_size", 12)
-	lbl_input.add_theme_color_override("font_color",
-		tm.c("text_primary") if input_held > 0 else tm.c("text_muted"))
-	lbl_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	inv_row.add_child(lbl_input)
-
-	if held > 0:
-		var lbl_held := Label.new()
-		lbl_held.text = "%s Mutagen held" % _fmt_int(held)
-		lbl_held.add_theme_font_size_override("font_size", 12)
-		lbl_held.add_theme_color_override("font_color", tm.c("accent_dim"))
-		inv_row.add_child(lbl_held)
-	vbox.add_child(inv_row)
-
-	# ── GS value info row with hover-style breakdown ──────────────────────────
-	var gs_info_card := PanelContainer.new()
-	var sb_gs := StyleBoxFlat.new()
-	sb_gs.bg_color     = tm.c("bg_deep")
-	sb_gs.border_color = tm.c("border")
-	sb_gs.set_border_width_all(1)
-	sb_gs.set_corner_radius_all(6)
-	sb_gs.content_margin_left   = 10
-	sb_gs.content_margin_right  = 10
-	sb_gs.content_margin_top    = 6
-	sb_gs.content_margin_bottom = 6
-	gs_info_card.add_theme_stylebox_override("panel", sb_gs)
-
-	var gs_vbox := VBoxContainer.new()
-	gs_vbox.add_theme_constant_override("separation", 3)
-	gs_info_card.add_child(gs_vbox)
-
-	var gs_title := Label.new()
-	gs_title.text = "Genetic Strain Value"
-	gs_title.add_theme_font_size_override("font_size", 11)
-	gs_title.add_theme_color_override("font_color", tm.c("text_muted"))
-	gs_vbox.add_child(gs_title)
-
-	# Table rows: 1st, 2nd, 3rd, 4th+
-	var craft_labels := ["1st crafted:", "2nd crafted:", "3rd crafted:", "4th+ crafted:"]
-	for i in range(min(gs_table.size(), 4)):
-		var row := HBoxContainer.new()
-		var lbl_k := Label.new()
-		lbl_k.text = craft_labels[i]
-		lbl_k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		lbl_k.add_theme_font_size_override("font_size", 11)
-		# Highlight the row matching the next craft
-		var is_next: bool = (i == 0 and crafted == 0) or \
-							(i == 1 and crafted == 1) or \
-							(i == 2 and crafted == 2) or \
-							(i == 3 and crafted >= 3)
-		var row_fg: String = tm.c("accent").to_html() if is_next else "666666"
-		lbl_k.add_theme_color_override("font_color", Color(tm.c("text_muted") if not is_next else tm.c("accent")))
-		row.add_child(lbl_k)
-		var lbl_v := Label.new()
-		lbl_v.text = "+%d GS" % int(gs_table[i])
-		lbl_v.add_theme_font_size_override("font_size", 11)
-		lbl_v.add_theme_color_override("font_color", tm.c("accent") if is_next else tm.c("text_muted"))
-		if is_next:
-			lbl_k.add_theme_font_size_override("font_size", 12)
-			(lbl_k as Label).text = "▶ " + lbl_k.text
-		row.add_child(lbl_v)
-		gs_vbox.add_child(row)
-
-	if crafted > 0:
-		var crafted_lbl := Label.new()
-		crafted_lbl.text = "Crafted this run: %d" % crafted
-		crafted_lbl.add_theme_font_size_override("font_size", 11)
-		crafted_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
-		gs_vbox.add_child(crafted_lbl)
-
-	vbox.add_child(gs_info_card)
-
-	# ── Craft button ──────────────────────────────────────────────────────────
+	# Unlock button with cost
 	var btn := Button.new()
-	btn.text = "Craft  →  +%d GS" % next_gs
+	btn.text = "Unlock  —  %s Nutrients" % _fmt_int(cost) if cost > 0 else "Unlock  —  Free"
 	btn.custom_minimum_size = Vector2(0, 40)
-	btn.disabled = not can_craft
+	btn.disabled = not can_unlock
 	btn.focus_mode = Control.FOCUS_NONE
 	_theme_action_button(btn)
 	btn.pressed.connect(func():
-		if game_state == null or not game_state.has_method("craft_mutagen"):
+		if game_state == null or not game_state.has_method("unlock_strain"):
 			return
-		var result_v = game_state.call("craft_mutagen", tier_id)
-		if typeof(result_v) == TYPE_DICTIONARY:
-			var result: Dictionary = result_v as Dictionary
-			if bool(result.get("ok", false)):
-				if refinery_feedback != null:
-					refinery_feedback.text = "Crafted %s — +%d GS earned this run." % [
-						name_str, int(game_state.call("get_mutagen_run_gs_total"))]
-				_refresh_refinery_panel()
-				_refresh_currency_ui()
-			else:
-				if refinery_feedback != null:
-					refinery_feedback.text = str(result.get("reason", "Cannot craft."))
-	)
+		var result: Dictionary = game_state.call("unlock_strain", strain_id) as Dictionary
+		if bool(result.get("ok", false)):
+			if refinery_feedback != null:
+				refinery_feedback.text = "%s unlocked!" % name_str
+			_refresh_refinery_panel()
+			_refresh_currency_ui()
+		else:
+			if refinery_feedback != null:
+				refinery_feedback.text = str(result.get("reason", "Cannot unlock.")))
 	vbox.add_child(btn)
+	return card
+
+
+func _make_mutagen_slot_card(slot_index: int, slot: Dictionary, available: Array) -> Control:
+	var tm := ThemeManager
+	var tier_id: String     = str(slot.get("tier_id", ""))
+	var tier_name: String   = str(slot.get("tier_name", "Empty"))
+	var input_name: String  = str(slot.get("input_name", ""))
+	var input_held: int     = int(slot.get("input_held", 0))
+	var held: int           = int(slot.get("held", 0))
+	var pct: int            = int(slot.get("progress_pct", 0))
+	var stalled: bool       = bool(slot.get("stalled", false))
+	var next_gs: int        = int(slot.get("next_gs", 0))
+	var run_gs: int         = int(slot.get("run_gs", 0))
+	var gs_table: Array     = slot.get("gs_table", []) as Array
+	var crafted: int        = int(slot.get("crafted_count", 0))
+	var craft_time: float   = float(slot.get("craft_time_sec", 0.0))
+
+	var card := _make_refinery_card_shell()
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	card.add_child(vbox)
+
+	# ── Slot header ───────────────────────────────────────────────────────────
+	var hdr_row := HBoxContainer.new()
+	var slot_lbl := Label.new()
+	slot_lbl.text = "Slot %d" % (slot_index + 1)
+	slot_lbl.add_theme_font_size_override("font_size", 11)
+	slot_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+	slot_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hdr_row.add_child(slot_lbl)
+
+	if run_gs > 0:
+		var run_lbl := Label.new()
+		run_lbl.text = "+%s GS earned" % _fmt_int(run_gs)
+		run_lbl.add_theme_font_size_override("font_size", 11)
+		run_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+		hdr_row.add_child(run_lbl)
+	vbox.add_child(hdr_row)
+
+	# ── Tier name + input info ────────────────────────────────────────────────
+	var tier_lbl := Label.new()
+	tier_lbl.text = tier_name
+	tier_lbl.add_theme_font_size_override("font_size", 15)
+	tier_lbl.add_theme_color_override("font_color",
+		tm.c("text_muted") if tier_id == "" else tm.c("accent"))
+	vbox.add_child(tier_lbl)
+
+	if tier_id != "":
+		var inv_row := HBoxContainer.new()
+		inv_row.add_theme_constant_override("separation", 12)
+
+		var inp_lbl := Label.new()
+		inp_lbl.text = "Input: %s  (%s held)" % [input_name, _fmt_int(input_held)]
+		inp_lbl.add_theme_font_size_override("font_size", 12)
+		inp_lbl.add_theme_color_override("font_color",
+			tm.c("text_primary") if input_held > 0 else tm.c("text_muted"))
+		inp_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		inv_row.add_child(inp_lbl)
+
+		if held > 0:
+			var held_lbl := Label.new()
+			held_lbl.text = "%s held" % _fmt_int(held)
+			held_lbl.add_theme_font_size_override("font_size", 12)
+			held_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+			inv_row.add_child(held_lbl)
+		vbox.add_child(inv_row)
+
+		# ── Progress bar ──────────────────────────────────────────────────────
+		var prog_bar := ProgressBar.new()
+		prog_bar.min_value       = 0
+		prog_bar.max_value       = 100
+		prog_bar.value           = pct
+		prog_bar.show_percentage = false
+		prog_bar.custom_minimum_size = Vector2(0, 10)
+		prog_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if stalled:
+			var lbl_stall := Label.new()
+			lbl_stall.text = "⚠ Waiting for %s" % input_name
+			lbl_stall.add_theme_font_size_override("font_size", 11)
+			lbl_stall.add_theme_color_override("font_color", tm.c("warning"))
+			vbox.add_child(lbl_stall)
+		else:
+			vbox.add_child(prog_bar)
+
+		# ── GS breakdown (compact) ────────────────────────────────────────────
+		var gs_info := PanelContainer.new()
+		var sb_gs := StyleBoxFlat.new()
+		sb_gs.bg_color   = tm.c("bg_deep")
+		sb_gs.border_color = tm.c("border")
+		sb_gs.set_border_width_all(1)
+		sb_gs.set_corner_radius_all(6)
+		sb_gs.content_margin_left = 10; sb_gs.content_margin_right = 10
+		sb_gs.content_margin_top  = 6;  sb_gs.content_margin_bottom = 6
+		gs_info.add_theme_stylebox_override("panel", sb_gs)
+
+		var gs_vbox := VBoxContainer.new()
+		gs_vbox.add_theme_constant_override("separation", 2)
+		gs_info.add_child(gs_vbox)
+
+		var gs_title := Label.new()
+		gs_title.text = "GS per craft"
+		gs_title.add_theme_font_size_override("font_size", 10)
+		gs_title.add_theme_color_override("font_color", tm.c("text_muted"))
+		gs_vbox.add_child(gs_title)
+
+		var craft_labels := ["1st:", "2nd:", "3rd:", "4th+:"]
+		for ci in range(min(gs_table.size(), 4)):
+			var row := HBoxContainer.new()
+			var is_next: bool = (ci == 0 and crafted == 0) or \
+								(ci == 1 and crafted == 1) or \
+								(ci == 2 and crafted == 2) or \
+								(ci == 3 and crafted >= 3)
+			var lk := Label.new()
+			lk.text = ("▶ " if is_next else "") + craft_labels[ci]
+			lk.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			lk.add_theme_font_size_override("font_size", 10)
+			lk.add_theme_color_override("font_color",
+				tm.c("accent") if is_next else tm.c("text_muted"))
+			row.add_child(lk)
+			var lv := Label.new()
+			lv.text = "+%d GS" % int(gs_table[ci])
+			lv.add_theme_font_size_override("font_size", 10)
+			lv.add_theme_color_override("font_color",
+				tm.c("accent") if is_next else tm.c("text_muted"))
+			row.add_child(lv)
+			gs_vbox.add_child(row)
+		vbox.add_child(gs_info)
+
+	# ── Tier picker button ────────────────────────────────────────────────────
+	var pick_btn := Button.new()
+	pick_btn.text = "Change Tier" if tier_id != "" else "Assign Tier"
+	pick_btn.custom_minimum_size = Vector2(0, 36)
+	pick_btn.focus_mode = Control.FOCUS_NONE
+	_theme_action_button(pick_btn)
+	pick_btn.pressed.connect(func():
+		_show_mutagen_tier_picker(slot_index, available))
+	vbox.add_child(pick_btn)
 
 	return card
+
+
+func _show_mutagen_tier_picker(slot_index: int, available: Array) -> void:
+	var tm := ThemeManager
+
+	# Remove any existing picker
+	if refinery_panel != null:
+		for child in refinery_panel.get_children():
+			if child.name == "MutaPickerOverlay":
+				child.queue_free()
+
+	var overlay := PanelContainer.new()
+	overlay.name        = "MutaPickerOverlay"
+	overlay.z_index     = 10
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	var sb_ov := StyleBoxFlat.new()
+	sb_ov.bg_color = Color(0, 0, 0, 0.55)
+	overlay.add_theme_stylebox_override("panel", sb_ov)
+
+	var card := PanelContainer.new()
+	card.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	card.custom_minimum_size = Vector2(280, 0)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("accent_border")
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(12)
+	sb.content_margin_left = 16; sb.content_margin_right = 16
+	sb.content_margin_top  = 14; sb.content_margin_bottom = 14
+	card.add_theme_stylebox_override("panel", sb)
+	overlay.add_child(card)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	card.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "Slot %d — Select Strain" % (slot_index + 1)
+	title.add_theme_font_size_override("font_size", 14)
+	title.add_theme_color_override("font_color", tm.c("accent"))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	vbox.add_child(HSeparator.new())
+
+	# Clear slot option
+	var empty_btn := Button.new()
+	empty_btn.text = "Clear Slot"
+	empty_btn.focus_mode = Control.FOCUS_NONE
+	empty_btn.pressed.connect(func():
+		overlay.queue_free()
+		if game_state and game_state.has_method("assign_mutagen_slot"):
+			game_state.call("assign_mutagen_slot", slot_index, "")
+		_refresh_refinery_panel())
+	vbox.add_child(empty_btn)
+
+	for tier_v in available:
+		var tier: Dictionary = tier_v as Dictionary
+		var tid: String      = str(tier.get("id", ""))
+		var tname: String    = str(tier.get("name", tid))
+		var next_gs: int     = int(tier.get("next_gs", 0))
+		var ct: float        = float(tier.get("craft_time", 0))
+		var mins: int        = int(ct) / 60
+		var can_craft: bool  = bool(tier.get("can_craft", false))
+
+		var inputs: Array = tier.get("inputs", []) as Array
+		var parts: Array[String] = []
+		for inp_v in inputs:
+			var inp: Dictionary = inp_v as Dictionary
+			var iid: String = str(inp.get("id", ""))
+			var qty: int    = int(inp.get("qty", 0))
+			var iname: String = iid
+			if game_state != null and game_state.has_method("get_resource_name"):
+				iname = str(game_state.call("get_resource_name", iid))
+			parts.append("%d× %s" % [qty, iname])
+
+		var row_box := VBoxContainer.new()
+		row_box.add_theme_constant_override("separation", 2)
+
+		var btn := Button.new()
+		btn.text       = tname
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.disabled   = not can_craft
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.pressed.connect(func():
+			overlay.queue_free()
+			if game_state and game_state.has_method("assign_mutagen_slot"):
+				game_state.call("assign_mutagen_slot", slot_index, tid)
+			_refresh_refinery_panel())
+		row_box.add_child(btn)
+
+		var sub := Label.new()
+		sub.text = "%s  ·  +%d GS  ·  %dm" % ["  +  ".join(parts), next_gs, mins]
+		sub.add_theme_font_size_override("font_size", 10)
+		sub.add_theme_color_override("font_color",
+			tm.c("text_secondary") if can_craft else tm.c("text_muted"))
+		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row_box.add_child(sub)
+		vbox.add_child(row_box)
+
+	vbox.add_child(HSeparator.new())
+
+	var cancel_btn := Button.new()
+	cancel_btn.text = "Cancel"
+	cancel_btn.focus_mode = Control.FOCUS_NONE
+	cancel_btn.pressed.connect(func(): overlay.queue_free())
+	vbox.add_child(cancel_btn)
+
+	refinery_panel.add_child(overlay)
 
 
 func _make_refinery_progress_bar(pct: int, width: int = 10) -> String:
