@@ -1,6 +1,6 @@
 {
-  "version": 10,
-  "notes": "v10: Strain tiers removed (now in strains.json). Lattice Extract triggers Mutagen Lab unlock gate. Mutagen Lab Unlock recipe (100k nutrients) activates Lab tab per-run.",
+  "version": 11,
+  "notes": "v11: Strain tiers and mutagen_lab_unlock removed \u2014 all moved to Discovery tree / Mutagen Lab.",
   "solutions": [
     {
       "phase": 1,
@@ -172,22 +172,7 @@
           "qty": 5
         }
       ],
-      "craft_time_sec": 675,
-      "special_use": "mutagen_lab_unlock_trigger"
-    },
-    {
-      "id": "mutagen_lab_unlock",
-      "name": "Mutagen Lab",
-      "phase": 1,
-      "inputs": [],
-      "output_qty": 1,
-      "previous_recipe_required": "lattice_extract",
-      "discovery_requirement": "synthesis",
-      "starts_unlocked": false,
-      "unlock_cost_nutrients": 100000,
-      "active_in_pass1": true,
-      "craft_time_sec": 0,
-      "special_use": "mutagen_lab_activate"
+      "craft_time_sec": 675
     },
     {
       "phase": 1,

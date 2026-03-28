@@ -1,102 +1,174 @@
 {
-  "version": 1,
-  "notes": "Strain tiers crafted in the Mutagen Lab. Each tier consumes 1x of the previous tier. Unlock gates reference solution IDs that must have been crafted this run.",
+  "version": 2,
+  "notes": "v2: Strain tiers unlocked via Discoveries (strain_t2..t6). Slot unlocks via mutagen_lab_slot2/slot3 discoveries. No nutrient costs.",
   "strains": [
     {
       "id": "strain_primer",
       "name": "Strain Primer",
       "tier": 1,
       "inputs": [
-        {"id": "ichor_coagulate", "qty": 5},
-        {"id": "ferment_extract",  "qty": 5},
-        {"id": "lignin_lattice",   "qty": 5}
+        {
+          "id": "ichor_coagulate",
+          "qty": 5
+        },
+        {
+          "id": "ferment_extract",
+          "qty": 5
+        },
+        {
+          "id": "lignin_lattice",
+          "qty": 5
+        }
       ],
       "craft_time_sec": 675,
-      "gs_table": [5, 2, 1, 1],
-      "unlock_gate_solution": null,
-      "unlock_cost_nutrients": 0,
+      "gs_table": [
+        5,
+        2,
+        1,
+        1
+      ],
       "starts_unlocked": true,
-      "unlocks_lab_slot": null
+      "unlock_gate_discovery": null
     },
     {
       "id": "strain_compound",
       "name": "Strain Compound",
       "tier": 2,
       "inputs": [
-        {"id": "growth_gel",    "qty": 2},
-        {"id": "gloom_dust",    "qty": 2},
-        {"id": "strain_primer", "qty": 1}
+        {
+          "id": "growth_gel",
+          "qty": 2
+        },
+        {
+          "id": "gloom_dust",
+          "qty": 2
+        },
+        {
+          "id": "strain_primer",
+          "qty": 1
+        }
       ],
       "craft_time_sec": 1410,
-      "gs_table": [10, 5, 2, 1],
-      "unlock_gate_solution": "ichor_serum",
-      "unlock_cost_nutrients": 500000,
+      "gs_table": [
+        10,
+        5,
+        2,
+        1
+      ],
       "starts_unlocked": false,
-      "unlocks_lab_slot": null
+      "unlock_gate_discovery": "strain_t2"
     },
     {
       "id": "strain_serum",
       "name": "Strain Serum",
       "tier": 3,
       "inputs": [
-        {"id": "crystal_bloom",   "qty": 2},
-        {"id": "lumen_gel",       "qty": 2},
-        {"id": "strain_compound", "qty": 1}
+        {
+          "id": "crystal_bloom",
+          "qty": 2
+        },
+        {
+          "id": "lumen_gel",
+          "qty": 2
+        },
+        {
+          "id": "strain_compound",
+          "qty": 1
+        }
       ],
       "craft_time_sec": 1950,
-      "gs_table": [20, 10, 5, 2],
-      "unlock_gate_solution": "gloom_substrate",
-      "unlock_cost_nutrients": 2000000,
+      "gs_table": [
+        20,
+        10,
+        5,
+        2
+      ],
       "starts_unlocked": false,
-      "unlocks_lab_slot": 2
+      "unlock_gate_discovery": "strain_t3"
     },
     {
       "id": "strain_catalyst",
       "name": "Strain Catalyst",
       "tier": 4,
       "inputs": [
-        {"id": "null_strand",   "qty": 3},
-        {"id": "chitin_plate",  "qty": 1},
-        {"id": "strain_serum",  "qty": 1}
+        {
+          "id": "null_strand",
+          "qty": 3
+        },
+        {
+          "id": "chitin_plate",
+          "qty": 1
+        },
+        {
+          "id": "strain_serum",
+          "qty": 1
+        }
       ],
       "craft_time_sec": 2925,
-      "gs_table": [35, 17, 8, 4],
-      "unlock_gate_solution": "chitin_serum",
-      "unlock_cost_nutrients": 8000000,
+      "gs_table": [
+        35,
+        17,
+        8,
+        4
+      ],
       "starts_unlocked": false,
-      "unlocks_lab_slot": null
+      "unlock_gate_discovery": "strain_t4"
     },
     {
       "id": "strain_elixir",
       "name": "Strain Elixir",
       "tier": 5,
       "inputs": [
-        {"id": "void_mesh",       "qty": 3},
-        {"id": "enzyme_crystal",  "qty": 1},
-        {"id": "strain_catalyst", "qty": 1}
+        {
+          "id": "void_mesh",
+          "qty": 3
+        },
+        {
+          "id": "enzyme_crystal",
+          "qty": 1
+        },
+        {
+          "id": "strain_catalyst",
+          "qty": 1
+        }
       ],
       "craft_time_sec": 3780,
-      "gs_table": [55, 27, 13, 6],
-      "unlock_gate_solution": "enzyme_substrate",
-      "unlock_cost_nutrients": 30000000,
+      "gs_table": [
+        55,
+        27,
+        13,
+        6
+      ],
       "starts_unlocked": false,
-      "unlocks_lab_slot": 3
+      "unlock_gate_discovery": "strain_t5"
     },
     {
       "id": "strain_ascendant",
       "name": "Strain Ascendant",
       "tier": 6,
       "inputs": [
-        {"id": "volatile_substrate", "qty": 4},
-        {"id": "void_petal",         "qty": 3},
-        {"id": "strain_elixir",      "qty": 1}
+        {
+          "id": "volatile_substrate",
+          "qty": 4
+        },
+        {
+          "id": "void_petal",
+          "qty": 3
+        },
+        {
+          "id": "strain_elixir",
+          "qty": 1
+        }
       ],
       "craft_time_sec": 5220,
-      "gs_table": [80, 40, 20, 10],
-      "unlock_gate_solution": "bloom_substrate",
-      "unlock_cost_nutrients": 100000000,
+      "gs_table": [
+        80,
+        40,
+        20,
+        10
+      ],
       "starts_unlocked": false,
-      "unlocks_lab_slot": null
+      "unlock_gate_discovery": "strain_t6"
     }
   ]
 }

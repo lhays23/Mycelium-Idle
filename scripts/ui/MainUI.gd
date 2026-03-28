@@ -145,6 +145,17 @@ var _disc_popup: Control = null
 var _disc_popup_dimmer: ColorRect = null
 var _disc_popup_disc_id: String = ""
 var _disc_popup_layer: CanvasLayer = null
+var _volatile_popup_layer: CanvasLayer = null
+var _volatile_popup_timer_lbl: Label = null
+var _volatile_popup_obtained_lbl: Label = null
+var _volatile_popup_progress: ProgressBar = null
+var volatile_panel: Control = null        # built dynamically, lives in _panel_container
+var _vp_res_lbl: Label       = null       # resource name label
+var _vp_total_lbl: Label     = null       # total yield
+var _vp_obtained_lbl: Label  = null       # obtained so far (live)
+var _vp_timer_lbl: Label     = null       # time remaining (live)
+var _vp_progress: ProgressBar = null      # delivery progress
+var _vp_status_lbl: Label    = null       # "dissipated" notice
 
 # Recipe picker popup
 var _recipe_popup_layer: CanvasLayer = null
@@ -190,6 +201,7 @@ var _root_pulse_glow_texture: Texture2D = null
 
 # Transfer feedback
 var _transfer_fx_layer: Node2D = null
+var _volatile_node_dot: Node2D = null   # visual on the map
 var _transfer_event_seen: Dictionary = {}
 
 # NodePanel top table widgets
@@ -319,6 +331,12 @@ func _ready() -> void:
 	_bind_nodepanel_production()
 	_bind_nodepanel_upgrades()
 	_bind_mutation_chamber_panel()
+	_bind_volatile_panel()
+
+	if game_state != null and game_state.has_signal("volatile_node_changed"):
+		game_state.volatile_node_changed.connect(_on_volatile_node_changed)
+		# Sync initial state — signal may have fired before we connected
+		_refresh_volatile_node_visual()
 
 	if lbl_nutrients != null:
 		_nutrients_base_scale = lbl_nutrients.scale
@@ -563,6 +581,7 @@ func _refresh_all_panels() -> void:
 	if _open_panel == settings_panel:         _refresh_settings_panel()
 	if _open_panel == node_panel:             _refresh_nodepanel_all()
 	if _open_panel == mutation_chamber_panel: _refresh_mutation_chamber_panel()
+	if volatile_panel != null and _open_panel == volatile_panel: _refresh_volatile_panel()
 
 
 # ── Nav bar ───────────────────────────────────────────────────────────────────
@@ -852,6 +871,10 @@ func _process(dt: float) -> void:
 		# Execute auto-digest for all enabled items
 		_execute_auto_digest()
 
+		# Live-update volatile node panel if open
+		if volatile_panel != null and _open_panel == volatile_panel:
+			_refresh_volatile_panel()
+
 		if _open_panel == node_panel and _selected_node_id != "":
 			_refresh_nodepanel_all()
 
@@ -1069,6 +1092,80 @@ func _setup_transfer_fx() -> void:
 				seen["transfer_event_id"] = int(info.get("transfer_event_id", 0))
 
 		_transfer_event_seen[node_id] = seen
+
+
+func _on_volatile_node_changed() -> void:
+	print("[VN-UI] _on_volatile_node_changed fired")
+	_refresh_volatile_node_visual()
+
+
+func _refresh_volatile_node_visual() -> void:
+	if game_state == null or not game_state.has_method("get_volatile_node_ui"):
+		print("[VN-UI] game_state null or missing get_volatile_node_ui")
+		return
+	var ui: Dictionary = game_state.call("get_volatile_node_ui") as Dictionary
+	var active: bool      = bool(ui.get("active", false))
+	var delivering: bool  = bool(ui.get("delivering", false))
+	var pos: Vector2      = ui.get("position", Vector2.ZERO) as Vector2
+	print("[VN-UI] refresh — active=%s delivering=%s pos=%s dot_valid=%s" % [
+		str(active), str(delivering), str(pos),
+		str(_volatile_node_dot != null and is_instance_valid(_volatile_node_dot))
+	])
+
+	# Remove old dot if node is no longer active
+	if not active and not delivering:
+		if _volatile_node_dot != null and is_instance_valid(_volatile_node_dot):
+			_volatile_node_dot.queue_free()
+			_volatile_node_dot = null
+		return
+
+	# Create dot if needed
+	if _volatile_node_dot == null or not is_instance_valid(_volatile_node_dot):
+		_volatile_node_dot = _make_volatile_node_dot()
+		map_layer.add_child(_volatile_node_dot)
+
+	# pos is offset from spore cloud center — same coordinate system as nodes
+	_volatile_node_dot.position = spore_cloud.position + pos
+	_volatile_node_dot.z_index  = 10
+	_volatile_node_dot.visible  = true
+	print("[VN-UI] dot at local=%s global=%s" % [
+		str(_volatile_node_dot.position), str(_volatile_node_dot.global_position)
+	])
+
+
+func _make_volatile_node_dot() -> Node2D:
+	var dot := Node2D.new()
+	dot.name = "VolatileNodeDot"
+	dot.z_index = 10  # Draw on top of everything
+
+	# Bright yellow fill — unmissable for testing
+	var poly := Polygon2D.new()
+	poly.name = "Circle"
+	var points: PackedVector2Array = []
+	var segments := 24
+	for i in range(segments):
+		var a := TAU * float(i) / float(segments)
+		points.append(Vector2(cos(a), sin(a)) * 20.0)
+	poly.polygon = points
+	poly.color   = Color(1.0, 1.0, 0.0, 1.0)  # Bright yellow
+	dot.add_child(poly)
+
+	# Thick white border
+	var ring := Line2D.new()
+	ring.name = "Ring"
+	var ring_pts: PackedVector2Array = []
+	for i in range(25):
+		var a := TAU * float(i) / 24.0
+		ring_pts.append(Vector2(cos(a), sin(a)) * 20.0)
+	ring.points        = ring_pts
+	ring.width         = 3.0
+	ring.default_color = Color(1.0, 1.0, 1.0, 1.0)
+	dot.add_child(ring)
+
+	print("[VN-UI] dot created at pos %s, adding to map_layer (valid=%s)" % [
+		str(dot.position), str(is_instance_valid(map_layer))
+	])
+	return dot
 
 
 func _poll_root_transfer_feedback() -> void:
@@ -1387,36 +1484,20 @@ func _clear_digest_rows() -> void:
 func _refresh_digest_tab_buttons() -> void:
 	if digest_tab_resources == null:
 		return
-
-	var refinery_ever    := false
-	var synth_ever       := false
-	var refinery_active  := false
-	var synth_active     := false
-
+	var compounds_unlocked := false
+	var solutions_unlocked := false
 	if game_state != null:
-		if game_state.has_method("has_refinery_ever_been_seen"):
-			refinery_ever = bool(game_state.call("has_refinery_ever_been_seen"))
-		if game_state.has_method("has_synth_ever_been_seen"):
-			synth_ever = bool(game_state.call("has_synth_ever_been_seen"))
 		if game_state.has_method("is_refinery_unlocked"):
-			refinery_active = bool(game_state.call("is_refinery_unlocked"))
+			compounds_unlocked = bool(game_state.call("is_refinery_unlocked"))
 		if game_state.has_method("is_synth_unlocked"):
-			synth_active = bool(game_state.call("is_synth_unlocked"))
+			solutions_unlocked = bool(game_state.call("is_synth_unlocked"))
 
-	# Compounds tab: hidden until refinery ever unlocked, grey when not active
-	digest_tab_compounds.visible  = refinery_ever
-	digest_tab_compounds.disabled = not refinery_active
-	digest_tab_compounds.modulate.a = 1.0 if refinery_active else 0.4
+	digest_tab_compounds.disabled = not compounds_unlocked
+	digest_tab_solutions.disabled = not solutions_unlocked
 
-	# Solutions tab: hidden until synth ever unlocked, grey when not active
-	digest_tab_solutions.visible  = synth_ever
-	digest_tab_solutions.disabled = not synth_active
-	digest_tab_solutions.modulate.a = 1.0 if synth_active else 0.4
-
-	# Fall back to Raw if active tab is hidden/disabled
-	if not refinery_active and _digest_active_category == "compound":
+	if not compounds_unlocked and _digest_active_category == "compound":
 		_digest_active_category = "resource"
-	if not synth_active and _digest_active_category == "solution":
+	if not solutions_unlocked and _digest_active_category == "solution":
 		_digest_active_category = "resource"
 
 	_theme_tab_button(digest_tab_resources, _digest_active_category == "resource")
@@ -1894,69 +1975,36 @@ func _bind_discoveries_panel() -> void:
 	# Grid canvas — drawn in code using a Control
 	var grid := Control.new()
 	grid.name = "DiscoveryGrid"
-	grid.custom_minimum_size = Vector2(0, 420)
+	grid.custom_minimum_size = Vector2(0, 1200)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root_box.add_child(grid)
 	discoveries_list = root_box  # reuse var so refresh finds the panel
 
 
 func _refresh_panel_access_ui() -> void:
-	if game_state == null:
-		return
+	var can_show_discoveries := false
+	var can_show_refinery    := false
+	var can_show_chamber     := false
+	if game_state != null:
+		if game_state.has_method("can_show_discoveries_tab"):
+			can_show_discoveries = bool(game_state.call("can_show_discoveries_tab"))
+		if game_state.has_method("is_refinery_unlocked"):
+			can_show_refinery = bool(game_state.call("is_refinery_unlocked"))
+		if game_state.has_method("is_mutation_chamber_unlocked"):
+			can_show_chamber = bool(game_state.call("is_mutation_chamber_unlocked"))
 
-	var node_count := 0
-	if game_state != null and game_state.has_method("get_connected_node_count"):
-		node_count = int(game_state.call("get_connected_node_count"))
-
-	# ── What has ever been unlocked (permanent, survives prestige) ────────────
-	var refinery_ever    := false
-	var synth_ever       := false
-	var lab_ever         := false
-	var discoveries_ever := node_count >= 2
-
-	if game_state.has_method("has_refinery_ever_been_seen"):
-		refinery_ever = bool(game_state.call("has_refinery_ever_been_seen"))
-	if game_state.has_method("has_synth_ever_been_seen"):
-		synth_ever = bool(game_state.call("has_synth_ever_been_seen"))
-	if game_state.has_method("has_mutagen_lab_ever_been_seen"):
-		lab_ever = bool(game_state.call("has_mutagen_lab_ever_been_seen"))
-
-	# ── What is active this run ───────────────────────────────────────────────
-	var refinery_active    := false
-	var discoveries_active := node_count >= 2
-	var chamber_active     := false
-
-	if game_state.has_method("is_refinery_unlocked"):
-		refinery_active = bool(game_state.call("is_refinery_unlocked"))
-	if game_state.has_method("is_mutation_chamber_unlocked"):
-		chamber_active = bool(game_state.call("is_mutation_chamber_unlocked"))
-
-	# ── Nav buttons ───────────────────────────────────────────────────────────
-	# Digest: always visible (from game start)
-	if btn_digest != null:
-		btn_digest.modulate.a = 1.0
-		btn_digest.disabled   = false
-
-	# Discovery: visible once 2nd node connected, always active thereafter
 	if btn_discoveries != null:
-		btn_discoveries.visible   = discoveries_ever
-		btn_discoveries.modulate.a = 1.0
-		btn_discoveries.disabled  = not discoveries_active
-
-	# Refinery: visible once ever unlocked, grey until active this run
+		btn_discoveries.modulate.a = 1.0 if can_show_discoveries else 0.3
+		btn_discoveries.disabled   = not can_show_discoveries
 	if btn_refinery != null:
-		btn_refinery.visible   = refinery_ever
-		btn_refinery.modulate.a = 1.0 if refinery_active else 0.4
-		btn_refinery.disabled   = not refinery_active
-
-	# Prestige: visible only when chamber unlocked
+		btn_refinery.modulate.a = 1.0 if can_show_refinery else 0.3
+		btn_refinery.disabled   = not can_show_refinery
 	if btn_prestige != null:
-		btn_prestige.visible   = chamber_active
-		btn_prestige.disabled  = not chamber_active
-		btn_prestige.modulate.a = 1.0 if chamber_active else 0.0
+		btn_prestige.visible    = can_show_chamber
+		btn_prestige.disabled   = not can_show_chamber
+		btn_prestige.modulate.a = 1.0 if can_show_chamber else 0.0
 
-	# Close refinery panel if not active
-	if not refinery_active and _open_panel == refinery_panel:
+	if not can_show_refinery and _open_panel == refinery_panel:
 		_close_current()
 
 	_redraw_nav_buttons()
@@ -2017,23 +2065,65 @@ func _refresh_discoveries_panel() -> void:
 	var cx: float = 206.0
 	var node_w := 88.0
 	var node_h := 88.0
+	var col_l  := cx - node_w * 1.5 - 20.0   # left column  ≈ 54
+	var col_c  := cx - node_w * 0.5           # center       ≈ 162
+	var col_r  := cx + node_w * 0.5 + 20.0   # right column ≈ 306
 
-	var positions: Dictionary = {
-		"mycelial_insight":      Vector2(cx - node_w * 0.5,  160),
-		"aura_activation":       Vector2(cx - node_w * 0.5,  30),
-		"primitive_refinery":    Vector2(cx - node_w * 1.5 - 20, 160),
-		"synthesis":             Vector2(cx - node_w * 2.5 - 40, 160),
-		"excess_fertilizer":     Vector2(cx + node_w * 0.5 + 20, 160),
-		"nutrient_efficiency_1": Vector2(cx + node_w * 0.5 + 20, 290),
+	var row: Dictionary = {
+		0:  30.0,   # aura
+		1:  160.0,  # root row
+		2:  290.0,  # refinery children / nutrient_eff
+		3:  420.0,  # synthesis / mutagen_lab / volatile_nodes
+		4:  550.0,  # strain_t2 / volatile_magnitude
+		5:  680.0,  # strain_t3
+		6:  810.0,  # strain_t4 / mutagen_lab_slot2
+		7:  940.0,  # strain_t5
+		8:  1070.0, # strain_t6 / mutagen_lab_slot3
 	}
 
-	# Connection lines (drawn as ColorRect strips or Line2D)
+	var positions: Dictionary = {
+		# Core tree
+		"mycelial_insight":      Vector2(col_c, row[1]),
+		"aura_activation":       Vector2(col_c, row[0]),
+		"primitive_refinery":    Vector2(col_l, row[1]),
+		"excess_fertilizer":     Vector2(col_r, row[1]),
+		"nutrient_efficiency_1": Vector2(col_r, row[2]),
+		# Synth chain
+		"synthesis":             Vector2(col_l, row[2]),
+		# Volatile chain (right column, branching from aura)
+		"volatile_nodes":        Vector2(col_r, row[3]),
+		"volatile_magnitude":    Vector2(col_r, row[4]),
+		# Mutagen chain — left column from synthesis down
+		"mutagen_lab":           Vector2(col_l, row[3]),
+		"strain_t2":             Vector2(col_l, row[4]),
+		"strain_t3":             Vector2(col_l, row[5]),
+		"mutagen_lab_slot2":     Vector2(col_c, row[5]),
+		"strain_t4":             Vector2(col_l, row[6]),
+		"strain_t5":             Vector2(col_l, row[7]),
+		"mutagen_lab_slot3":     Vector2(col_c, row[7]),
+		"strain_t6":             Vector2(col_l, row[8]),
+	}
+
 	var connections: Array = [
+		# Core
 		["mycelial_insight", "aura_activation"],
 		["mycelial_insight", "primitive_refinery"],
 		["mycelial_insight", "excess_fertilizer"],
-		["primitive_refinery", "synthesis"],
 		["excess_fertilizer", "nutrient_efficiency_1"],
+		# Refinery → Synthesis
+		["primitive_refinery", "synthesis"],
+		# Volatile chain
+		["aura_activation",  "volatile_nodes"],
+		["volatile_nodes",   "volatile_magnitude"],
+		# Synth → Mutagen chain
+		["synthesis",        "mutagen_lab"],
+		["mutagen_lab",      "strain_t2"],
+		["strain_t2",        "strain_t3"],
+		["strain_t3",        "strain_t4"],
+		["strain_t3",        "mutagen_lab_slot2"],
+		["strain_t4",        "strain_t5"],
+		["strain_t5",        "strain_t6"],
+		["strain_t5",        "mutagen_lab_slot3"],
 	]
 
 	for conn in connections:
@@ -2419,6 +2509,169 @@ func _close_disc_popup() -> void:
 	_popup_closed_this_press = true
 
 
+# ── Volatile Node Panel ────────────────────────────────────────────────────────
+
+func _bind_volatile_panel() -> void:
+	if _panel_container == null:
+		return
+	var tm := ThemeManager
+
+	var panel := PanelContainer.new()
+	panel.name = "VolatilePanel"
+	panel.visible = false
+	_panel_container.add_child(panel)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.position = Vector2.ZERO
+	panel.size     = _panel_container.size
+	_set_panel_closed(panel)
+	volatile_panel = panel
+
+	var root := VBoxContainer.new()
+	root.name = "VPRoot"
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_theme_constant_override("separation", 0)
+	panel.add_child(root)
+
+	# ── Padded header area ─────────────────────────────────────────────────
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left",   16)
+	pad.add_theme_constant_override("margin_right",  16)
+	pad.add_theme_constant_override("margin_top",    14)
+	pad.add_theme_constant_override("margin_bottom", 12)
+	root.add_child(pad)
+
+	var pad_vbox := VBoxContainer.new()
+	pad_vbox.add_theme_constant_override("separation", 12)
+	pad.add_child(pad_vbox)
+
+	# Header row
+	var hdr := HBoxContainer.new()
+	pad_vbox.add_child(hdr)
+
+	var title := Label.new()
+	title.text = "Volatile Node"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", tm.c("accent"))
+	hdr.add_child(title)
+
+	var close_btn := Button.new()
+	close_btn.flat = true
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.text = "✕"
+	close_btn.add_theme_font_size_override("font_size", 16)
+	close_btn.add_theme_color_override("font_color", tm.c("text_muted"))
+	close_btn.pressed.connect(_close_current)
+	hdr.add_child(close_btn)
+
+	pad_vbox.add_child(HSeparator.new())
+
+	# Resource name
+	_vp_res_lbl = Label.new()
+	_vp_res_lbl.add_theme_font_size_override("font_size", 15)
+	_vp_res_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+	pad_vbox.add_child(_vp_res_lbl)
+
+	# Total yield row
+	var total_row := HBoxContainer.new()
+	var total_l := Label.new()
+	total_l.text = "Total yield"
+	total_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	total_l.add_theme_font_size_override("font_size", 13)
+	total_l.add_theme_color_override("font_color", tm.c("text_secondary"))
+	total_row.add_child(total_l)
+	_vp_total_lbl = Label.new()
+	_vp_total_lbl.add_theme_font_size_override("font_size", 13)
+	_vp_total_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+	total_row.add_child(_vp_total_lbl)
+	pad_vbox.add_child(total_row)
+
+	# Obtained row (live)
+	var obt_row := HBoxContainer.new()
+	var obt_l := Label.new()
+	obt_l.text = "Obtained"
+	obt_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	obt_l.add_theme_font_size_override("font_size", 13)
+	obt_l.add_theme_color_override("font_color", tm.c("text_secondary"))
+	obt_row.add_child(obt_l)
+	_vp_obtained_lbl = Label.new()
+	_vp_obtained_lbl.add_theme_font_size_override("font_size", 13)
+	_vp_obtained_lbl.add_theme_color_override("font_color", tm.c("accent"))
+	obt_row.add_child(_vp_obtained_lbl)
+	pad_vbox.add_child(obt_row)
+
+	# Time remaining row (live)
+	var time_row := HBoxContainer.new()
+	var time_l := Label.new()
+	time_l.text = "Time remaining"
+	time_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	time_l.add_theme_font_size_override("font_size", 13)
+	time_l.add_theme_color_override("font_color", tm.c("text_secondary"))
+	time_row.add_child(time_l)
+	_vp_timer_lbl = Label.new()
+	_vp_timer_lbl.add_theme_font_size_override("font_size", 13)
+	_vp_timer_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+	time_row.add_child(_vp_timer_lbl)
+	pad_vbox.add_child(time_row)
+
+	# Progress bar
+	_vp_progress = ProgressBar.new()
+	_vp_progress.min_value = 0.0
+	_vp_progress.max_value = 100.0
+	_vp_progress.value     = 0.0
+	_vp_progress.show_percentage = false
+	_vp_progress.custom_minimum_size = Vector2(0, 10)
+	pad_vbox.add_child(_vp_progress)
+
+	# Status label (shown after dissipation)
+	_vp_status_lbl = Label.new()
+	_vp_status_lbl.text = ""
+	_vp_status_lbl.add_theme_font_size_override("font_size", 13)
+	_vp_status_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+	_vp_status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_vp_status_lbl.visible = false
+	pad_vbox.add_child(_vp_status_lbl)
+
+
+func _refresh_volatile_panel() -> void:
+	if game_state == null or not game_state.has_method("get_volatile_node_ui"):
+		return
+	var ui: Dictionary = game_state.call("get_volatile_node_ui") as Dictionary
+
+	var active:     bool  = bool(ui.get("active", false))
+	var delivering: bool  = bool(ui.get("delivering", false))
+	var pct:        int   = int(ui.get("delivery_pct", 0))
+	var rate:       float = float(ui.get("rate_per_sec", 0.0))
+	var total:      float = rate * 60.0
+	var obtained:   float = total * float(pct) / 100.0
+	var secs_left:  float = 60.0 * (1.0 - float(pct) / 100.0)
+	var res_name:   String = str(ui.get("resource_name", ""))
+
+	if _vp_res_lbl != null:
+		_vp_res_lbl.text = res_name if res_name != "" else "Volatile Node"
+	if _vp_total_lbl != null:
+		_vp_total_lbl.text = _fmt_num(int(total))
+	if _vp_obtained_lbl != null:
+		_vp_obtained_lbl.text = _fmt_num(int(obtained))
+	if _vp_timer_lbl != null:
+		_vp_timer_lbl.text = "%.0fs" % maxf(0.0, secs_left) if (active or delivering) else "—"
+	if _vp_progress != null:
+		_vp_progress.value = float(pct)
+
+	# Show dissipated notice when neither active nor delivering
+	var dissipated: bool = not active and not delivering and total > 0.0
+	if _vp_status_lbl != null:
+		_vp_status_lbl.visible = dissipated
+		if dissipated:
+			_vp_status_lbl.text = "The volatile node has dissipated."
+
+
+func _show_volatile_panel() -> void:
+	if volatile_panel == null or not is_instance_valid(volatile_panel):
+		return
+	_toggle_panel(volatile_panel)
+
+
 func _on_disc_popup_dimmer_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
 		_close_disc_popup()
@@ -2519,48 +2772,34 @@ func _refresh_refinery_tab_buttons() -> void:
 	if refinery_tab_compounds == null or refinery_tab_solutions == null:
 		return
 
-	var synth_ever      := false
-	var lab_ever        := false
-	var synth_active    := false
-	var lab_active      := false
-
+	var compounds_unlocked := false
+	var solutions_unlocked := false
+	var lab_unlocked       := false
 	if game_state != null:
-		if game_state.has_method("has_synth_ever_been_seen"):
-			synth_ever = bool(game_state.call("has_synth_ever_been_seen"))
-		if game_state.has_method("has_mutagen_lab_ever_been_seen"):
-			lab_ever = bool(game_state.call("has_mutagen_lab_ever_been_seen"))
+		if game_state.has_method("is_refinery_unlocked"):
+			compounds_unlocked = bool(game_state.call("is_refinery_unlocked"))
 		if game_state.has_method("is_synth_unlocked"):
-			synth_active = bool(game_state.call("is_synth_unlocked"))
+			solutions_unlocked = bool(game_state.call("is_synth_unlocked"))
 		if game_state.has_method("is_mutagen_lab_unlocked"):
-			lab_active = bool(game_state.call("is_mutagen_lab_unlocked"))
+			lab_unlocked = bool(game_state.call("is_mutagen_lab_unlocked"))
 
-	# Compounds tab: always visible when refinery panel is open
-	refinery_tab_compounds.visible  = true
-	refinery_tab_compounds.disabled = false
-	refinery_tab_compounds.modulate.a = 1.0
+	refinery_tab_compounds.disabled = not compounds_unlocked
+	refinery_tab_solutions.disabled = not solutions_unlocked
 
-	# Solutions tab: hidden until synth ever seen, grey when not active this run
-	refinery_tab_solutions.visible   = synth_ever
-	refinery_tab_solutions.disabled  = not synth_active
-	refinery_tab_solutions.modulate.a = 1.0 if synth_active else 0.4
-
-	# Lab tab: hidden until lab ever seen, grey when not active this run
+	# Mutagen Lab tab — visible always once unlocked (permanent), hidden before
 	if refinery_tab_mutagens != null:
-		refinery_tab_mutagens.visible   = lab_ever
-		refinery_tab_mutagens.disabled  = not lab_active
-		refinery_tab_mutagens.modulate.a = 1.0 if lab_active else 0.4
+		refinery_tab_mutagens.visible  = lab_unlocked
+		refinery_tab_mutagens.disabled = false
 
-	# Fall back to compounds if active tab becomes unavailable
-	if not synth_active and _refinery_active_category == "solution":
+	if not solutions_unlocked and _refinery_active_category == "solution":
 		_refinery_active_category = "compound"
-	if not lab_active and _refinery_active_category == "mutagen":
+	if not lab_unlocked and _refinery_active_category == "mutagen":
 		_refinery_active_category = "compound"
 
 	var ractive := _refinery_active_category
 	_theme_tab_button(refinery_tab_compounds, ractive == "compound")
-	if synth_ever:
-		_theme_tab_button(refinery_tab_solutions, ractive == "solution")
-	if lab_ever and refinery_tab_mutagens != null:
+	_theme_tab_button(refinery_tab_solutions, ractive == "solution")
+	if refinery_tab_mutagens != null and lab_unlocked:
 		_theme_tab_button(refinery_tab_mutagens, ractive == "mutagen")
 
 
@@ -2663,192 +2902,53 @@ func _build_mutagen_lab_tab() -> void:
 	if not game_state.has_method("get_mutagen_lab_ui"):
 		return
 
-	var data: Dictionary = game_state.call("get_mutagen_lab_ui") as Dictionary
-	var slots: Array          = data.get("slots", []) as Array
-	var slot_count: int       = int(data.get("slot_count", 1))
-	var available: Array      = data.get("available", []) as Array
-	var visible_unlocks: Array= data.get("visible_unlocks", []) as Array
-	var total_run_gs: int     = int(data.get("total_run_gs", 0))
+	var data_v = game_state.call("get_mutagen_lab_ui")
+	if typeof(data_v) != TYPE_DICTIONARY:
+		return
+	var data: Dictionary           = data_v as Dictionary
+	var slots: Array               = data.get("slots", []) as Array
+	var slot_count: int            = int(data.get("slot_count", 1))
+	var available_tiers: Array     = data.get("available_tiers", []) as Array
+	var total_run_gs: int          = int(data.get("total_run_gs", 0))
 	var tm := ThemeManager
 
-	# ── GS summary ────────────────────────────────────────────────────────────
-	var summary := _make_refinery_card_shell()
-	var sb_s := StyleBoxFlat.new()
-	sb_s.bg_color = tm.c("bg_row"); sb_s.border_color = tm.c("accent_border")
-	sb_s.set_border_width_all(1); sb_s.set_corner_radius_all(10)
-	sb_s.content_margin_left = 12; sb_s.content_margin_right = 12
-	sb_s.content_margin_top = 8;   sb_s.content_margin_bottom = 8
-	summary.add_theme_stylebox_override("panel", sb_s)
-	var sh := HBoxContainer.new()
-	summary.add_child(sh)
-	var sl := Label.new(); sl.text = "Mutagen GS this run:"
-	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sl.add_theme_font_size_override("font_size", 13)
-	sl.add_theme_color_override("font_color", tm.c("text_secondary"))
-	sh.add_child(sl)
-	var sv := Label.new(); sv.text = "+%s GS" % _fmt_int(total_run_gs)
-	sv.add_theme_font_size_override("font_size", 14)
-	sv.add_theme_color_override("font_color", tm.c("accent"))
-	sh.add_child(sv)
-	refinery_list.add_child(summary)
+	# ── Run GS summary bar ────────────────────────────────────────────────────
+	var summary_card := _make_refinery_card_shell()
+	var sb_sum := StyleBoxFlat.new()
+	sb_sum.bg_color     = tm.c("bg_row")
+	sb_sum.border_color = tm.c("accent_border")
+	sb_sum.set_border_width_all(1)
+	sb_sum.set_corner_radius_all(10)
+	sb_sum.content_margin_left   = 12
+	sb_sum.content_margin_right  = 12
+	sb_sum.content_margin_top    = 8
+	sb_sum.content_margin_bottom = 8
+	summary_card.add_theme_stylebox_override("panel", sb_sum)
 
-	# ── Recipe slots ──────────────────────────────────────────────────────────
+	var sum_hbox := HBoxContainer.new()
+	summary_card.add_child(sum_hbox)
+
+	var sum_lbl := Label.new()
+	sum_lbl.text = "Mutagen GS this run:"
+	sum_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sum_lbl.add_theme_font_size_override("font_size", 13)
+	sum_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+	sum_hbox.add_child(sum_lbl)
+
+	var sum_val := Label.new()
+	sum_val.text = "+%s GS" % _fmt_int(total_run_gs)
+	sum_val.add_theme_font_size_override("font_size", 14)
+	sum_val.add_theme_color_override("font_color", tm.c("accent"))
+	sum_hbox.add_child(sum_val)
+	refinery_list.add_child(summary_card)
+
+	# ── Slot cards ────────────────────────────────────────────────────────────
 	for i in range(slot_count):
 		var slot_data: Dictionary = slots[i] as Dictionary if i < slots.size() else {}
-		refinery_list.add_child(_make_mutagen_slot_card(i, slot_data, available))
-
-	# ── Next strain unlock card ───────────────────────────────────────────────
-	for strain_id in visible_unlocks:
-		refinery_list.add_child(_make_strain_unlock_card(strain_id))
-
-	# ── Locked future strains (show gate requirement) ─────────────────────────
-	if game_state.has_method("get_strain_def"):
-		var shown_unlock := visible_unlocks.size() > 0
-		for sid in (game_state.call("strain_order") if game_state.has_method("strain_order") else []):
-			pass  # handled below via strain_order
-	_build_strain_future_hints(visible_unlocks)
+		refinery_list.add_child(_make_mutagen_slot_card(i, slot_data, available_tiers))
 
 
-func _build_strain_future_hints(visible_unlocks: Array) -> void:
-	if game_state == null or not game_state.has_method("get_strain_def"):
-		return
-	if not game_state.has_property("strain_order"):
-		return
-	var strain_order: Array = game_state.get("strain_order") as Array
-	var tm := ThemeManager
-	for sid in strain_order:
-		# Skip already unlocked and the one currently showing as unlock card
-		if game_state.call("is_strain_unlocked", sid):
-			continue
-		if sid in visible_unlocks:
-			continue
-		# Show as locked hint
-		var d: Dictionary = game_state.call("get_strain_def", sid) as Dictionary
-		var gate: String = str(d.get("unlock_gate_solution", ""))
-		if gate == "" or gate == "null":
-			continue
-		var gate_name: String = str(game_state.call("get_resource_name", gate))
-		var card := _make_refinery_card_shell()
-		var vbox := VBoxContainer.new()
-		vbox.add_theme_constant_override("separation", 4)
-		card.add_child(vbox)
-		var lbl := Label.new()
-		lbl.text = str(d.get("name", sid))
-		lbl.add_theme_font_size_override("font_size", 14)
-		lbl.add_theme_color_override("font_color", tm.c("text_muted"))
-		vbox.add_child(lbl)
-		var hint := Label.new()
-		hint.text = "Unlocks after crafting %s" % gate_name
-		hint.add_theme_font_size_override("font_size", 11)
-		hint.add_theme_color_override("font_color", tm.c("text_muted"))
-		hint.modulate.a = 0.6
-		vbox.add_child(hint)
-		refinery_list.add_child(card)
-		break  # Only show the next locked one
-
-
-func _make_strain_unlock_card(strain_id: String) -> Control:
-	var tm := ThemeManager
-	var d: Dictionary = {}
-	if game_state != null and game_state.has_method("get_strain_def"):
-		d = game_state.call("get_strain_def", strain_id) as Dictionary
-
-	var name_str: String = str(d.get("name", strain_id))
-	var cost: int        = int(d.get("unlock_cost_nutrients", 0))
-	var inputs: Array    = d.get("inputs", []) as Array
-	var gs_table: Array  = d.get("gs_table", []) as Array
-	var slot_unlock: int = int(d.get("unlocks_lab_slot", 0))
-
-	var can_unlock := false
-	if game_state != null and game_state.has_method("can_unlock_strain"):
-		var check: Dictionary = game_state.call("can_unlock_strain", strain_id) as Dictionary
-		can_unlock = bool(check.get("ok", false))
-
-	var card := _make_refinery_card_shell()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color     = Color(tm.c("accent_border"), 0.08)
-	sb.border_color = tm.c("accent_border")
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(10)
-	sb.content_margin_left = 12; sb.content_margin_right = 12
-	sb.content_margin_top  = 10; sb.content_margin_bottom = 10
-	card.add_theme_stylebox_override("panel", sb)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 8)
-	card.add_child(vbox)
-
-	# Header
-	var hdr := HBoxContainer.new()
-	var lbl_name := Label.new()
-	lbl_name.text = "Unlock: %s" % name_str
-	lbl_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lbl_name.add_theme_font_size_override("font_size", 14)
-	lbl_name.add_theme_color_override("font_color", tm.c("accent"))
-	hdr.add_child(lbl_name)
-	if slot_unlock > 0:
-		var slot_lbl := Label.new()
-		slot_lbl.text = "+Slot %d" % slot_unlock
-		slot_lbl.add_theme_font_size_override("font_size", 11)
-		slot_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
-		hdr.add_child(slot_lbl)
-	vbox.add_child(hdr)
-
-	# Recipe ingredients
-	if not inputs.is_empty():
-		var ing_lbl := Label.new()
-		var parts: Array[String] = []
-		for inp_v in inputs:
-			var inp: Dictionary = inp_v as Dictionary
-			var iid: String = str(inp.get("id",""))
-			var qty: int    = int(inp.get("qty", 0))
-			var iname: String = iid
-			if game_state != null and game_state.has_method("get_resource_name"):
-				iname = str(game_state.call("get_resource_name", iid))
-			parts.append("%d× %s" % [qty, iname])
-		ing_lbl.text = "Recipe: %s" % "  +  ".join(parts)
-		ing_lbl.add_theme_font_size_override("font_size", 11)
-		ing_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
-		ing_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		vbox.add_child(ing_lbl)
-
-	# GS table preview
-	if not gs_table.is_empty():
-		var gs_lbl := Label.new()
-		gs_lbl.text = "GS: %d / %d / %d / %d+" % [
-			int(gs_table[0]) if gs_table.size() > 0 else 0,
-			int(gs_table[1]) if gs_table.size() > 1 else 0,
-			int(gs_table[2]) if gs_table.size() > 2 else 0,
-			int(gs_table[3]) if gs_table.size() > 3 else 0,
-		]
-		gs_lbl.add_theme_font_size_override("font_size", 11)
-		gs_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
-		vbox.add_child(gs_lbl)
-
-	# Unlock button with cost
-	var btn := Button.new()
-	btn.text = "Unlock  —  %s Nutrients" % _fmt_int(cost) if cost > 0 else "Unlock  —  Free"
-	btn.custom_minimum_size = Vector2(0, 40)
-	btn.disabled = not can_unlock
-	btn.focus_mode = Control.FOCUS_NONE
-	_theme_action_button(btn)
-	btn.pressed.connect(func():
-		if game_state == null or not game_state.has_method("unlock_strain"):
-			return
-		var result: Dictionary = game_state.call("unlock_strain", strain_id) as Dictionary
-		if bool(result.get("ok", false)):
-			if refinery_feedback != null:
-				refinery_feedback.text = "%s unlocked!" % name_str
-			_refresh_refinery_panel()
-			_refresh_currency_ui()
-		else:
-			if refinery_feedback != null:
-				refinery_feedback.text = str(result.get("reason", "Cannot unlock.")))
-	vbox.add_child(btn)
-	return card
-
-
-func _make_mutagen_slot_card(slot_index: int, slot: Dictionary, available: Array) -> Control:
+func _make_mutagen_slot_card(slot_index: int, slot: Dictionary, available_tiers: Array) -> Control:
 	var tm := ThemeManager
 	var tier_id: String     = str(slot.get("tier_id", ""))
 	var tier_name: String   = str(slot.get("tier_name", "Empty"))
@@ -2981,120 +3081,83 @@ func _make_mutagen_slot_card(slot_index: int, slot: Dictionary, available: Array
 	pick_btn.focus_mode = Control.FOCUS_NONE
 	_theme_action_button(pick_btn)
 	pick_btn.pressed.connect(func():
-		_show_mutagen_tier_picker(slot_index, available))
+		_show_mutagen_tier_picker(slot_index, available_tiers))
 	vbox.add_child(pick_btn)
 
 	return card
 
 
-func _show_mutagen_tier_picker(slot_index: int, available: Array) -> void:
+func _show_mutagen_tier_picker(slot_index: int, available_tiers: Array) -> void:
 	var tm := ThemeManager
+	# Build a simple popup-style panel inside refinery_list
+	# Remove any existing picker first
+	for child in refinery_list.get_children():
+		if child.name == "MutaPickerPanel":
+			child.queue_free()
 
-	# Remove any existing picker
-	if refinery_panel != null:
-		for child in refinery_panel.get_children():
-			if child.name == "MutaPickerOverlay":
-				child.queue_free()
-
-	var overlay := PanelContainer.new()
-	overlay.name        = "MutaPickerOverlay"
-	overlay.z_index     = 10
-	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	var sb_ov := StyleBoxFlat.new()
-	sb_ov.bg_color = Color(0, 0, 0, 0.55)
-	overlay.add_theme_stylebox_override("panel", sb_ov)
-
-	var card := PanelContainer.new()
-	card.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	card.custom_minimum_size = Vector2(280, 0)
+	var panel := PanelContainer.new()
+	panel.name = "MutaPickerPanel"
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := StyleBoxFlat.new()
 	sb.bg_color     = tm.c("bg_panel")
 	sb.border_color = tm.c("accent_border")
 	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(12)
-	sb.content_margin_left = 16; sb.content_margin_right = 16
-	sb.content_margin_top  = 14; sb.content_margin_bottom = 14
-	card.add_theme_stylebox_override("panel", sb)
-	overlay.add_child(card)
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left = 12; sb.content_margin_right = 12
+	sb.content_margin_top  = 10; sb.content_margin_bottom = 10
+	panel.add_theme_stylebox_override("panel", sb)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 8)
-	card.add_child(vbox)
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
 
 	var title := Label.new()
-	title.text = "Slot %d — Select Strain" % (slot_index + 1)
-	title.add_theme_font_size_override("font_size", 14)
+	title.text = "Select tier for Slot %d" % (slot_index + 1)
+	title.add_theme_font_size_override("font_size", 13)
 	title.add_theme_color_override("font_color", tm.c("accent"))
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
 
-	vbox.add_child(HSeparator.new())
-
-	# Clear slot option
+	# Empty option
 	var empty_btn := Button.new()
-	empty_btn.text = "Clear Slot"
+	empty_btn.text = "Clear slot"
 	empty_btn.focus_mode = Control.FOCUS_NONE
 	empty_btn.pressed.connect(func():
-		overlay.queue_free()
 		if game_state and game_state.has_method("assign_mutagen_slot"):
 			game_state.call("assign_mutagen_slot", slot_index, "")
+		panel.queue_free()
 		_refresh_refinery_panel())
 	vbox.add_child(empty_btn)
 
-	for tier_v in available:
+	for tier_v in available_tiers:
 		var tier: Dictionary = tier_v as Dictionary
-		var tid: String      = str(tier.get("id", ""))
-		var tname: String    = str(tier.get("name", tid))
-		var next_gs: int     = int(tier.get("next_gs", 0))
-		var ct: float        = float(tier.get("craft_time", 0))
-		var mins: int        = int(ct) / 60
-		var can_craft: bool  = bool(tier.get("can_craft", false))
-
-		var inputs: Array = tier.get("inputs", []) as Array
-		var parts: Array[String] = []
-		for inp_v in inputs:
-			var inp: Dictionary = inp_v as Dictionary
-			var iid: String = str(inp.get("id", ""))
-			var qty: int    = int(inp.get("qty", 0))
-			var iname: String = iid
-			if game_state != null and game_state.has_method("get_resource_name"):
-				iname = str(game_state.call("get_resource_name", iid))
-			parts.append("%d× %s" % [qty, iname])
-
-		var row_box := VBoxContainer.new()
-		row_box.add_theme_constant_override("separation", 2)
+		var tid: String   = str(tier.get("id", ""))
+		var tname: String = str(tier.get("name", tid))
+		var inp_name: String = str(tier.get("input_name",""))
+		var inp_held: int = int(tier.get("input_held", 0))
+		var next_gs: int  = int(tier.get("next_gs", 0))
+		var ct: float     = float(tier.get("craft_time", 0))
+		var mins: int     = int(ct) / 60
 
 		var btn := Button.new()
-		btn.text       = tname
-		btn.focus_mode = Control.FOCUS_NONE
-		btn.disabled   = not can_craft
-		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.text = "%s — %s  (%s held)  +%d GS  [%dm]" % [
+			tname, inp_name, _fmt_int(inp_held), next_gs, mins]
+		btn.focus_mode   = Control.FOCUS_NONE
+		btn.disabled     = (inp_held <= 0)
 		btn.pressed.connect(func():
-			overlay.queue_free()
 			if game_state and game_state.has_method("assign_mutagen_slot"):
 				game_state.call("assign_mutagen_slot", slot_index, tid)
+			panel.queue_free()
 			_refresh_refinery_panel())
-		row_box.add_child(btn)
+		vbox.add_child(btn)
 
-		var sub := Label.new()
-		sub.text = "%s  ·  +%d GS  ·  %dm" % ["  +  ".join(parts), next_gs, mins]
-		sub.add_theme_font_size_override("font_size", 10)
-		sub.add_theme_color_override("font_color",
-			tm.c("text_secondary") if can_craft else tm.c("text_muted"))
-		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		row_box.add_child(sub)
-		vbox.add_child(row_box)
-
-	vbox.add_child(HSeparator.new())
-
+	# Cancel
 	var cancel_btn := Button.new()
 	cancel_btn.text = "Cancel"
 	cancel_btn.focus_mode = Control.FOCUS_NONE
-	cancel_btn.pressed.connect(func(): overlay.queue_free())
+	cancel_btn.pressed.connect(func(): panel.queue_free())
 	vbox.add_child(cancel_btn)
 
-	refinery_panel.add_child(overlay)
+	refinery_list.add_child(panel)
 
 
 func _make_refinery_progress_bar(pct: int, width: int = 10) -> String:
@@ -4897,7 +4960,10 @@ func _find_row_value_label(cs: Node, row_name: String) -> Label:
 # ---------------- Panel open/close ----------------
 
 func _all_panels() -> Array[Control]:
-	return [upgrades_panel, discoveries_panel, refinery_panel, digest_panel, settings_panel, node_panel, mutation_chamber_panel]
+	var panels: Array[Control] = [upgrades_panel, discoveries_panel, refinery_panel, digest_panel, settings_panel, node_panel, mutation_chamber_panel]
+	if volatile_panel != null and is_instance_valid(volatile_panel):
+		panels.append(volatile_panel)
+	return panels
 
 
 func _toggle_panel(panel: Control) -> void:
@@ -4947,6 +5013,8 @@ func _open(panel: Control) -> void:
 		_refresh_nodepanel_all()
 	if panel == mutation_chamber_panel:
 		_refresh_mutation_chamber_panel()
+	if volatile_panel != null and panel == volatile_panel:
+		_refresh_volatile_panel()
 
 	var vp_h       := get_viewport_rect().size.y
 	var open_y     := vp_h - PANEL_H - _bar_h
@@ -5067,6 +5135,25 @@ func _digest_handle_input(event: InputEvent) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	# Volatile node tap — check before anything else
+	if _volatile_node_dot != null and is_instance_valid(_volatile_node_dot):
+		var is_tap := false
+		var tap_pos := Vector2.ZERO
+		if event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed:
+			tap_pos = (event as InputEventScreenTouch).position
+			is_tap = true
+		elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+			tap_pos = (event as InputEventMouseButton).position
+			is_tap = true
+		if is_tap and _volatile_node_dot != null and is_instance_valid(_volatile_node_dot):
+			var dot_screen: Vector2 = get_viewport().get_screen_transform() * _volatile_node_dot.global_position
+			if tap_pos.distance_to(dot_screen) <= 32.0 * _map_zoom:
+				if game_state != null and game_state.has_method("tap_volatile_node"):
+					game_state.call("tap_volatile_node")
+				_show_volatile_panel()
+				get_viewport().set_input_as_handled()
+				return
+
 	# Digest row tap/hold — must be in _input (fires before gui_input/accept_event)
 	_digest_handle_input(event)
 

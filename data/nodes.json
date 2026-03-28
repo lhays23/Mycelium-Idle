@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "notes": "Angles are per-run randomized at runtime; values here are defaults. Pool cap removed. is_starter removed. v5: full 18-resource remap across all 40 nodes.",
   "nodes": [
 	{
@@ -69,9 +69,9 @@
 	  "angle_deg": 99.01,
 	  "unlock_cost": 500,
 	  "base_rate": 0.25,
-	  "reveal_rule": "aura",
-	  "reveal_nutrients": 250,
-	  "starts_visible": false,
+	  "reveal_rule": "starter",
+	  "reveal_nutrients": 0,
+	  "starts_visible": true,
 	  "starts_unlocked": false,
 	  "starts_connected": false,
 	  "outputs": [
