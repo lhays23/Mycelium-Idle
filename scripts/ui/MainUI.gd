@@ -26,7 +26,7 @@ const MAP_ZOOM_MIN       := 0.25
 const MAP_ZOOM_MAX       := 1.50
 const MAP_ZOOM_START     := 0.60
 const MAP_ZOOM_STEP      := 0.10   # scroll-wheel step
-const MAP_PAN_THRESHOLD  := 8.0    # px moved before drag is considered a pan
+const MAP_PAN_THRESHOLD  := 12.0   # px moved before drag is considered a pan (touch-friendly)
 
 @onready var dimmer: ColorRect = $PanelHost/Dimmer
 @onready var bottom_bar: Control = $UILayer/HUD/BottomBar
@@ -145,6 +145,8 @@ var _disc_popup: Control = null
 var _disc_popup_dimmer: ColorRect = null
 var _disc_popup_disc_id: String = ""
 var _disc_popup_layer: CanvasLayer = null
+var _disc_popup_cost_labels: Array = []   # Array of {res_id, qty, lbl} for live refresh
+var _disc_popup_buy_btn: Button = null     # Discover/Upgrade button for live enable/disable
 var _volatile_popup_layer: CanvasLayer = null
 var _volatile_popup_timer_lbl: Label = null
 var _volatile_popup_obtained_lbl: Label = null
@@ -165,6 +167,8 @@ var _recipe_popup_dimmer: ColorRect = null
 # Refinery panel widgets
 var refinery_list: VBoxContainer = null
 var refinery_feedback: Label = null
+var _refinery_header: Label = null
+var _refinery_top_pad: MarginContainer = null
 var refinery_tabs_row: HBoxContainer = null
 var refinery_tab_compounds: Button = null
 var refinery_tab_solutions: Button = null
@@ -343,7 +347,7 @@ func _ready() -> void:
 
 	_refresh_panel_access_ui()
 	_refresh_currency_ui()
-	get_tree().root.print_tree_pretty()
+	#get_tree().root.print_tree_pretty()
 
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
@@ -430,6 +434,10 @@ func _theme_panel_shell(panel: Control) -> void:
 	sb_outer.set_border_width_all(1)
 	sb_outer.corner_radius_top_left  = 14
 	sb_outer.corner_radius_top_right = 14
+	sb_outer.content_margin_top    = 0
+	sb_outer.content_margin_bottom = 0
+	sb_outer.content_margin_left   = 0
+	sb_outer.content_margin_right  = 0
 	panel.add_theme_stylebox_override("panel", sb_outer)
 
 	# Bark stripe — draw as a thin colored rect at the top edge
@@ -461,6 +469,7 @@ func _theme_panel_shell(panel: Control) -> void:
 
 func _theme_action_button(btn: Button) -> void:
 	var tm := ThemeManager
+	btn.focus_mode = Control.FOCUS_NONE   # prevent focus-grab on Android (requires 2 taps otherwise)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color     = tm.c("btn_bg")
 	sb.border_color = tm.c("btn_border")
@@ -471,6 +480,7 @@ func _theme_action_button(btn: Button) -> void:
 	sb_hov.bg_color = tm.c("accent_glow")
 	btn.add_theme_stylebox_override("hover", sb_hov)
 	btn.add_theme_stylebox_override("pressed", sb_hov)
+	btn.add_theme_stylebox_override("focus", sb)   # no visible focus ring
 	btn.add_theme_color_override("font_color",          tm.c("accent"))
 	btn.add_theme_color_override("font_disabled_color", tm.c("text_muted"))
 
@@ -487,9 +497,15 @@ func _theme_tab_button(btn: Button, active: bool) -> void:
 		sb.border_color = tm.c("border")
 		sb.set_border_width_all(0)
 	sb.set_corner_radius_all(6)
+	sb.content_margin_top    = 8
+	sb.content_margin_bottom = 8
+	sb.content_margin_left   = 4
+	sb.content_margin_right  = 4
+	btn.custom_minimum_size = Vector2(0, 36)
 	btn.add_theme_stylebox_override("normal",  sb)
 	btn.add_theme_stylebox_override("hover",   sb)
 	btn.add_theme_stylebox_override("pressed", sb)
+	btn.add_theme_stylebox_override("focus",   sb)
 	btn.add_theme_color_override("font_color", tm.c("accent") if active else tm.c("text_muted"))
 	btn.add_theme_color_override("font_disabled_color", tm.c("text_muted"))
 
@@ -875,6 +891,13 @@ func _process(dt: float) -> void:
 		if volatile_panel != null and _open_panel == volatile_panel:
 			_refresh_volatile_panel()
 
+		# Live-update discovery popup cost labels and button
+		_refresh_disc_popup_live()
+
+		# Live-update refinery slot progress bars
+		if _open_panel == refinery_panel:
+			_update_refinery_slot_progress()
+
 		if _open_panel == node_panel and _selected_node_id != "":
 			_refresh_nodepanel_all()
 
@@ -896,14 +919,9 @@ func _process(dt: float) -> void:
 	var new_discovery_signature := _get_discovery_signature()
 	if new_discovery_signature != _last_discovery_signature:
 		_last_discovery_signature = new_discovery_signature
-
 		_refresh_panel_access_ui()
-
 		if _open_panel == discoveries_panel:
 			_refresh_discoveries_panel()
-
-		if _open_panel == refinery_panel:
-			_refresh_refinery_panel()
 
 
 func _register_root_transfer_positions() -> void:
@@ -1095,22 +1113,16 @@ func _setup_transfer_fx() -> void:
 
 
 func _on_volatile_node_changed() -> void:
-	print("[VN-UI] _on_volatile_node_changed fired")
 	_refresh_volatile_node_visual()
 
 
 func _refresh_volatile_node_visual() -> void:
 	if game_state == null or not game_state.has_method("get_volatile_node_ui"):
-		print("[VN-UI] game_state null or missing get_volatile_node_ui")
 		return
 	var ui: Dictionary = game_state.call("get_volatile_node_ui") as Dictionary
 	var active: bool      = bool(ui.get("active", false))
 	var delivering: bool  = bool(ui.get("delivering", false))
 	var pos: Vector2      = ui.get("position", Vector2.ZERO) as Vector2
-	print("[VN-UI] refresh — active=%s delivering=%s pos=%s dot_valid=%s" % [
-		str(active), str(delivering), str(pos),
-		str(_volatile_node_dot != null and is_instance_valid(_volatile_node_dot))
-	])
 
 	# Remove old dot if node is no longer active
 	if not active and not delivering:
@@ -1128,9 +1140,6 @@ func _refresh_volatile_node_visual() -> void:
 	_volatile_node_dot.position = spore_cloud.position + pos
 	_volatile_node_dot.z_index  = 10
 	_volatile_node_dot.visible  = true
-	print("[VN-UI] dot at local=%s global=%s" % [
-		str(_volatile_node_dot.position), str(_volatile_node_dot.global_position)
-	])
 
 
 func _make_volatile_node_dot() -> Node2D:
@@ -1162,9 +1171,6 @@ func _make_volatile_node_dot() -> Node2D:
 	ring.default_color = Color(1.0, 1.0, 1.0, 1.0)
 	dot.add_child(ring)
 
-	print("[VN-UI] dot created at pos %s, adding to map_layer (valid=%s)" % [
-		str(dot.position), str(is_instance_valid(map_layer))
-	])
 	return dot
 
 
@@ -1262,23 +1268,37 @@ func _bind_digest_panel() -> void:
 
 	var tm := ThemeManager
 
-	# ── Root container ────────────────────────────────────────────────────
+	# ── Root Control (explicit positioning via _layout_digest_panel) ──────
 	var root := Control.new()
 	root.name = "DigestRoot"
 	root.mouse_filter = Control.MOUSE_FILTER_PASS
 	digest_panel.add_child(root)
+
+	# ── Padded top section (header + tabs) ────────────────────────────────
+	var top_pad := MarginContainer.new()
+	top_pad.name = "DigestTopPad"
+	top_pad.add_theme_constant_override("margin_left",   10)
+	top_pad.add_theme_constant_override("margin_right",  10)
+	top_pad.add_theme_constant_override("margin_top",    10)
+	top_pad.add_theme_constant_override("margin_bottom", 0)
+	root.add_child(top_pad)
+
+	var top_vbox := VBoxContainer.new()
+	top_vbox.add_theme_constant_override("separation", 6)
+	top_pad.add_child(top_vbox)
 
 	# ── Header ────────────────────────────────────────────────────────────
 	_digest_header = Label.new()
 	_digest_header.text = "Digest"
 	_digest_header.add_theme_font_size_override("font_size", 16)
 	_digest_header.add_theme_color_override("font_color", tm.c("accent"))
-	root.add_child(_digest_header)
+	top_vbox.add_child(_digest_header)
 
 	# ── Tab row ───────────────────────────────────────────────────────────
 	digest_tabs_row = HBoxContainer.new()
 	digest_tabs_row.add_theme_constant_override("separation", 4)
-	root.add_child(digest_tabs_row)
+	digest_tabs_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_vbox.add_child(digest_tabs_row)
 
 	digest_tab_resources = _make_digest_tab("Raw",       func(): _set_digest_active_category("resource"))
 	digest_tab_compounds = _make_digest_tab("Compounds", func(): _set_digest_active_category("compound"))
@@ -1287,13 +1307,22 @@ func _bind_digest_panel() -> void:
 	digest_tabs_row.add_child(digest_tab_compounds)
 	digest_tabs_row.add_child(digest_tab_solutions)
 
+	# Enforce equal fixed width after layout
+	await get_tree().process_frame
+	if is_instance_valid(digest_tabs_row):
+		var avail := digest_tabs_row.size.x - 4.0 * 2.0
+		var btn_w  := floorf(avail / 3.0)
+		for child in digest_tabs_row.get_children():
+			if child is Button:
+				(child as Button).custom_minimum_size = Vector2(btn_w, 0)
+
 	# ── Scroll ────────────────────────────────────────────────────────────
 	_digest_scroll = ScrollContainer.new()
 	_digest_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_digest_scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
 	root.add_child(_digest_scroll)
 
-	# Hide the scrollbar visually but keep scroll functionality
+	# Hide the scrollbar visually
 	await get_tree().process_frame
 	var vscroll := _digest_scroll.get_node_or_null("_v_scroll") as ScrollBar
 	if vscroll != null:
@@ -1307,9 +1336,8 @@ func _bind_digest_panel() -> void:
 	_digest_scroll.add_child(digest_inventory_list)
 
 	# ── Bottom bar ────────────────────────────────────────────────────────
-	# Use Panel (not PanelContainer) — PanelContainer forces child layout
-	# which overrides the explicit position/size we set in _layout_digest_panel
 	_digest_bottom_bar = Panel.new()
+	_digest_bottom_bar.name = "DigestBottomBar"
 	var sb_bar := StyleBoxFlat.new()
 	sb_bar.bg_color         = tm.c("bg_panel")
 	sb_bar.border_color     = tm.c("bark_stripe")
@@ -1318,19 +1346,15 @@ func _bind_digest_panel() -> void:
 	(_digest_bottom_bar as Panel).add_theme_stylebox_override("panel", sb_bar)
 	root.add_child(_digest_bottom_bar)
 
-	# Feedback label fills the panel container's content area
 	digest_feedback = Label.new()
 	digest_feedback.name = "DigestFeedback"
 	digest_feedback.text = "Select a resource"
 	digest_feedback.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	digest_feedback.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	digest_feedback.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	digest_feedback.size_flags_vertical   = Control.SIZE_EXPAND_FILL
 	digest_feedback.add_theme_font_size_override("font_size", 14)
 	digest_feedback.add_theme_color_override("font_color", tm.c("text_muted"))
 	_digest_bottom_bar.add_child(digest_feedback)
 
-	# ── Action bar (overlays bottom bar when row selected) ────────────────
 	_digest_action_bar = _build_digest_action_bar(_digest_bottom_bar)
 	_digest_action_bar.visible = false
 
@@ -1341,8 +1365,6 @@ func _layout_digest_panel() -> void:
 	var root := digest_panel.find_child("DigestRoot", true, false) as Control
 	if root == null or _panel_container == null:
 		return
-	# Always use _panel_container — digest_panel.size reflects the scene's
-	# baked size (full viewport), not the runtime panel height
 	var W: float = _panel_container.size.x
 	var H: float = _panel_container.size.y
 	if W <= 0 or H <= 0:
@@ -1351,29 +1373,25 @@ func _layout_digest_panel() -> void:
 	root.position = Vector2.ZERO
 	root.size     = Vector2(W, H)
 
-	const HDR_H := 28.0
-	const TAB_H := 36.0
 	const BAR_H := 116.0
-	const GAP   := 4.0
 
-	if _digest_header != null:
-		_digest_header.position = Vector2(0, 0)
-		_digest_header.size     = Vector2(W, HDR_H)
+	# Top pad: header + tabs — let it size naturally, then read its height
+	var top_pad := root.find_child("DigestTopPad", true, false) as Control
+	var top_h := 0.0
+	if top_pad != null:
+		top_pad.position = Vector2.ZERO
+		top_pad.size     = Vector2(W, 0)  # height auto from contents
+		await get_tree().process_frame
+		top_h = top_pad.size.y
+		top_pad.size = Vector2(W, top_h)
 
-	if digest_tabs_row != null:
-		digest_tabs_row.position = Vector2(0, HDR_H + GAP)
-		digest_tabs_row.size     = Vector2(W, TAB_H)
-
-	var scroll_top := HDR_H + GAP + TAB_H + GAP
 	if _digest_scroll != null:
-		_digest_scroll.position = Vector2(0, scroll_top)
-		_digest_scroll.size     = Vector2(W, H - scroll_top - BAR_H)
+		_digest_scroll.position = Vector2(0, top_h)
+		_digest_scroll.size     = Vector2(W, H - top_h - BAR_H)
 
 	if _digest_bottom_bar != null:
 		_digest_bottom_bar.position = Vector2(0, H - BAR_H)
 		_digest_bottom_bar.size     = Vector2(W, BAR_H)
-		# PanelContainer children don't auto-resize when size is set directly
-		# Force the feedback label to fill the content area
 		if digest_feedback != null and is_instance_valid(digest_feedback):
 			var margin := 12.0
 			digest_feedback.position = Vector2(margin, margin)
@@ -1381,13 +1399,15 @@ func _layout_digest_panel() -> void:
 		if _digest_action_bar != null and is_instance_valid(_digest_action_bar):
 			_digest_action_bar.position = Vector2(0, 0)
 			_digest_action_bar.size     = Vector2(W, BAR_H)
-		var root2 := digest_panel.find_child("DigestRoot", true, false) as Control
 
 
 func _make_digest_tab(label: String, callback: Callable) -> Button:
 	var btn := Button.new()
 	btn.text = label
+	btn.focus_mode = Control.FOCUS_NONE
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.clip_text = true
+	btn.add_theme_font_size_override("font_size", 11)
 	btn.pressed.connect(callback)
 	return btn
 
@@ -1901,33 +1921,58 @@ func _flash_nutrients() -> void:
 # ---------------- Signatures ----------------
 
 func _get_refinery_inventory_signature() -> String:
+	# Only track UNLOCK state, not live resource amounts.
+	# Amounts changing every tick would cause constant rebuilds and break button clicks.
 	var parts: Array[String] = []
 	if game_state == null:
 		return ""
 
-	var compound_defs: Dictionary = game_state.get("compound_defs")
-	for compound_id_variant in compound_defs.keys():
-		var compound_id := str(compound_id_variant)
-		parts.append("%s:%s" % [compound_id, int(game_state.get_amount(compound_id))])
+	# Which compounds are unlocked
+	if game_state.has_method("get_unlocked_compound_ids"):
+		var unlocked: Array = game_state.call("get_unlocked_compound_ids") as Array
+		for id in unlocked:
+			parts.append("cu:%s" % str(id))
+	else:
+		var compound_defs: Dictionary = game_state.get("compound_defs")
+		for id_v in compound_defs.keys():
+			var id := str(id_v)
+			var paid: Dictionary = game_state.get("paid_compound_unlocks")
+			if bool(paid.get(id, false)):
+				parts.append("cu:%s" % id)
 
-	var solution_defs: Dictionary = game_state.get("solution_defs")
-	for solution_id_variant in solution_defs.keys():
-		var solution_id := str(solution_id_variant)
-		parts.append("%s:%s" % [solution_id, int(game_state.get_amount(solution_id))])
+	# Which solutions are unlocked
+	if game_state.has_method("get_unlocked_solution_ids"):
+		var unlocked: Array = game_state.call("get_unlocked_solution_ids") as Array
+		for id in unlocked:
+			parts.append("su:%s" % str(id))
+	else:
+		var solution_defs: Dictionary = game_state.get("solution_defs")
+		for id_v in solution_defs.keys():
+			var id := str(id_v)
+			var paid: Dictionary = game_state.get("paid_solution_unlocks")
+			if bool(paid.get(id, false)):
+				parts.append("su:%s" % id)
+
+	# Active slot counts
+	var r_slots: int = int(game_state.get("unlocked_refinery_slots"))
+	var s_slots: int = int(game_state.get("unlocked_synth_slots"))
+	parts.append("rs:%d" % r_slots)
+	parts.append("ss:%d" % s_slots)
+
+	# Mutagen lab discovery
+	if game_state.has_method("is_mutagen_lab_unlocked"):
+		parts.append("ml:%s" % str(bool(game_state.call("is_mutagen_lab_unlocked"))))
 
 	parts.sort()
 	return "|".join(parts)
 
 
 func _get_discovery_signature() -> String:
+	# Only track discovery unlock/level state — NOT live resource amounts.
+	# Resources change every tick and would cause constant panel rebuilds.
 	var parts: Array[String] = []
 	if game_state == null:
 		return ""
-
-	var resource_defs: Dictionary = game_state.get("resource_defs")
-	for item_id_variant in resource_defs.keys():
-		var item_id := str(item_id_variant)
-		parts.append("%s:%s" % [item_id, int(game_state.get_amount(item_id))])
 
 	var unlocked_discoveries: Dictionary = game_state.get("unlocked_discoveries")
 	for discovery_id_variant in unlocked_discoveries.keys():
@@ -2325,6 +2370,8 @@ func _on_disc_node_pressed(disc_id: String, entry: Dictionary) -> void:
 func _show_disc_popup(disc_id: String, entry: Dictionary) -> void:
 	_close_disc_popup()
 	_disc_popup_disc_id = disc_id
+	_disc_popup_cost_labels = []
+	_disc_popup_buy_btn = null
 	var vp := get_viewport_rect().size
 	var tm := ThemeManager
 
@@ -2466,6 +2513,7 @@ func _show_disc_popup(disc_id: String, entry: Dictionary) -> void:
 				amt_lbl.add_theme_color_override("font_color",
 					tm.c("accent") if can_afford else tm.c("text_muted"))
 				cost_row.add_child(amt_lbl)
+				_disc_popup_cost_labels.append({"res_id": res_id, "qty": qty, "lbl": amt_lbl})
 
 	# ── Discover button ───────────────────────────────────────────────────
 	var can_buy: bool = bool(entry.get("can_buy", false))
@@ -2480,6 +2528,7 @@ func _show_disc_popup(disc_id: String, entry: Dictionary) -> void:
 			_on_discovery_buy_pressed(disc_id)
 		)
 		vbox.add_child(disc_btn)
+		_disc_popup_buy_btn = disc_btn
 
 	_disc_popup = popup
 	_disc_popup_layer.add_child(popup)
@@ -2503,10 +2552,40 @@ func _close_disc_popup() -> void:
 	if _disc_popup_layer != null and is_instance_valid(_disc_popup_layer):
 		_disc_popup_layer.queue_free()
 		_disc_popup_layer = null
-	_disc_popup        = null
-	_disc_popup_dimmer = null
-	_disc_popup_disc_id = ""
+	_disc_popup           = null
+	_disc_popup_dimmer    = null
+	_disc_popup_disc_id   = ""
+	_disc_popup_cost_labels = []
+	_disc_popup_buy_btn   = null
 	_popup_closed_this_press = true
+
+
+func _refresh_disc_popup_live() -> void:
+	if _disc_popup_layer == null or not is_instance_valid(_disc_popup_layer):
+		return
+	if _disc_popup_disc_id == "" or game_state == null:
+		return
+	var tm := ThemeManager
+
+	# Update cost labels
+	for entry_v in _disc_popup_cost_labels:
+		var entry: Dictionary = entry_v as Dictionary
+		var res_id: String = str(entry.get("res_id", ""))
+		var qty: int       = int(entry.get("qty", 0))
+		var lbl: Label     = entry.get("lbl", null) as Label
+		if lbl == null or not is_instance_valid(lbl):
+			continue
+		var have: int = int(game_state.call("get_amount", res_id))
+		var can_afford: bool = have >= qty
+		lbl.text = "%s / %s" % [_fmt_int(have), _fmt_int(qty)]
+		lbl.add_theme_color_override("font_color",
+			tm.c("accent") if can_afford else tm.c("text_muted"))
+
+	# Update buy button enabled state
+	if _disc_popup_buy_btn != null and is_instance_valid(_disc_popup_buy_btn):
+		var check_v = game_state.call("can_buy_discovery", _disc_popup_disc_id)
+		if typeof(check_v) == TYPE_DICTIONARY:
+			_disc_popup_buy_btn.disabled = not bool((check_v as Dictionary).get("ok", false))
 
 
 # ── Volatile Node Panel ────────────────────────────────────────────────────────
@@ -2725,34 +2804,86 @@ func _on_discovery_buy_pressed(discovery_id: String) -> void:
 # ---------------- RefineryPanel ----------------
 
 func _bind_refinery_panel() -> void:
-	refinery_list = refinery_panel.find_child("VBoxContainer", true, false) as VBoxContainer
-	if refinery_list == null:
-		return
+	# Hide the scene-provided MarginContainer — its margins are baked in the scene
+	# and can't be reliably overridden at runtime. Same approach as Digest panel.
+	var margin_c: Control = refinery_panel.find_child("MarginContainer", true, false) as Control
+	if margin_c != null:
+		margin_c.visible = false
+
+	# Build our own VBoxContainer directly on the panel with zero margins
+	var existing_list := refinery_panel.find_child("RefineryListRoot", true, false) as VBoxContainer
+	if existing_list != null:
+		existing_list.queue_free()
+
+	var list := VBoxContainer.new()
+	list.name = "RefineryListRoot"
+	list.set_anchors_preset(Control.PRESET_FULL_RECT)
+	list.add_theme_constant_override("separation", 0)
+	refinery_panel.add_child(list)
+	refinery_list = list
+
+	var tm := ThemeManager
+
+	# ── Padded top section (header + tabs) ────────────────────────────────
+	var top_pad := MarginContainer.new()
+	top_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_pad.add_theme_constant_override("margin_left",   10)
+	top_pad.add_theme_constant_override("margin_right",  10)
+	top_pad.add_theme_constant_override("margin_top",    10)
+	top_pad.add_theme_constant_override("margin_bottom", 0)
+	refinery_list.add_child(top_pad)
+	_refinery_top_pad = top_pad
+
+	var top_vbox := VBoxContainer.new()
+	top_vbox.add_theme_constant_override("separation", 6)
+	top_pad.add_child(top_vbox)
+
+	# ── Header ────────────────────────────────────────────────────────────
+	_refinery_header = Label.new()
+	_refinery_header.text = "Refinery"
+	_refinery_header.add_theme_font_size_override("font_size", 16)
+	_refinery_header.add_theme_color_override("font_color", tm.c("accent"))
+	top_vbox.add_child(_refinery_header)
 
 	refinery_tabs_row = HBoxContainer.new()
 	refinery_tabs_row.name = "RefineryTabsRow"
-	refinery_tabs_row.add_theme_constant_override("separation", 8)
-	refinery_list.add_child(refinery_tabs_row)
+	refinery_tabs_row.add_theme_constant_override("separation", 4)
+	refinery_tabs_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_vbox.add_child(refinery_tabs_row)
 
-	refinery_tab_compounds = Button.new()
-	refinery_tab_compounds.text = "Compounds"
-	refinery_tab_compounds.pressed.connect(func(): _set_refinery_active_category("compound"))
-	refinery_tabs_row.add_child(refinery_tab_compounds)
+	for tab_data in [
+		["Compounds", "compound",  refinery_tab_compounds],
+		["Solutions",  "solution", refinery_tab_solutions],
+		["Mutagens",   "mutagen",  refinery_tab_mutagens],
+	]:
+		var btn := Button.new()
+		btn.text = tab_data[0]
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.clip_text = true
+		btn.add_theme_font_size_override("font_size", 11)
+		var cat: String = tab_data[1]
+		btn.pressed.connect(func(): _set_refinery_active_category(cat))
+		refinery_tabs_row.add_child(btn)
+		match tab_data[1]:
+			"compound": refinery_tab_compounds = btn
+			"solution":  refinery_tab_solutions = btn
+			"mutagen":   refinery_tab_mutagens  = btn
 
-	refinery_tab_solutions = Button.new()
-	refinery_tab_solutions.text = "Solutions"
-	refinery_tab_solutions.pressed.connect(func(): _set_refinery_active_category("solution"))
-	refinery_tabs_row.add_child(refinery_tab_solutions)
-
-	refinery_tab_mutagens = Button.new()
-	refinery_tab_mutagens.text = "Mutagen Lab"
-	refinery_tab_mutagens.pressed.connect(func(): _set_refinery_active_category("mutagen"))
-	refinery_tabs_row.add_child(refinery_tab_mutagens)
+	# Enforce equal fixed width after layout — each button gets 1/3 of available space
+	await get_tree().process_frame
+	if is_instance_valid(refinery_tabs_row):
+		var avail := refinery_tabs_row.size.x - 4 * 2  # subtract separations
+		var btn_w  := floorf(avail / 3.0)
+		for child in refinery_tabs_row.get_children():
+			if child is Button:
+				(child as Button).custom_minimum_size = Vector2(btn_w, 0)
 
 	refinery_feedback = Label.new()
 	refinery_feedback.name = "RefineryFeedback"
 	refinery_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	refinery_feedback.text = ""
+	refinery_feedback.visible = false
 	refinery_list.add_child(refinery_feedback)
 
 	_set_refinery_active_category("compound")
@@ -2762,9 +2893,8 @@ func _clear_refinery_rows() -> void:
 	if refinery_list == null:
 		return
 	for child in refinery_list.get_children():
-		if child == refinery_feedback or child == refinery_tabs_row:
+		if child == refinery_feedback or child == _refinery_top_pad:
 			continue
-		child.queue_free()
 		child.queue_free()
 
 
@@ -2808,6 +2938,37 @@ func _set_refinery_active_category(category: String) -> void:
 	_refresh_refinery_panel()
 
 
+func _update_refinery_slot_progress() -> void:
+	if refinery_list == null or game_state == null:
+		return
+	if game_state.has_method("get_refinery_ui_entries"):
+		var entries_v = game_state.call("get_refinery_ui_entries")
+		if typeof(entries_v) == TYPE_ARRAY:
+			for entry_variant in entries_v as Array:
+				var entry: Dictionary = entry_variant as Dictionary
+				if str(entry.get("type", "")) != "slot":
+					continue
+				var slot_num: int = int(entry.get("slot_number", 0))
+				var pct: int = int(entry.get("progress_pct", 0))
+				var fill := refinery_list.find_child("SlotFill_compound_%d" % slot_num, true, false) as Control
+				if fill != null and is_instance_valid(fill):
+					fill.set_meta("_pct", pct)
+					fill.queue_redraw()
+	if game_state.has_method("get_synth_ui_entries"):
+		var entries_v2 = game_state.call("get_synth_ui_entries")
+		if typeof(entries_v2) == TYPE_ARRAY:
+			for entry_variant in entries_v2 as Array:
+				var entry: Dictionary = entry_variant as Dictionary
+				if str(entry.get("type", "")) != "slot":
+					continue
+				var slot_num: int = int(entry.get("slot_number", 0))
+				var pct: int = int(entry.get("progress_pct", 0))
+				var fill := refinery_list.find_child("SlotFill_solution_%d" % slot_num, true, false) as Control
+				if fill != null and is_instance_valid(fill):
+					fill.set_meta("_pct", pct)
+					fill.queue_redraw()
+
+
 func _refresh_refinery_panel() -> void:
 	if refinery_list == null or game_state == null:
 		return
@@ -2817,31 +2978,21 @@ func _refresh_refinery_panel() -> void:
 
 	if refinery_feedback != null:
 		refinery_feedback.text = ""
+		refinery_feedback.visible = false
 
 	if _refinery_active_category == "compound":
 		if not game_state.has_method("is_refinery_unlocked") or not bool(game_state.call("is_refinery_unlocked")):
 			if refinery_feedback != null:
 				refinery_feedback.text = "Requires Primitive Refinery."
+				refinery_feedback.visible = true
+			return
+
+		if not game_state.has_method("get_refinery_ui_entries"):
 			return
 
 		var visible_unlock_ids: Array = []
 		if game_state.has_method("get_visible_compound_unlock_ids"):
 			visible_unlock_ids = game_state.call("get_visible_compound_unlock_ids")
-
-		if not visible_unlock_ids.is_empty():
-			var recipe_header := Label.new()
-			recipe_header.text = "Recipe Unlock"
-			refinery_list.add_child(recipe_header)
-
-			for recipe_id_variant in visible_unlock_ids:
-				var recipe_id := str(recipe_id_variant)
-				refinery_list.add_child(_make_refinery_recipe_unlock_card(recipe_id))
-
-		var spacer := HSeparator.new()
-		refinery_list.add_child(spacer)
-
-		if not game_state.has_method("get_refinery_ui_entries"):
-			return
 
 		var entries = game_state.call("get_refinery_ui_entries")
 		if typeof(entries) != TYPE_ARRAY:
@@ -2853,29 +3004,32 @@ func _refresh_refinery_panel() -> void:
 				refinery_list.add_child(_make_refinery_slot_card(entry))
 			else:
 				refinery_list.add_child(_make_refinery_unlock_card(entry))
+
+		if not visible_unlock_ids.is_empty():
+			var spacer := HSeparator.new()
+			refinery_list.add_child(spacer)
+
+			var recipe_header := Label.new()
+			recipe_header.text = "Recipe Unlock"
+			recipe_header.add_theme_font_size_override("font_size", 13)
+			recipe_header.add_theme_color_override("font_color", ThemeManager.c("text_secondary"))
+			refinery_list.add_child(recipe_header)
+
+			for recipe_id_variant in visible_unlock_ids:
+				var recipe_id := str(recipe_id_variant)
+				refinery_list.add_child(_make_refinery_recipe_unlock_card(recipe_id))
 		return
 
 	if _refinery_active_category == "solution":
 		if not game_state.has_method("is_synth_unlocked") or not bool(game_state.call("is_synth_unlocked")):
 			if refinery_feedback != null:
 				refinery_feedback.text = "Requires Synthesis."
+				refinery_feedback.visible = true
 			return
 
 		var visible_solution_unlock_ids: Array = []
 		if game_state.has_method("get_visible_solution_unlock_ids"):
 			visible_solution_unlock_ids = game_state.call("get_visible_solution_unlock_ids")
-
-		if not visible_solution_unlock_ids.is_empty():
-			var recipe_header := Label.new()
-			recipe_header.text = "Solution Unlock"
-			refinery_list.add_child(recipe_header)
-
-			for recipe_id_variant in visible_solution_unlock_ids:
-				var recipe_id := str(recipe_id_variant)
-				refinery_list.add_child(_make_synth_recipe_unlock_card(recipe_id))
-
-		var spacer2 := HSeparator.new()
-		refinery_list.add_child(spacer2)
 
 		if game_state.has_method("get_synth_ui_entries"):
 			var synth_entries = game_state.call("get_synth_ui_entries")
@@ -2886,11 +3040,20 @@ func _refresh_refinery_panel() -> void:
 						refinery_list.add_child(_make_synthesis_slot_card(entry))
 					else:
 						refinery_list.add_child(_make_synth_unlock_card(entry))
-				return
 
-		var placeholder := Label.new()
-		placeholder.text = "Synthesis logic not wired yet."
-		refinery_list.add_child(placeholder)
+		if not visible_solution_unlock_ids.is_empty():
+			var spacer2 := HSeparator.new()
+			refinery_list.add_child(spacer2)
+
+			var recipe_header := Label.new()
+			recipe_header.text = "Solution Unlock"
+			recipe_header.add_theme_font_size_override("font_size", 13)
+			recipe_header.add_theme_color_override("font_color", ThemeManager.c("text_secondary"))
+			refinery_list.add_child(recipe_header)
+
+			for recipe_id_variant in visible_solution_unlock_ids:
+				var recipe_id := str(recipe_id_variant)
+				refinery_list.add_child(_make_synth_recipe_unlock_card(recipe_id))
 
 	if _refinery_active_category == "mutagen":
 		_build_mutagen_lab_tab()
@@ -3269,14 +3432,18 @@ func _make_slot_row(entry: Dictionary, category: String) -> Control:
 		vbox.add_child(track)
 
 		var fill := Control.new()
+		fill.name = "SlotFill_%s_%d" % [category, slot_number]
+		fill.set_meta("slot_number", slot_number)
+		fill.set_meta("category", category)
 		fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		fill.custom_minimum_size   = Vector2(0, 5)
 		var fill_pct := pct
 		fill.draw.connect(func():
-			var w := fill.size.x * clampf(float(fill_pct) / 100.0, 0.0, 1.0)
+			var live_pct: int = fill.get_meta("_pct", fill_pct)
+			var w := fill.size.x * clampf(float(live_pct) / 100.0, 0.0, 1.0)
 			if w > 0:
 				var sb_f := StyleBoxFlat.new()
-				sb_f.bg_color = tm.c("accent") if fill_pct >= 100 else tm.c("accent_dim")
+				sb_f.bg_color = tm.c("accent") if live_pct >= 100 else tm.c("accent_dim")
 				sb_f.set_corner_radius_all(3)
 				fill.draw_style_box(sb_f, Rect2(0, 0, w, fill.size.y))
 		)
@@ -3493,6 +3660,7 @@ func _on_refinery_toggle_repeat_pressed(slot_number: int) -> void:
 	var enabled: bool = bool(game_state.call("toggle_refinery_repeat", slot_number))
 	if refinery_feedback != null:
 		refinery_feedback.text = "Slot %s repeat: %s" % [slot_number, "On" if enabled else "Off"]
+		refinery_feedback.visible = true
 	_refresh_refinery_panel()
 
 
@@ -3502,6 +3670,7 @@ func _on_refinery_clear_recipe_pressed(slot_number: int) -> void:
 	game_state.call("clear_refinery_recipe", slot_number)
 	if refinery_feedback != null:
 		refinery_feedback.text = "Cleared Slot %s." % slot_number
+		refinery_feedback.visible = true
 	_refresh_refinery_panel()
 
 
@@ -3523,8 +3692,10 @@ func _on_refinery_unlock_compound_pressed(recipe_id: String) -> void:
 			var recipe_def: Dictionary = compound_defs.get(recipe_id, {}) as Dictionary
 			var recipe_name := str(recipe_def.get("name", recipe_id))
 			refinery_feedback.text = "Unlocked %s." % recipe_name
+			refinery_feedback.visible = true
 		else:
 			refinery_feedback.text = reason
+			refinery_feedback.visible = true
 
 	_refresh_currency_ui()
 	_refresh_refinery_panel()
@@ -3551,8 +3722,10 @@ func _on_refinery_unlock_solution_pressed(recipe_id: String) -> void:
 			var recipe_def: Dictionary = solution_defs.get(recipe_id, {}) as Dictionary
 			var recipe_name := str(recipe_def.get("name", recipe_id))
 			refinery_feedback.text = "Unlocked %s." % recipe_name
+			refinery_feedback.visible = true
 		else:
 			refinery_feedback.text = reason
+			refinery_feedback.visible = true
 
 	_refresh_currency_ui()
 	_refresh_refinery_panel()
@@ -3989,6 +4162,7 @@ func _on_synthesis_toggle_repeat_pressed(slot_number: int) -> void:
 
 	if refinery_feedback != null:
 		refinery_feedback.text = "Synthesis slot %s repeat: %s" % [slot_number, "On" if enabled else "Off"]
+		refinery_feedback.visible = true
 	_refresh_refinery_panel()
 
 
@@ -4000,6 +4174,7 @@ func _on_synthesis_clear_recipe_pressed(slot_number: int) -> void:
 
 	if refinery_feedback != null:
 		refinery_feedback.text = "Cleared synthesis slot %s." % slot_number
+		refinery_feedback.visible = true
 	_refresh_refinery_panel()
 
 
@@ -4010,8 +4185,10 @@ func _on_refinery_unlock_slot_pressed(slot_number: int) -> void:
 	if refinery_feedback != null:
 		if typeof(result) == TYPE_DICTIONARY and bool((result as Dictionary).get("ok", false)):
 			refinery_feedback.text = "Unlocked Refinery Slot %s" % slot_number
+			refinery_feedback.visible = true
 		else:
 			refinery_feedback.text = str((result as Dictionary).get("reason", "Unable to unlock slot."))
+			refinery_feedback.visible = true
 	_refresh_currency_ui()
 	_refresh_refinery_panel()
 
@@ -4024,8 +4201,10 @@ func _on_synth_unlock_slot_pressed(slot_number: int) -> void:
 	if refinery_feedback != null:
 		if typeof(result) == TYPE_DICTIONARY and bool((result as Dictionary).get("ok", false)):
 			refinery_feedback.text = "Unlocked Synthesis Slot %s" % slot_number
+			refinery_feedback.visible = true
 		else:
 			refinery_feedback.text = str((result as Dictionary).get("reason", "Unable to unlock slot."))
+			refinery_feedback.visible = true
 
 	_refresh_currency_ui()
 	_refresh_refinery_panel()
@@ -4335,20 +4514,20 @@ func _on_settings_new_game_pressed() -> void:
 	if _settings_confirm_action != "new_game":
 		_settings_confirm_action = "new_game"
 		if settings_feedback != null:
-			settings_feedback.text = "Press New Game again to confirm. Current run progress will be erased."
+			settings_feedback.text = "Press New Game again to confirm. ALL progress including mutations will be erased."
 		_refresh_settings_panel()
 		return
 
 	_clear_settings_confirmation()
 
-	if game_state == null or not game_state.has_method("start_new_run"):
+	if game_state == null or not game_state.has_method("reset_all_progress"):
 		return
 
-	game_state.call("start_new_run")
+	game_state.call("reset_all_progress")
 	_handle_runtime_state_reload()
 
 	if settings_feedback != null:
-		settings_feedback.text = "Started a new game."
+		settings_feedback.text = "New game started."
 	_refresh_settings_panel()
 
 
@@ -5263,6 +5442,7 @@ func _input(event: InputEvent) -> void:
 					_disc_drag_start_pos    = grid.position
 					_disc_is_dragging       = true
 					_disc_drag_has_moved    = false
+				# Don't return — let the Button receive the press too
 				return
 			if is_motion and _disc_is_dragging:
 				var grid := _disc_get_grid()
@@ -5276,7 +5456,9 @@ func _input(event: InputEvent) -> void:
 				return
 			if is_press_end:
 				_disc_is_dragging = false
-				return
+				# If we didn't drag, let the event fall through so buttons fire
+				if _disc_drag_has_moved:
+					return
 		elif is_press_start or is_motion:
 			return
 

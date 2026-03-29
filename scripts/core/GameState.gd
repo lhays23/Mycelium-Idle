@@ -1,7 +1,5 @@
 extends Node
 
-signal volatile_node_changed
-
 const TICK_DT: float = 0.1
 
 # ── IPM-based stat formulas ──────────────────────────────────────────────────
@@ -151,22 +149,6 @@ var discovery_levels: Dictionary = {}      # discovery_id -> current level
 var total_nutrients_earned_run: float = 0.0
 # Mutagen Lab tracking — resets each run, contributes to GS on Mutate
 var mutagen_crafted_counts: Dictionary = {}  # mutagen_tier_id -> int count this run
-var run_state_flags: Dictionary = {}         # per-run flags
-
-# ── Volatile Node state ───────────────────────────────────────────────────────
-const VOLATILE_NODE_SPAWN_INTERVAL_SEC: float = 10.0   # 10s for testing (production: 540.0)
-const VOLATILE_NODE_DELIVERY_SEC:       float = 60.0
-const VOLATILE_NODE_VALUE_MULT:         float = 150.0
-const VOLATILE_NODE_SPAWN_RADIUS_MIN:   float = 40.0
-const VOLATILE_NODE_SPAWN_RADIUS_MAX:   float = 80.0
-
-var volatile_node_timer_sec:      float   = 0.0
-var volatile_node_active:         bool    = false
-var volatile_node_delivering:     bool    = false
-var volatile_node_delivery_timer: float   = 0.0
-var volatile_node_resource_id:    String  = ""
-var volatile_node_rate_per_sec:   float   = 0.0
-var volatile_node_position:       Vector2 = Vector2.ZERO
 
 # ── Mutagen Lab slots ─────────────────────────────────────────────────────────
 const MUTAGEN_LAB_MAX_SLOTS:      int = 3
@@ -197,20 +179,12 @@ var node_world_positions: Dictionary = {}  # node_id -> Vector2
 
 
 func _ready() -> void:
-	print("[GS] _ready called — loading game")
 	if not load_game():
 		_load_all()
 	set_process(true)
-	print("[GS] _ready complete")
 
 
-var _debug_ticked: bool = false
 func _process(dt: float) -> void:
-	if not _debug_ticked:
-		_debug_ticked = true
-		print("[GS] first _process tick — volatile discovery=%s timer=%.1f" % [
-			str(has_discovery("volatile_nodes")), volatile_node_timer_sec
-		])
 	_accum += dt
 	while _accum >= TICK_DT:
 		_accum -= TICK_DT
@@ -236,7 +210,6 @@ func tick(dt: float) -> void:
 	_tick_refinery(dt)
 	_tick_synth(dt)
 	_tick_mutagen_lab(dt)
-	_tick_volatile_nodes(dt)
 	check_and_unlock_mutation_chamber()
 
 
@@ -1737,7 +1710,7 @@ func get_current_refinery_speed_multiplier() -> float:
 		var d: Dictionary = discovery_defs.get(discovery_id, {}) as Dictionary
 		if str(d.get("effect_type", "")) == "refinery_speed_mult":
 			bonus += float(d.get("effect_per_level", 0.0)) * float(get_discovery_level(discovery_id))
-	return (1.0 + bonus) * get_mutation_forge_speed_mult() * debug_rate_mult
+	return (1.0 + bonus) * get_mutation_forge_speed_mult()
 
 
 func get_current_synth_speed_multiplier() -> float:
@@ -1748,7 +1721,7 @@ func get_current_synth_speed_multiplier() -> float:
 		var d: Dictionary = discovery_defs.get(discovery_id, {}) as Dictionary
 		if str(d.get("effect_type", "")) == "synth_speed_mult":
 			bonus += float(d.get("effect_per_level", 0.0)) * float(get_discovery_level(discovery_id))
-	return (1.0 + bonus) * get_mutation_solution_speed_mult() * debug_rate_mult
+	return (1.0 + bonus) * get_mutation_solution_speed_mult()
 
 
 func _get_discovery_base_costs(discovery_id: String) -> Array:
@@ -1761,17 +1734,8 @@ func get_discovery_costs_for_next_level(discovery_id: String) -> Array:
 	if not discovery_defs.has(discovery_id):
 		return []
 	var d: Dictionary = discovery_defs[discovery_id] as Dictionary
-	var current_level: int = get_discovery_level(discovery_id)
-
-	# level_costs: array of cost arrays, one per level (used for volatile_magnitude etc.)
-	var level_costs_v = d.get("level_costs", null)
-	if level_costs_v != null and typeof(level_costs_v) == TYPE_ARRAY:
-		var level_costs: Array = level_costs_v as Array
-		var idx: int = clampi(current_level, 0, level_costs.size() - 1)
-		return (level_costs[idx] as Array).duplicate(true)
-
-	# Standard costs with optional repeat_cost_mult scaling
 	var costs: Array = _get_discovery_base_costs(discovery_id)
+	var current_level: int = get_discovery_level(discovery_id)
 	var mult: float = float(d.get("repeat_cost_mult", 1.0))
 	if current_level <= 0 or mult <= 1.0:
 		return costs
@@ -1962,17 +1926,7 @@ func _get_pass1_discovery_display_order() -> Array[String]:
 		"synthesis",
 		"aura_activation",
 		"excess_fertilizer",
-		"nutrient_efficiency_1",
-		"volatile_nodes",
-		"volatile_magnitude",
-		"mutagen_lab",
-		"strain_t2",
-		"strain_t3",
-		"mutagen_lab_slot2",
-		"strain_t4",
-		"strain_t5",
-		"mutagen_lab_slot3",
-		"strain_t6",
+		"nutrient_efficiency_1"
 	]
 
 func _is_discovery_visible_in_panel(discovery_id: String, d: Dictionary) -> bool:
@@ -2143,7 +2097,29 @@ func assign_refinery_recipe(slot_number: int, recipe_id: String) -> bool:
 	)
 
 
+func _refund_compound_inputs(recipe_id: String) -> void:
+	for input_variant in _get_compound_recipe_inputs(recipe_id):
+		var c: Dictionary = input_variant as Dictionary
+		var res_id := str(c.get("id", ""))
+		var qty := int(c.get("qty", 0))
+		if res_id == "" or qty <= 0:
+			continue
+		if not resources.has(res_id):
+			resources[res_id] = 0.0
+		resources[res_id] = float(resources.get(res_id, 0.0)) + float(qty)
+
+
 func clear_refinery_recipe(slot_number: int) -> void:
+	_ensure_refinery_slots_initialized()
+	var idx := slot_number - 1
+	if idx < 0 or idx >= refinery_slots.size():
+		return
+	var slot: Dictionary = refinery_slots[idx] as Dictionary
+	# Refund inputs if a craft was in progress
+	if bool(slot.get("in_progress", false)):
+		var recipe_id := str(slot.get("recipe_id", ""))
+		if recipe_id != "":
+			_refund_compound_inputs(recipe_id)
 	assign_refinery_recipe(slot_number, "")
 
 
@@ -2439,7 +2415,28 @@ func toggle_synth_repeat(slot_number: int) -> bool:
 	return _toggle_machine_repeat_in_slots(slot_number, unlocked_synth_slots, synth_slots)
 
 
+func _refund_solution_inputs(recipe_id: String) -> void:
+	for input_variant in _get_solution_recipe_inputs(recipe_id):
+		var c: Dictionary = input_variant as Dictionary
+		var res_id := str(c.get("id", ""))
+		var qty := int(c.get("qty", 0))
+		if res_id == "" or qty <= 0:
+			continue
+		if not resources.has(res_id):
+			resources[res_id] = 0.0
+		resources[res_id] = float(resources.get(res_id, 0.0)) + float(qty)
+
+
 func clear_synth_recipe(slot_number: int) -> void:
+	_ensure_synth_slots_initialized()
+	var idx := slot_number - 1
+	if idx < 0 or idx >= synth_slots.size():
+		return
+	var slot: Dictionary = synth_slots[idx] as Dictionary
+	if bool(slot.get("in_progress", false)):
+		var recipe_id := str(slot.get("recipe_id", ""))
+		if recipe_id != "":
+			_refund_solution_inputs(recipe_id)
 	assign_synth_recipe(slot_number, "")
 
 
@@ -2464,139 +2461,6 @@ func _tick_mutagen_lab(dt: float) -> void:
 	if not is_mutagen_lab_unlocked():
 		return
 	tick_mutagen_lab_slots(dt)
-
-
-func _tick_volatile_nodes(dt: float) -> void:
-	if not has_discovery("volatile_nodes"):
-		return  # Silent — discovery not yet unlocked, no spam
-
-	if volatile_node_delivering:
-		volatile_node_delivery_timer += dt
-		var rate := volatile_node_rate_per_sec * debug_rate_mult
-		var amount := rate * dt
-		if volatile_node_resource_id != "":
-			if not resources.has(volatile_node_resource_id):
-				resources[volatile_node_resource_id] = 0.0
-			resources[volatile_node_resource_id] = float(resources.get(volatile_node_resource_id, 0.0)) + amount
-			total_nutrients_earned_run += amount * _get_resource_dv(volatile_node_resource_id)
-		if volatile_node_delivery_timer >= VOLATILE_NODE_DELIVERY_SEC:
-			print("[VN] delivery complete — resetting")
-			volatile_node_delivering = false
-			volatile_node_active     = false
-			volatile_node_timer_sec  = 0.0
-			volatile_node_resource_id = ""
-			emit_signal("volatile_node_changed")
-		return
-
-	if volatile_node_active:
-		return
-
-	volatile_node_timer_sec += dt * debug_rate_mult
-	# Print once per second (when integer second changes)
-	var prev := volatile_node_timer_sec - dt * debug_rate_mult
-	if int(volatile_node_timer_sec) > int(prev):
-		print("[VN] timer %.1f / %.1f  active=%s" % [
-			volatile_node_timer_sec, VOLATILE_NODE_SPAWN_INTERVAL_SEC, str(volatile_node_active)
-		])
-	if volatile_node_timer_sec >= VOLATILE_NODE_SPAWN_INTERVAL_SEC:
-		print("[VN] timer reached — calling _spawn_volatile_node")
-		_spawn_volatile_node()
-
-
-func _get_resource_dv(res_id: String) -> float:
-	if resource_defs.has(res_id):
-		return float((resource_defs[res_id] as Dictionary).get("base_value", 1.0))
-	return 1.0
-
-
-func _spawn_volatile_node() -> void:
-	var available_resources: Array[String] = []
-	for node_id_v in nodes.keys():
-		var n: Dictionary = nodes[str(node_id_v)] as Dictionary
-		if not bool(n.get("is_connected", false)):
-			continue
-		var outputs: Array = n.get("outputs", []) as Array
-		for out_v in outputs:
-			var out: Dictionary = out_v as Dictionary
-			var res_id: String = str(out.get("res", ""))
-			if res_id != "" and res_id not in available_resources:
-				available_resources.append(res_id)
-
-	print("[VN] _spawn_volatile_node — available_resources: %s" % str(available_resources))
-
-	if available_resources.is_empty():
-		print("[VN] no available resources — aborting spawn")
-		volatile_node_timer_sec = 0.0
-		return
-
-	volatile_node_resource_id = available_resources[randi() % available_resources.size()]
-
-	var total_bnps: float = _get_total_bnps()
-	var mag_mult: float   = get_mutation_volatile_magnitude_mult()
-	var disc_level: int   = get_discovery_level("volatile_magnitude")
-	var disc_bonus: float = 1.0 + float(disc_level) * 0.05
-	var total_value: float = total_bnps * VOLATILE_NODE_VALUE_MULT * mag_mult * disc_bonus
-	volatile_node_rate_per_sec = total_value / VOLATILE_NODE_DELIVERY_SEC
-
-	var angle := randf() * TAU
-	var radius := VOLATILE_NODE_SPAWN_RADIUS_MIN + randf() * (VOLATILE_NODE_SPAWN_RADIUS_MAX - VOLATILE_NODE_SPAWN_RADIUS_MIN)
-	volatile_node_position = Vector2(cos(angle), sin(angle)) * radius
-
-	volatile_node_active        = true
-	volatile_node_delivering    = false
-	volatile_node_timer_sec     = 0.0
-	volatile_node_delivery_timer = 0.0
-
-	print("[VN] spawned! res=%s pos=%s rate=%.2f/s BNPS=%.2f" % [
-		volatile_node_resource_id, str(volatile_node_position),
-		volatile_node_rate_per_sec, total_bnps
-	])
-	emit_signal("volatile_node_changed")
-	print("[VN] signal emitted")
-
-
-func _get_total_bnps() -> float:
-	var total: float = 0.0
-	for node_id_v in nodes.keys():
-		var node_id: String = str(node_id_v)
-		var n: Dictionary   = nodes[node_id] as Dictionary
-		if not bool(n.get("is_connected", false)):
-			continue
-		var up: Dictionary = _ensure_upgrade_keys(n)
-		var yield_level: int = int(up.get("yield_level", 1))
-		var base_rate: float = float(n.get("base_rate", 0.25))
-		var rate: float = base_rate * _ipm_yield_rate(yield_level) * get_mutation_yield_mult()
-		# Weighted by output resource DV
-		var outputs: Array = n.get("outputs", []) as Array
-		for out_v in outputs:
-			var out: Dictionary = out_v as Dictionary
-			var res_id: String  = str(out.get("res", ""))
-			var weight: float   = float(out.get("weight", 1.0))
-			total += rate * weight * _get_resource_dv(res_id)
-	return total
-
-
-func tap_volatile_node() -> bool:
-	if not volatile_node_active or volatile_node_delivering:
-		return false
-	volatile_node_delivering    = true
-	volatile_node_delivery_timer = 0.0
-	emit_signal("volatile_node_changed")
-	return true
-
-
-func get_volatile_node_ui() -> Dictionary:
-	return {
-		"unlocked":       has_discovery("volatile_nodes"),
-		"active":         volatile_node_active,
-		"delivering":     volatile_node_delivering,
-		"delivery_pct":   int(round(clamp(volatile_node_delivery_timer / VOLATILE_NODE_DELIVERY_SEC, 0.0, 1.0) * 100.0)) if volatile_node_delivering else 0,
-		"spawn_pct":      int(round(clamp(volatile_node_timer_sec / VOLATILE_NODE_SPAWN_INTERVAL_SEC, 0.0, 1.0) * 100.0)) if not volatile_node_active else 0,
-		"resource_id":    volatile_node_resource_id,
-		"resource_name":  get_resource_name(volatile_node_resource_id) if volatile_node_resource_id != "" else "",
-		"rate_per_sec":   volatile_node_rate_per_sec,
-		"position":       volatile_node_position,
-	}
 
 
 func get_synth_ui_entries() -> Array:
@@ -2804,7 +2668,7 @@ func tick_mutagen_lab_slots(delta: float) -> Array:
 			continue
 
 		# Apply M06 Solution Speed bonus (same mutation that speeds solutions)
-		var speed_mult: float = (1.0 + float(get_mutation_level("M06")) * 0.10) * debug_rate_mult
+		var speed_mult: float = 1.0 + float(get_mutation_level("M06")) * 0.10
 		var effective_delta: float = delta * speed_mult
 
 		var progress: float = float(slot.get("progress_sec", 0.0)) + effective_delta
@@ -3310,15 +3174,6 @@ func _build_run_save_data() -> Dictionary:
 		"mutagen_lab_slots":      mutagen_lab_slots.duplicate(true),
 		"paid_compound_unlocks": paid_compound_unlocks.duplicate(true),
 		"paid_solution_unlocks": paid_solution_unlocks.duplicate(true),
-		"run_state_flags":       run_state_flags.duplicate(true),
-		"volatile_node_timer_sec":      volatile_node_timer_sec,
-		"volatile_node_active":         volatile_node_active,
-		"volatile_node_delivering":     volatile_node_delivering,
-		"volatile_node_delivery_timer": volatile_node_delivery_timer,
-		"volatile_node_resource_id":    volatile_node_resource_id,
-		"volatile_node_rate_per_sec":   volatile_node_rate_per_sec,
-		"volatile_node_pos_x":          volatile_node_position.x,
-		"volatile_node_pos_y":          volatile_node_position.y,
 		"unlocked_refinery_slots": unlocked_refinery_slots,
 		"refinery_slots": refinery_slots.duplicate(true),
 		"unlocked_synth_slots": unlocked_synth_slots,
@@ -3486,27 +3341,6 @@ func _apply_run_state(loaded_run: Dictionary) -> void:
 		mutagen_lab_slots = (loaded_slots_variant as Array).duplicate(true)
 	_ensure_mutagen_lab_slots_initialized()
 
-	var loaded_run_flags = loaded_run.get("run_state_flags", {})
-	if typeof(loaded_run_flags) == TYPE_DICTIONARY:
-		run_state_flags = (loaded_run_flags as Dictionary).duplicate(true)
-
-	volatile_node_timer_sec      = float(loaded_run.get("volatile_node_timer_sec",      0.0))
-	volatile_node_active         = bool(loaded_run.get("volatile_node_active",           false))
-	volatile_node_delivering     = bool(loaded_run.get("volatile_node_delivering",       false))
-	volatile_node_delivery_timer = float(loaded_run.get("volatile_node_delivery_timer",  0.0))
-	volatile_node_resource_id    = str(loaded_run.get("volatile_node_resource_id",       ""))
-	volatile_node_rate_per_sec   = float(loaded_run.get("volatile_node_rate_per_sec",    0.0))
-	volatile_node_position       = Vector2(
-		float(loaded_run.get("volatile_node_pos_x", 0.0)),
-		float(loaded_run.get("volatile_node_pos_y", 0.0)))
-	# If a node was active/delivering when we quit, reset so it spawns fresh on next cycle
-	if volatile_node_active or volatile_node_delivering:
-		volatile_node_active         = false
-		volatile_node_delivering     = false
-		volatile_node_delivery_timer = 0.0
-		volatile_node_resource_id    = ""
-		volatile_node_timer_sec      = VOLATILE_NODE_SPAWN_INTERVAL_SEC - 2.0  # spawn quickly after load
-
 	var loaded_unlocked_discoveries_variant = loaded_run.get("unlocked_discoveries", {})
 	if typeof(loaded_unlocked_discoveries_variant) == TYPE_DICTIONARY:
 		var loaded_unlocked_discoveries: Dictionary = loaded_unlocked_discoveries_variant as Dictionary
@@ -3571,8 +3405,6 @@ func _apply_run_state(loaded_run: Dictionary) -> void:
 
 	_sync_meta_state_into_resources()
 	_update_node_reveals()
-	# Re-emit so MainUI redraws the volatile node dot if one was active when saved
-	emit_signal("volatile_node_changed")
 
 
 func load_game() -> bool:
@@ -3631,14 +3463,6 @@ func _load_all() -> void:
 	total_nutrients_earned_run = 0.0
 	mutagen_crafted_counts = {}
 	mutagen_lab_slots = []
-	run_state_flags = {}
-	volatile_node_timer_sec      = VOLATILE_NODE_SPAWN_INTERVAL_SEC - 2.0  # DEBUG: spawn quickly
-	volatile_node_active         = false
-	volatile_node_delivering     = false
-	volatile_node_delivery_timer = 0.0
-	volatile_node_resource_id    = ""
-	volatile_node_rate_per_sec   = 0.0
-	volatile_node_position       = Vector2.ZERO
 	refinery_slot_costs.clear()
 	refinery_slots.clear()
 	unlocked_refinery_slots = 0
