@@ -51,7 +51,7 @@ const RAW_BASE_VALUES := {
 	"amber_dust":   510000.0
 }
 const BASE_DIGEST_MODIFIER: float = 1.0
-const DEFAULT_DISCOVERY_BASE_DIGESTION_MODIFIER: float = 0.8
+const DEFAULT_DISCOVERY_BASE_DIGESTION_MODIFIER: float = 1.0
 const PASS1_DISCOVERY_IDS := ["mycelial_insight", "primitive_refinery", "synthesis", "aura_activation", "excess_fertilizer", "nutrient_efficiency_1"]
 const DEFAULT_REFINERY_PASS1_RECIPE_IDS := ["spore_composite", "hyphal_thread", "cellulose_weave", "growth_gel"]
 const DEFAULT_REFINERY_BASE_CRAFT_SEC := 4.0
@@ -149,6 +149,22 @@ var discovery_levels: Dictionary = {}      # discovery_id -> current level
 var total_nutrients_earned_run: float = 0.0
 # Mutagen Lab tracking — resets each run, contributes to GS on Mutate
 var mutagen_crafted_counts: Dictionary = {}  # mutagen_tier_id -> int count this run
+var run_state_flags: Dictionary = {}
+
+# ── Volatile Node state ───────────────────────────────────────────────────────
+const VOLATILE_NODE_SPAWN_INTERVAL_SEC: float = 540.0  # 9 minutes
+const VOLATILE_NODE_DELIVERY_SEC:       float = 60.0
+const VOLATILE_NODE_VALUE_MULT:         float = 150.0
+const VOLATILE_NODE_SPAWN_RADIUS_MIN:   float = 40.0
+const VOLATILE_NODE_SPAWN_RADIUS_MAX:   float = 80.0
+
+var volatile_node_timer_sec:      float   = 0.0
+var volatile_node_active:         bool    = false
+var volatile_node_delivering:     bool    = false
+var volatile_node_delivery_timer: float   = 0.0
+var volatile_node_resource_id:    String  = ""
+var volatile_node_rate_per_sec:   float   = 0.0
+var volatile_node_position:       Vector2 = Vector2.ZERO
 
 # ── Mutagen Lab slots ─────────────────────────────────────────────────────────
 const MUTAGEN_LAB_MAX_SLOTS:      int = 3
@@ -173,6 +189,10 @@ var _accum: float = 0.0
 var _autosave_accum: float = 0.0
 var debug_rate_mult: float = 1.0
 
+# ── Playthrough timer & milestone logging ─────────────────────────────────────
+var _playtime_sec: float = 0.0
+var _milestones_logged: Dictionary = {}
+
 # World-space positions for transport calculations
 var spore_cloud_world_pos: Vector2 = Vector2.ZERO
 var node_world_positions: Dictionary = {}  # node_id -> Vector2
@@ -185,6 +205,7 @@ func _ready() -> void:
 
 
 func _process(dt: float) -> void:
+	_playtime_sec += dt
 	_accum += dt
 	while _accum >= TICK_DT:
 		_accum -= TICK_DT
@@ -210,7 +231,9 @@ func tick(dt: float) -> void:
 	_tick_refinery(dt)
 	_tick_synth(dt)
 	_tick_mutagen_lab(dt)
+	_tick_volatile_nodes(dt)
 	check_and_unlock_mutation_chamber()
+	_check_milestones()
 
 
 # ---------------- Production ----------------
@@ -1446,7 +1469,7 @@ func _ensure_upgrade_keys(n: Dictionary) -> Dictionary:
 	return up
 
 
-func _upgrade_cost(node_id: String, stat_key: String, level: int) -> int:
+func _upgrade_cost(node_id: String, _stat_key: String, level: int) -> int:
 	return _ipm_upgrade_cost(node_id, level)
 
 
@@ -1632,9 +1655,40 @@ func get_total_nutrients_earned_run() -> int:
 	return int(floor(total_nutrients_earned_run))
 
 
+func get_aura_reach_level() -> int:
+	for i in range(7, 0, -1):
+		if has_discovery("aura_reach_%d" % i):
+			return i
+	return 0
+
+
+func get_aura_radius_px(world_scale: float = 1.0) -> float:
+	# Returns radius in map_layer LOCAL space (same units as distance_px).
+	# BASE_R=120 covers root_cluster (120px) immediately on aura activation.
+	# LOG_SCALE grows the aura via nutrients. REACH_BONUS adds 80px per Reach discovery.
+	if not is_aura_active():
+		return 0.0
+	const BASE_R      := 120.0
+	const LOG_SCALE   := 20.0
+	const REACH_BONUS := 80.0
+	var nutrients := total_nutrients_earned_run
+	return (BASE_R + log(nutrients + 1.0) / log(10.0) * LOG_SCALE + float(get_aura_reach_level()) * REACH_BONUS) * world_scale
+
+
 func _update_node_reveals() -> void:
+	# Called from tick — uses raw formula radius as fallback
+	# until MainUI provides the smoothed visual radius
 	if not is_aura_active():
 		return
+	update_node_reveals_with_radius(get_aura_radius_px())
+
+
+func update_node_reveals_with_radius(aura_radius: float) -> void:
+	# aura_radius is in map_layer LOCAL space (same as distance_px).
+	# node_world_positions are in WORLD space (local * 0.6), so we convert back.
+	if not is_aura_active() or aura_radius <= 0.0:
+		return
+
 	for node_id_variant in nodes.keys():
 		var node_id: String = str(node_id_variant)
 		var n: Dictionary = nodes[node_id] as Dictionary
@@ -1642,8 +1696,11 @@ func _update_node_reveals() -> void:
 			continue
 		if str(n.get("reveal_rule", "")) != "aura":
 			continue
-		var reveal_total: int = int(n.get("reveal_nutrients", int(n.get("reveal_total_nutrients", 0))))
-		if total_nutrients_earned_run >= float(reveal_total):
+
+		# Use distance_px (local space) directly — same space as aura_radius
+		var node_dist: float = float(n.get("distance_px", 0))
+
+		if aura_radius >= node_dist:
 			n["is_visible"] = true
 			nodes[node_id] = n
 
@@ -1681,6 +1738,15 @@ func is_discovery_unlocked(discovery_id: String) -> bool:
 
 func is_refinery_unlocked() -> bool:
 	return has_discovery("primitive_refinery")
+
+
+func has_refinery_ever_been_seen() -> bool:
+	# True if refinery was ever unlocked in any previous run OR this run
+	return is_refinery_unlocked() or bool(meta_state.get("refinery_ever_seen", false))
+
+
+func has_synth_ever_been_seen() -> bool:
+	return is_synth_unlocked() or bool(meta_state.get("synth_ever_seen", false))
 
 
 func is_aura_active() -> bool:
@@ -1781,7 +1847,8 @@ func can_buy_discovery(discovery_id: String) -> Dictionary:
 	if has_discovery(discovery_id) and (not repeatable or current_level >= max_level):
 		out["reason"] = "Already complete."
 		return out
-	if not bool(d.get("active_in_pass1", false)):
+	# Only block if active_in_pass1 is explicitly set to false
+	if d.has("active_in_pass1") and not bool(d.get("active_in_pass1", true)):
 		out["reason"] = "Not active in this pass."
 		return out
 	if not can_show_discoveries_tab():
@@ -1791,10 +1858,15 @@ func can_buy_discovery(discovery_id: String) -> Dictionary:
 	if get_connected_node_count() < req_nodes:
 		out["reason"] = "Requires %s connected nodes." % req_nodes
 		return out
-	var parent_variant = d.get("parent", null)
+	# Check parent_id first, then legacy "parent" field
 	var parent_id := ""
-	if parent_variant != null:
-		parent_id = str(parent_variant)
+	var pid_variant = d.get("parent_id", null)
+	if pid_variant != null and str(pid_variant).strip_edges() not in ["", "null", "<null>"]:
+		parent_id = str(pid_variant).strip_edges()
+	else:
+		var parent_variant = d.get("parent", null)
+		if parent_variant != null:
+			parent_id = str(parent_variant).strip_edges()
 	if parent_id != "" and not has_discovery(parent_id):
 		var parent_name := parent_id
 		if discovery_defs.has(parent_id):
@@ -1816,7 +1888,6 @@ func buy_discovery(discovery_id: String) -> Dictionary:
 	var check := can_buy_discovery(discovery_id)
 	if not bool(check.get("ok", false)):
 		return check
-	var d: Dictionary = discovery_defs[discovery_id] as Dictionary
 	var costs: Array = get_discovery_costs_for_next_level(discovery_id)
 	_spend_costs(costs)
 	var new_level: int = get_discovery_level(discovery_id) + 1
@@ -1825,9 +1896,13 @@ func buy_discovery(discovery_id: String) -> Dictionary:
 	if discovery_id == "primitive_refinery":
 		_ensure_refinery_slots_initialized()
 		unlocked_refinery_slots = max(unlocked_refinery_slots, 1)
+		meta_state["refinery_ever_seen"] = true
 	elif discovery_id == "synthesis":
 		_ensure_synth_slots_initialized()
 		unlocked_synth_slots = max(unlocked_synth_slots, 1)
+		meta_state["synth_ever_seen"] = true
+	elif discovery_id == "mutagen_lab":
+		_unlock_mutagen_lab_permanent()
 	elif discovery_id == "aura_activation":
 		_update_node_reveals()
 	check["ok"] = true
@@ -1885,9 +1960,6 @@ func get_discovery_ui_entries() -> Array:
 		if discovery_id != "mycelial_insight" and not has_discovery("mycelial_insight"):
 			continue
 
-		if discovery_id == "nutrient_efficiency_1" and not has_discovery("excess_fertilizer"):
-			continue
-
 		var level: int = get_discovery_level(discovery_id)
 		var costs: Array = get_discovery_costs_for_next_level(discovery_id)
 		var check: Dictionary = can_buy_discovery(discovery_id)
@@ -1924,30 +1996,45 @@ func _get_pass1_discovery_display_order() -> Array[String]:
 		"mycelial_insight",
 		"primitive_refinery",
 		"synthesis",
+		"mutagen_lab",
 		"aura_activation",
+		"volatile_nodes",
+		"volatile_magnitude",
 		"excess_fertilizer",
-		"nutrient_efficiency_1"
+		"nutrient_efficiency_1",
+		"aura_reach_1",
+		"aura_reach_2",
+		"aura_reach_3",
+		"aura_reach_4",
+		"aura_reach_5",
+		"aura_reach_6",
+		"aura_reach_7",
 	]
 
 func _is_discovery_visible_in_panel(discovery_id: String, d: Dictionary) -> bool:
-	if not bool(d.get("active_in_pass1", false)):
+	# If active_in_pass1 is explicitly false, hide it
+	if d.has("active_in_pass1") and not bool(d.get("active_in_pass1", true)):
 		return false
 
-	# Already completed discoveries should always remain visible
+	# Already completed — always show
 	if has_discovery(discovery_id):
 		return true
 
-	# Treat missing / null / empty parent as "no parent requirement"
-	var requires_value = d.get("requires_discovery", null)
-	if requires_value == null:
+	# Check parent_id first, then fall back to requires_discovery
+	var parent: String = ""
+	if d.has("parent_id") and str(d.get("parent_id", "")) not in ["", "null", "<null>"]:
+		parent = str(d.get("parent_id", "")).strip_edges()
+	elif d.has("requires_discovery"):
+		var rv = d.get("requires_discovery", null)
+		if rv != null:
+			parent = str(rv).strip_edges()
+
+	# No parent requirement — always visible
+	if parent == "" or parent == "null" or parent == "<null>":
 		return true
 
-	var requires_discovery := str(requires_value).strip_edges()
-	if requires_discovery == "" or requires_discovery == "null" or requires_discovery == "<null>":
-		return true
-
-	# Otherwise only show after the parent discovery is completed
-	return has_discovery(requires_discovery)
+	# Only show after parent is unlocked
+	return has_discovery(parent)
 
 
 # ------------------------------------------
@@ -2115,11 +2202,10 @@ func clear_refinery_recipe(slot_number: int) -> void:
 	if idx < 0 or idx >= refinery_slots.size():
 		return
 	var slot: Dictionary = refinery_slots[idx] as Dictionary
-	# Refund inputs if a craft was in progress
-	if bool(slot.get("in_progress", false)):
-		var recipe_id := str(slot.get("recipe_id", ""))
-		if recipe_id != "":
-			_refund_compound_inputs(recipe_id)
+	# Refund if craft was in progress (inputs already spent)
+	var recipe_id := str(slot.get("recipe_id", ""))
+	if recipe_id != "" and bool(slot.get("in_progress", false)):
+		_refund_compound_inputs(recipe_id)
 	assign_refinery_recipe(slot_number, "")
 
 
@@ -2433,10 +2519,9 @@ func clear_synth_recipe(slot_number: int) -> void:
 	if idx < 0 or idx >= synth_slots.size():
 		return
 	var slot: Dictionary = synth_slots[idx] as Dictionary
-	if bool(slot.get("in_progress", false)):
-		var recipe_id := str(slot.get("recipe_id", ""))
-		if recipe_id != "":
-			_refund_solution_inputs(recipe_id)
+	var recipe_id := str(slot.get("recipe_id", ""))
+	if recipe_id != "" and bool(slot.get("in_progress", false)):
+		_refund_solution_inputs(recipe_id)
 	assign_synth_recipe(slot_number, "")
 
 
@@ -2461,6 +2546,123 @@ func _tick_mutagen_lab(dt: float) -> void:
 	if not is_mutagen_lab_unlocked():
 		return
 	tick_mutagen_lab_slots(dt)
+
+
+# ── Volatile Nodes ─────────────────────────────────────────────────────────────
+
+func _tick_volatile_nodes(dt: float) -> void:
+	if not has_discovery("volatile_nodes"):
+		return
+
+	if volatile_node_delivering:
+		volatile_node_delivery_timer += dt
+		var rate := volatile_node_rate_per_sec * debug_rate_mult
+		var amount := rate * dt
+		if volatile_node_resource_id != "":
+			if not resources.has(volatile_node_resource_id):
+				resources[volatile_node_resource_id] = 0.0
+			resources[volatile_node_resource_id] = float(resources.get(volatile_node_resource_id, 0.0)) + amount
+			total_nutrients_earned_run += amount * _get_resource_dv(volatile_node_resource_id)
+		if volatile_node_delivery_timer >= VOLATILE_NODE_DELIVERY_SEC:
+			volatile_node_delivering    = false
+			volatile_node_active        = false
+			volatile_node_timer_sec     = 0.0
+			volatile_node_resource_id   = ""
+			emit_signal("volatile_node_changed")
+		return
+
+	if volatile_node_active:
+		return
+
+	volatile_node_timer_sec += dt * debug_rate_mult
+	if volatile_node_timer_sec >= VOLATILE_NODE_SPAWN_INTERVAL_SEC:
+		_spawn_volatile_node()
+
+
+func _get_resource_dv(res_id: String) -> float:
+	if resource_defs.has(res_id):
+		return float((resource_defs[res_id] as Dictionary).get("base_value", 1.0))
+	return 1.0
+
+
+func _spawn_volatile_node() -> void:
+	var available_resources: Array[String] = []
+	for node_id_v in nodes.keys():
+		var n: Dictionary = nodes[str(node_id_v)] as Dictionary
+		if not bool(n.get("is_connected", false)):
+			continue
+		var outputs: Array = n.get("outputs", []) as Array
+		for out_v in outputs:
+			var out: Dictionary = out_v as Dictionary
+			var res_id: String = str(out.get("res", ""))
+			if res_id != "" and res_id not in available_resources:
+				available_resources.append(res_id)
+
+	if available_resources.is_empty():
+		volatile_node_timer_sec = 0.0
+		return
+
+	volatile_node_resource_id = available_resources[randi() % available_resources.size()]
+
+	var total_bnps: float = _get_total_bnps()
+	var mag_mult: float   = get_mutation_volatile_magnitude_mult()
+	var disc_level: int   = get_discovery_level("volatile_magnitude")
+	var disc_bonus: float = 1.0 + float(disc_level) * 0.05
+	var total_value: float = total_bnps * VOLATILE_NODE_VALUE_MULT * mag_mult * disc_bonus
+	volatile_node_rate_per_sec = total_value / VOLATILE_NODE_DELIVERY_SEC
+
+	var angle := randf() * TAU
+	var radius := VOLATILE_NODE_SPAWN_RADIUS_MIN + randf() * (VOLATILE_NODE_SPAWN_RADIUS_MAX - VOLATILE_NODE_SPAWN_RADIUS_MIN)
+	volatile_node_position = Vector2(cos(angle), sin(angle)) * radius
+
+	volatile_node_active         = true
+	volatile_node_delivering     = false
+	volatile_node_timer_sec      = 0.0
+	volatile_node_delivery_timer = 0.0
+	emit_signal("volatile_node_changed")
+
+
+func _get_total_bnps() -> float:
+	var total: float = 0.0
+	for node_id_v in nodes.keys():
+		var node_id: String = str(node_id_v)
+		var n: Dictionary   = nodes[node_id] as Dictionary
+		if not bool(n.get("is_connected", false)):
+			continue
+		var up: Dictionary = _ensure_upgrade_keys(n)
+		var yield_level: int = int(up.get("yield_level", 1))
+		var base_rate: float = float(n.get("base_rate", 0.25))
+		var rate: float = base_rate * _ipm_yield_rate(yield_level) * get_mutation_yield_mult()
+		var outputs: Array = n.get("outputs", []) as Array
+		for out_v in outputs:
+			var out: Dictionary = out_v as Dictionary
+			var res_id: String  = str(out.get("res", ""))
+			var weight: float   = float(out.get("weight", 1.0))
+			total += rate * weight * _get_resource_dv(res_id)
+	return total
+
+
+func tap_volatile_node() -> bool:
+	if not volatile_node_active or volatile_node_delivering:
+		return false
+	volatile_node_delivering     = true
+	volatile_node_delivery_timer = 0.0
+	emit_signal("volatile_node_changed")
+	return true
+
+
+func get_volatile_node_ui() -> Dictionary:
+	return {
+		"unlocked":      has_discovery("volatile_nodes"),
+		"active":        volatile_node_active,
+		"delivering":    volatile_node_delivering,
+		"delivery_pct":  int(round(clamp(volatile_node_delivery_timer / VOLATILE_NODE_DELIVERY_SEC, 0.0, 1.0) * 100.0)) if volatile_node_delivering else 0,
+		"spawn_pct":     int(round(clamp(volatile_node_timer_sec / VOLATILE_NODE_SPAWN_INTERVAL_SEC, 0.0, 1.0) * 100.0)) if not volatile_node_active else 0,
+		"resource_id":   volatile_node_resource_id,
+		"resource_name": get_resource_name(volatile_node_resource_id) if volatile_node_resource_id != "" else "",
+		"rate_per_sec":  volatile_node_rate_per_sec,
+		"position":      volatile_node_position,
+	}
 
 
 func get_synth_ui_entries() -> Array:
@@ -2693,7 +2895,7 @@ func tick_mutagen_lab_slots(delta: float) -> Array:
 func _grant_mutagen_item(tier_id: String) -> void:
 	var base_gs: int = get_mutagen_gs_for_craft(tier_id)
 	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
-	var gs_gained: int = int(ceil(float(base_gs) * yield_mult))
+	var _gs_gained: int = int(ceil(float(base_gs) * yield_mult))
 	mutagen_crafted_counts[tier_id] = int(mutagen_crafted_counts.get(tier_id, 0)) + 1
 	if not resources.has(tier_id):
 		resources[tier_id] = 0.0
@@ -2833,7 +3035,7 @@ func craft_mutagen(tier_id: String) -> Dictionary:
 	# Calculate GS gain (apply M13 Mutagen Yield bonus)
 	var base_gs: int = get_mutagen_gs_for_craft(tier_id)
 	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
-	var gs_gained: int = int(ceil(float(base_gs) * yield_mult))
+	var _gs_gained: int = int(ceil(float(base_gs) * yield_mult))
 
 	# Track count
 	mutagen_crafted_counts[tier_id] = int(mutagen_crafted_counts.get(tier_id, 0)) + 1
@@ -2844,7 +3046,7 @@ func craft_mutagen(tier_id: String) -> Dictionary:
 	resources[tier_id] = float(resources.get(tier_id, 0.0)) + 1.0
 
 	out["ok"] = true
-	out["gs_gained"] = gs_gained
+	out["gs_gained"] = _gs_gained
 	return out
 
 
@@ -2906,6 +3108,63 @@ func check_and_unlock_mutation_chamber() -> bool:
 		meta_state["mutation_chamber_unlocked"] = true
 		return true
 	return false
+
+
+# ── Playthrough milestone logger ──────────────────────────────────────────────
+
+func _fmt_playtime() -> String:
+	var total := int(_playtime_sec)
+	var h: int = total / 3600
+	var m: int = (total % 3600) / 60
+	var s := total % 60
+	if h > 0:
+		return "%dh %02dm %02ds" % [h, m, s]
+	return "%dm %02ds" % [m, s]
+
+
+func _fmt_large_number(n: float) -> String:
+	if n >= 1_000_000_000: return "%.2fB" % (n / 1_000_000_000.0)
+	if n >= 1_000_000:     return "%.2fM" % (n / 1_000_000.0)
+	if n >= 1_000:         return "%.1fK" % (n / 1_000.0)
+	return str(int(n))
+
+
+func _log_milestone(id: String) -> void:
+	if _milestones_logged.has(id):
+		return
+	_milestones_logged[id] = true
+	print("[MILESTONE] %s  |  time=%s  |  nutrients=%s" % [
+		id, _fmt_playtime(), _fmt_large_number(total_nutrients_earned_run)
+	])
+
+
+func _check_milestones() -> void:
+	if not paid_compound_unlocks.is_empty():
+		_log_milestone("first_compound_unlocked")
+	for slot in refinery_slots:
+		if str((slot as Dictionary).get("recipe_id", "")) != "":
+			_log_milestone("first_compound_crafting"); break
+	if not paid_solution_unlocks.is_empty():
+		_log_milestone("first_solution_unlocked")
+	for slot in synth_slots:
+		if str((slot as Dictionary).get("recipe_id", "")) != "":
+			_log_milestone("first_solution_crafting"); break
+	if nodes.has("compost_heap") and bool((nodes["compost_heap"] as Dictionary).get("is_connected", false)):
+		_log_milestone("node_4_unlocked")
+	if nodes.has("moss_patch") and bool((nodes["moss_patch"] as Dictionary).get("is_connected", false)):
+		_log_milestone("node_5_unlocked")
+	if nodes.has("wet_hollow") and bool((nodes["wet_hollow"] as Dictionary).get("is_connected", false)):
+		_log_milestone("node_6_unlocked")
+	if has_discovery("mutagen_lab"):
+		_log_milestone("mutagen_lab_discovered")
+	if int(mutagen_crafted_counts.get("strain_primer", 0)) > 0:
+		_log_milestone("first_strain_primer_crafted")
+	if volatile_node_active or volatile_node_delivering:
+		_log_milestone("first_volatile_node_spawned")
+	if volatile_node_delivering:
+		_log_milestone("first_volatile_node_tapped")
+	if can_prestige():
+		_log_milestone("prestige_threshold_reached")
 
 
 # ── Mutation unlock chain ─────────────────────────────────────────────────────
@@ -3053,6 +3312,10 @@ func do_mutate() -> int:
 		return -1
 
 	var gs_awarded: int = get_gs_preview_this_mutate()
+
+	print("[MILESTONE] first_prestige  |  time=%s  |  nutrients=%s  |  gs_awarded=%d" % [
+		_fmt_playtime(), _fmt_large_number(total_nutrients_earned_run), gs_awarded
+	])
 
 	# Award GS and increment counter in meta_state BEFORE reset
 	meta_state["strain_points"]  = int(meta_state.get("strain_points",  0)) + gs_awarded
@@ -3218,6 +3481,8 @@ func _apply_meta_state(loaded_meta: Dictionary) -> void:
 	meta_state["prestige_count"]            = max(0, int(loaded_meta.get("prestige_count",            0)))
 	meta_state["mutation_chamber_unlocked"] = bool(loaded_meta.get("mutation_chamber_unlocked",       false))
 	meta_state["mutation_unlock_count"]     = max(0, int(loaded_meta.get("mutation_unlock_count",     0)))
+	meta_state["refinery_ever_seen"]        = bool(loaded_meta.get("refinery_ever_seen",              false))
+	meta_state["synth_ever_seen"]           = bool(loaded_meta.get("synth_ever_seen",                 false))
 
 	var permanent_unlocks_variant = loaded_meta.get("permanent_unlocks", {})
 	if typeof(permanent_unlocks_variant) == TYPE_DICTIONARY:
@@ -3462,6 +3727,8 @@ func _load_all() -> void:
 	spore_cloud_world_pos = Vector2.ZERO
 	total_nutrients_earned_run = 0.0
 	mutagen_crafted_counts = {}
+	_milestones_logged.clear()
+	_playtime_sec = 0.0
 	mutagen_lab_slots = []
 	refinery_slot_costs.clear()
 	refinery_slots.clear()

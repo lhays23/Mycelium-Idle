@@ -1,663 +1,798 @@
 {
-	"version": 2.0,
-	"notes": {
-		"all_discoveries_are_per_run": true,
-		"base_digestion_modifier": 0.8
-	},
-	"discoveries": [
+  "version": 2.0,
+  "notes": {
+	"all_discoveries_are_per_run": true,
+	"base_digestion_modifier": 1.0
+  },
+  "discoveries": [
+	{
+	  "id": "mycelial_insight",
+	  "name": "Mycelial Insight",
+	  "family": "core",
+	  "parent": null,
+	  "tier": 0.0,
+	  "repeatable": false,
+	  "max_level": 1.0,
+	  "effect_type": "unlock_center",
+	  "effect_per_level": null,
+	  "costs": [
 		{
-			"id": "mycelial_insight",
-			"name": "Mycelial Insight",
-			"family": "core",
-			"parent": null,
-			"tier": 0.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "unlock_center",
-			"effect_per_level": null,
-			"costs": [
-				{
-					"id": "spores",
-					"qty": 300.0
-				}
-			],
-			"requires_connected_nodes": 2.0,
-			"requires_discovery": null,
-			"active_in_pass1": true
-		},
-		{
-			"id": "primitive_refinery",
-			"name": "Primitive Refinery",
-			"family": "refinery",
-			"parent": "mycelial_insight",
-			"tier": 1.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "unlock_refinery_tab_and_slot_1",
-			"costs": [
-				{
-					"id": "spores",
-					"qty": 400.0
-				},
-				{
-					"id": "hyphae",
-					"qty": 100.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "mycelial_insight",
-			"active_in_pass1": true
-		},
-		{
-			"id": "aura_activation",
-			"name": "Aura Activation",
-			"family": "node_progression",
-			"parent": "mycelial_insight",
-			"tier": 1.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "unlock_aura_branch",
-			"costs": [
-				{
-					"id": "spores",
-					"qty": 500.0
-				},
-				{
-					"id": "hyphae",
-					"qty": 50.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "mycelial_insight",
-			"active_in_pass1": true
-		},
-		{
-			"id": "excess_fertilizer",
-			"name": "Excess Fertilizer",
-			"family": "core",
-			"parent": "mycelial_insight",
-			"tier": 1.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "spawn_temporary_bonus_nodes",
-			"costs": [
-				{
-					"id": "spores",
-					"qty": 300.0
-				},
-				{
-					"id": "hyphae",
-					"qty": 150.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "mycelial_insight",
-			"active_in_pass1": true
-		},
-		{
-			"id": "refinery_speed_1",
-			"name": "Refinery Speed I",
-			"family": "refinery",
-			"parent": "primitive_refinery",
-			"tier": 2.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "refinery_speed_mult",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "spore_composite",
-					"qty": 1.0
-				},
-				{
-					"id": "hyphae",
-					"qty": 1500.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "primitive_refinery",
-			"active_in_pass1": false
-		},
-		{
-			"id": "synthesis",
-			"name": "Synthesis",
-			"family": "synth",
-			"parent": "primitive_refinery",
-			"tier": 2.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "unlock_synth_station",
-			"costs": [
-				{
-					"id": "spore_composite",
-					"qty": 5.0
-				},
-				{
-					"id": "hyphae",
-					"qty": 2000.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "primitive_refinery",
-			"active_in_pass1": true
-		},
-		{
-			"id": "refinery_speed_2",
-			"name": "Refinery Speed II",
-			"family": "refinery",
-			"parent": "refinery_speed_1",
-			"tier": 3.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "refinery_speed_mult",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "spore_composite",
-					"qty": 6.0
-				},
-				{
-					"id": "cellulose",
-					"qty": 2000.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "refinery_speed_1",
-			"active_in_pass1": false
-		},
-		{
-			"id": "synth_speed_1",
-			"name": "Synth Speed I",
-			"family": "synth",
-			"parent": "synthesis",
-			"tier": 3.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "synth_speed_mult",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "hyphal_thread",
-					"qty": 2.0
-				},
-				{
-					"id": "cellulose",
-					"qty": 3000.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "synthesis",
-			"active_in_pass1": false
-		},
-		{
-			"id": "aura_reach_1",
-			"name": "Aura Reach I",
-			"family": "node_progression",
-			"parent": "aura_activation",
-			"tier": 2.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "aura_expansion_efficiency",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "spores",
-					"qty": 1000.0
-				},
-				{
-					"id": "hyphae",
-					"qty": 1000.0
-				},
-				{
-					"id": "cellulose",
-					"qty": 500.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "aura_activation",
-			"active_in_pass1": false
-		},
-		{
-			"id": "fungal_enhancement",
-			"name": "Fungal Enhancement",
-			"family": "node_progression",
-			"parent": "aura_activation",
-			"tier": 3.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "unlock_node_enhancement_requests",
-			"costs": [
-				{
-					"id": "cellulose_weave",
-					"qty": 2.0
-				},
-				{
-					"id": "growth_gel",
-					"qty": 1.0
-				},
-				{
-					"id": "mycelium",
-					"qty": 1000.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "aura_activation",
-			"active_in_pass1": false
-		},
-		{
-			"id": "aura_reach_2",
-			"name": "Aura Reach II",
-			"family": "node_progression",
-			"parent": "aura_reach_1",
-			"tier": 3.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "aura_expansion_efficiency",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "growth_gel",
-					"qty": 1.0
-				},
-				{
-					"id": "cellulose",
-					"qty": 2000.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "aura_reach_1",
-			"active_in_pass1": false
-		},
-		{
-			"id": "nutrient_efficiency_1",
-			"name": "Nutrient Efficiency I",
-			"family": "core",
-			"parent": "excess_fertilizer",
-			"tier": 2.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "digestion_return_additive",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "spores",
-					"qty": 1000.0
-				},
-				{
-					"id": "hyphae",
-					"qty": 1000.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "excess_fertilizer",
-			"active_in_pass1": true,
-			"repeat_cost_mult": 1.5
-		},
-		{
-			"id": "fertile_surge_1",
-			"name": "Fertile Surge I",
-			"family": "core",
-			"parent": "excess_fertilizer",
-			"tier": 3.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "excess_fertilizer_payout_mult",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "hyphal_thread",
-					"qty": 2.0
-				},
-				{
-					"id": "growth_gel",
-					"qty": 1.0
-				},
-				{
-					"id": "hyphae",
-					"qty": 250.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "excess_fertilizer",
-			"active_in_pass1": false
-		},
-		{
-			"id": "refinery_speed_3",
-			"name": "Refinery Speed III",
-			"family": "refinery",
-			"parent": "refinery_speed_2",
-			"tier": 4.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "refinery_speed_mult",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "living_fiber",
-					"qty": 1.0
-				},
-				{
-					"id": "cellulose_weave",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "refinery_speed_2",
-			"active_in_pass1": false
-		},
-		{
-			"id": "synth_speed_2",
-			"name": "Synth Speed II",
-			"family": "synth",
-			"parent": "synth_speed_1",
-			"tier": 4.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "synth_speed_mult",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "living_fiber",
-					"qty": 1.0
-				},
-				{
-					"id": "growth_gel",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "synth_speed_1",
-			"active_in_pass1": false
-		},
-		{
-			"id": "aura_density",
-			"name": "Aura Density",
-			"family": "node_progression",
-			"parent": "aura_activation",
-			"tier": 4.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "unlock_dense_aura_zone",
-			"effect_per_level": null,
-			"costs": [
-				{
-					"id": "living_fiber",
-					"qty": 1.0
-				},
-				{
-					"id": "growth_gel",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "aura_activation",
-			"active_in_pass1": false
-		},
-		{
-			"id": "node_resonance",
-			"name": "Node Resonance",
-			"family": "absorption",
-			"parent": "aura_density",
-			"tier": 4.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "yield_bonus_nodes_yield_level_20_plus",
-			"effect_per_level": 0.05,
-			"costs": [
-				{
-					"id": "living_fiber",
-					"qty": 1.0
-				},
-				{
-					"id": "growth_gel",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "aura_density",
-			"active_in_pass1": false
-		},
-		{
-			"id": "dense_aura_1",
-			"name": "Dense Aura I",
-			"family": "node_progression",
-			"parent": "aura_density",
-			"tier": 4.0,
-			"repeatable": true,
-			"max_level": 2.0,
-			"effect_type": "dense_aura_bundle",
-			"effect_bundle": {
-				"yield_bonus": 0.05,
-				"pulse_speed_bonus": 0.1,
-				"pulse_capacity_bonus": 0.1
-			},
-			"costs": [
-				{
-					"id": "living_fiber",
-					"qty": 1.0
-				},
-				{
-					"id": "spore_weave",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "aura_density",
-			"active_in_pass1": false
-		},
-		{
-			"id": "nutrient_efficiency_2",
-			"name": "Nutrient Efficiency II",
-			"family": "core",
-			"parent": "nutrient_efficiency_1",
-			"tier": 3.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "digestion_return_additive",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "spore_composite",
-					"qty": 6.0
-				},
-				{
-					"id": "cellulose",
-					"qty": 2000.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "nutrient_efficiency_1",
-			"active_in_pass1": false
-		},
-		{
-			"id": "fertile_surge_2",
-			"name": "Fertile Surge II",
-			"family": "core",
-			"parent": "fertile_surge_1",
-			"tier": 4.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "excess_fertilizer_payout_mult",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "living_fiber",
-					"qty": 1.0
-				},
-				{
-					"id": "growth_gel",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "fertile_surge_1",
-			"active_in_pass1": false
-		},
-		{
-			"id": "catalytic_rooting",
-			"name": "Catalytic Rooting",
-			"family": "node_progression",
-			"parent": "fungal_enhancement",
-			"tier": 4.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "enable_root_catalyst_milestone_unlocks_after_node_16",
-			"costs": [
-				{
-					"id": "living_fiber",
-					"qty": 1.0
-				},
-				{
-					"id": "carapace_gel",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "fungal_enhancement",
-			"active_in_pass1": false
-		},
-		{
-			"id": "expansion_catalysis",
-			"name": "Expansion Catalysis",
-			"family": "node_progression",
-			"parent": "catalytic_rooting",
-			"tier": 5.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "fungal_enhancement_can_request_composites",
-			"costs": [
-				{
-					"id": "bloom_matrix",
-					"qty": 1.0
-				},
-				{
-					"id": "living_fiber",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "catalytic_rooting",
-			"active_in_pass1": false
-		},
-		{
-			"id": "dense_aura_2",
-			"name": "Dense Aura II",
-			"family": "node_progression",
-			"parent": "dense_aura_1",
-			"tier": 5.0,
-			"repeatable": true,
-			"max_level": 2.0,
-			"effect_type": "dense_aura_bundle",
-			"effect_bundle": {
-				"yield_bonus": 0.05,
-				"pulse_speed_bonus": 0.1,
-				"pulse_capacity_bonus": 0.1
-			},
-			"costs": [
-				{
-					"id": "bloom_matrix",
-					"qty": 1.0
-				},
-				{
-					"id": "crystal_bloom",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "dense_aura_1",
-			"active_in_pass1": false
-		},
-		{
-			"id": "synth_speed_3",
-			"name": "Synth Speed III",
-			"family": "synth",
-			"parent": "synth_speed_2",
-			"tier": 5.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "synth_speed_mult",
-			"effect_per_level": 0.04,
-			"costs": [
-				{
-					"id": "bloom_matrix",
-					"qty": 1.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "synth_speed_2",
-			"active_in_pass1": false
-		},
-		{
-			"id": "volatile_nodes",
-			"name": "Volatile Nodes",
-			"family": "node_progression",
-			"parent": "aura_activation",
-			"tier": 3.0,
-			"repeatable": false,
-			"max_level": 1.0,
-			"effect_type": "unlock_volatile_nodes",
-			"effect_per_level": null,
-			"costs": [
-				{
-					"id": "cellulose_culture",
-					"qty": 5.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "aura_activation",
-			"active_in_pass1": true
-		},
-		{
-			"id": "volatile_magnitude",
-			"name": "Volatile Magnitude",
-			"family": "node_progression",
-			"parent": "volatile_nodes",
-			"tier": 4.0,
-			"repeatable": true,
-			"max_level": 5.0,
-			"effect_type": "volatile_magnitude_bonus",
-			"effect_per_level": 0.05,
-			"level_costs": [
-				[
-					{
-						"id": "ichor_extract",
-						"qty": 5.0
-					}
-				],
-				[
-					{
-						"id": "lattice_extract",
-						"qty": 5.0
-					}
-				],
-				[
-					{
-						"id": "volatile_substrate",
-						"qty": 5.0
-					}
-				],
-				[
-					{
-						"id": "ichor_serum",
-						"qty": 5.0
-					}
-				],
-				[
-					{
-						"id": "growth_serum",
-						"qty": 5.0
-					}
-				]
-			],
-			"costs": [
-				{
-					"id": "ichor_extract",
-					"qty": 5.0
-				}
-			],
-			"requires_connected_nodes": 0.0,
-			"requires_discovery": "volatile_nodes",
-			"active_in_pass1": true
+		  "id": "spores",
+		  "qty": 300.0
 		}
-	]
+	  ],
+	  "requires_connected_nodes": 2.0,
+	  "requires_discovery": null,
+	  "active_in_pass1": true
+	},
+	{
+	  "id": "primitive_refinery",
+	  "name": "Primitive Refinery",
+	  "family": "refinery",
+	  "parent": "mycelial_insight",
+	  "tier": 1.0,
+	  "repeatable": false,
+	  "max_level": 1.0,
+	  "effect_type": "unlock_refinery_tab_and_slot_1",
+	  "costs": [
+		{
+		  "id": "spores",
+		  "qty": 400.0
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 100.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "mycelial_insight",
+	  "active_in_pass1": true,
+	  "parent_id": "mycelial_insight"
+	},
+	{
+	  "id": "aura_activation",
+	  "name": "Aura Activation",
+	  "family": "node_progression",
+	  "parent": "mycelial_insight",
+	  "tier": 1.0,
+	  "repeatable": false,
+	  "max_level": 1.0,
+	  "effect_type": "unlock_aura_branch",
+	  "costs": [
+		{
+		  "id": "spores",
+		  "qty": 500.0
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 50.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "mycelial_insight",
+	  "active_in_pass1": true,
+	  "parent_id": "mycelial_insight"
+	},
+	{
+	  "id": "excess_fertilizer",
+	  "name": "Excess Fertilizer",
+	  "family": "core",
+	  "parent": "mycelial_insight",
+	  "tier": 1.0,
+	  "repeatable": false,
+	  "max_level": 1.0,
+	  "effect_type": "spawn_temporary_bonus_nodes",
+	  "costs": [
+		{
+		  "id": "spores",
+		  "qty": 300.0
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 150.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "mycelial_insight",
+	  "active_in_pass1": true,
+	  "parent_id": "mycelial_insight"
+	},
+	{
+	  "id": "refinery_speed_1",
+	  "name": "Refinery Speed I",
+	  "family": "refinery",
+	  "parent": "primitive_refinery",
+	  "tier": 2.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "refinery_speed_mult",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "spore_composite",
+		  "qty": 1.0
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 1500.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "primitive_refinery",
+	  "active_in_pass1": true,
+	  "parent_id": "primitive_refinery"
+	},
+	{
+	  "id": "synthesis",
+	  "name": "Synthesis",
+	  "family": "synth",
+	  "parent": "primitive_refinery",
+	  "tier": 2.0,
+	  "repeatable": false,
+	  "max_level": 1.0,
+	  "effect_type": "unlock_synth_station",
+	  "costs": [
+		{
+		  "id": "spore_composite",
+		  "qty": 5.0
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 2000.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "primitive_refinery",
+	  "active_in_pass1": true,
+	  "parent_id": "primitive_refinery"
+	},
+	{
+	  "id": "refinery_speed_2",
+	  "name": "Refinery Speed II",
+	  "family": "refinery",
+	  "parent": "refinery_speed_1",
+	  "tier": 3.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "refinery_speed_mult",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "spore_composite",
+		  "qty": 6.0
+		},
+		{
+		  "id": "cellulose",
+		  "qty": 2000.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "refinery_speed_1",
+	  "active_in_pass1": true,
+	  "parent_id": "refinery_speed_1"
+	},
+	{
+	  "id": "synth_speed_1",
+	  "name": "Synth Speed I",
+	  "family": "synth",
+	  "parent": "synthesis",
+	  "tier": 3.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "synth_speed_mult",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "hyphal_thread",
+		  "qty": 2.0
+		},
+		{
+		  "id": "cellulose",
+		  "qty": 3000.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "synthesis",
+	  "active_in_pass1": true,
+	  "parent_id": "synthesis"
+	},
+	{
+	  "id": "fungal_enhancement",
+	  "name": "Fungal Enhancement",
+	  "family": "node_progression",
+	  "parent": "aura_activation",
+	  "tier": 3.0,
+	  "repeatable": false,
+	  "max_level": 1.0,
+	  "effect_type": "unlock_node_enhancement_requests",
+	  "costs": [
+		{
+		  "id": "cellulose_weave",
+		  "qty": 2.0
+		},
+		{
+		  "id": "growth_gel",
+		  "qty": 1.0
+		},
+		{
+		  "id": "mycelium",
+		  "qty": 1000.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "aura_activation",
+	  "active_in_pass1": true,
+	  "parent_id": "excess_fertilizer"
+	},
+	{
+	  "id": "nutrient_efficiency_1",
+	  "name": "Nutrient Efficiency I",
+	  "family": "core",
+	  "parent": "excess_fertilizer",
+	  "tier": 2.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "digestion_return_additive",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "spores",
+		  "qty": 1000.0
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 1000.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "excess_fertilizer",
+	  "active_in_pass1": true,
+	  "repeat_cost_mult": 1.5,
+	  "parent_id": "excess_fertilizer"
+	},
+	{
+	  "id": "fertile_surge_1",
+	  "name": "Fertile Surge I",
+	  "family": "core",
+	  "parent": "excess_fertilizer",
+	  "tier": 3.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "excess_fertilizer_payout_mult",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "hyphal_thread",
+		  "qty": 2.0
+		},
+		{
+		  "id": "growth_gel",
+		  "qty": 1.0
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 250.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "excess_fertilizer",
+	  "active_in_pass1": true,
+	  "parent_id": "fungal_enhancement"
+	},
+	{
+	  "id": "refinery_speed_3",
+	  "name": "Refinery Speed III",
+	  "family": "refinery",
+	  "parent": "refinery_speed_2",
+	  "tier": 4.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "refinery_speed_mult",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "living_fiber",
+		  "qty": 1.0
+		},
+		{
+		  "id": "cellulose_weave",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "refinery_speed_2",
+	  "active_in_pass1": true,
+	  "parent_id": "refinery_speed_2"
+	},
+	{
+	  "id": "synth_speed_2",
+	  "name": "Synth Speed II",
+	  "family": "synth",
+	  "parent": "synth_speed_1",
+	  "tier": 4.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "synth_speed_mult",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "living_fiber",
+		  "qty": 1.0
+		},
+		{
+		  "id": "growth_gel",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "synth_speed_1",
+	  "active_in_pass1": true,
+	  "parent_id": "synth_speed_1"
+	},
+	{
+	  "id": "aura_density",
+	  "name": "Aura Density",
+	  "family": "node_progression",
+	  "parent": "aura_activation",
+	  "tier": 4.0,
+	  "repeatable": false,
+	  "max_level": 1.0,
+	  "effect_type": "unlock_dense_aura_zone",
+	  "effect_per_level": null,
+	  "costs": [
+		{
+		  "id": "living_fiber",
+		  "qty": 1.0
+		},
+		{
+		  "id": "growth_gel",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "aura_activation",
+	  "active_in_pass1": true,
+	  "parent_id": "aura_reach_2"
+	},
+	{
+	  "id": "node_resonance",
+	  "name": "Node Resonance",
+	  "family": "absorption",
+	  "parent": "aura_density",
+	  "tier": 4.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "yield_bonus_nodes_yield_level_20_plus",
+	  "effect_per_level": 0.05,
+	  "costs": [
+		{
+		  "id": "living_fiber",
+		  "qty": 1.0
+		},
+		{
+		  "id": "growth_gel",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "aura_density",
+	  "active_in_pass1": true,
+	  "parent_id": "aura_reach_2"
+	},
+	{
+	  "id": "dense_aura_1",
+	  "name": "Dense Aura I",
+	  "family": "node_progression",
+	  "parent": "aura_density",
+	  "tier": 4.0,
+	  "repeatable": true,
+	  "max_level": 2.0,
+	  "effect_type": "dense_aura_bundle",
+	  "effect_bundle": {
+		"yield_bonus": 0.05,
+		"pulse_speed_bonus": 0.1,
+		"pulse_capacity_bonus": 0.1
+	  },
+	  "costs": [
+		{
+		  "id": "living_fiber",
+		  "qty": 1.0
+		},
+		{
+		  "id": "spore_weave",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "aura_density",
+	  "active_in_pass1": true,
+	  "parent_id": "aura_density"
+	},
+	{
+	  "id": "nutrient_efficiency_2",
+	  "name": "Nutrient Efficiency II",
+	  "family": "core",
+	  "parent": "nutrient_efficiency_1",
+	  "tier": 3.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "digestion_return_additive",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "spore_composite",
+		  "qty": 6.0
+		},
+		{
+		  "id": "cellulose",
+		  "qty": 2000.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "nutrient_efficiency_1",
+	  "active_in_pass1": true,
+	  "parent_id": "nutrient_efficiency_1"
+	},
+	{
+	  "id": "fertile_surge_2",
+	  "name": "Fertile Surge II",
+	  "family": "core",
+	  "parent": "fertile_surge_1",
+	  "tier": 4.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "excess_fertilizer_payout_mult",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "living_fiber",
+		  "qty": 1.0
+		},
+		{
+		  "id": "growth_gel",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "fertile_surge_1",
+	  "active_in_pass1": true,
+	  "parent_id": "fertile_surge_1"
+	},
+	{
+	  "id": "catalytic_rooting",
+	  "name": "Catalytic Rooting",
+	  "family": "node_progression",
+	  "parent": "fungal_enhancement",
+	  "tier": 4.0,
+	  "repeatable": false,
+	  "max_level": 1.0,
+	  "effect_type": "enable_root_catalyst_milestone_unlocks_after_node_16",
+	  "costs": [
+		{
+		  "id": "living_fiber",
+		  "qty": 1.0
+		},
+		{
+		  "id": "carapace_gel",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "fungal_enhancement",
+	  "active_in_pass1": true,
+	  "parent_id": "node_resonance"
+	},
+	{
+	  "id": "expansion_catalysis",
+	  "name": "Expansion Catalysis",
+	  "family": "node_progression",
+	  "parent": "catalytic_rooting",
+	  "tier": 5.0,
+	  "repeatable": false,
+	  "max_level": 1.0,
+	  "effect_type": "fungal_enhancement_can_request_composites",
+	  "costs": [
+		{
+		  "id": "bloom_matrix",
+		  "qty": 1.0
+		},
+		{
+		  "id": "living_fiber",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "catalytic_rooting",
+	  "active_in_pass1": true,
+	  "parent_id": "catalytic_rooting"
+	},
+	{
+	  "id": "dense_aura_2",
+	  "name": "Dense Aura II",
+	  "family": "node_progression",
+	  "parent": "dense_aura_1",
+	  "tier": 5.0,
+	  "repeatable": true,
+	  "max_level": 2.0,
+	  "effect_type": "dense_aura_bundle",
+	  "effect_bundle": {
+		"yield_bonus": 0.05,
+		"pulse_speed_bonus": 0.1,
+		"pulse_capacity_bonus": 0.1
+	  },
+	  "costs": [
+		{
+		  "id": "bloom_matrix",
+		  "qty": 1.0
+		},
+		{
+		  "id": "crystal_bloom",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "dense_aura_1",
+	  "active_in_pass1": true,
+	  "parent_id": "dense_aura_1"
+	},
+	{
+	  "id": "synth_speed_3",
+	  "name": "Synth Speed III",
+	  "family": "synth",
+	  "parent": "synth_speed_2",
+	  "tier": 5.0,
+	  "repeatable": true,
+	  "max_level": 5.0,
+	  "effect_type": "synth_speed_mult",
+	  "effect_per_level": 0.04,
+	  "costs": [
+		{
+		  "id": "bloom_matrix",
+		  "qty": 1.0
+		}
+	  ],
+	  "requires_connected_nodes": 0.0,
+	  "requires_discovery": "synth_speed_2",
+	  "active_in_pass1": true,
+	  "parent_id": "synth_speed_2"
+	},
+	{
+	  "id": "mutagen_lab",
+	  "name": "Mutagen Lab",
+	  "tier": 3,
+	  "parent_id": "synthesis",
+	  "repeatable": false,
+	  "max_level": 1,
+	  "effect_type": "unlock_mutagen_lab",
+	  "effect_text": "Unlocks the Mutagen Lab, enabling Genetic Strain crafting.",
+	  "costs": [
+		{
+		  "id": "spore_composite",
+		  "qty": 15
+		},
+		{
+		  "id": "hyphal_thread",
+		  "qty": 10
+		},
+		{
+		  "id": "cellulose_weave",
+		  "qty": 5
+		}
+	  ]
+	},
+	{
+	  "id": "volatile_nodes",
+	  "name": "Volatile Nodes",
+	  "tier": 2,
+	  "parent_id": "aura_activation",
+	  "repeatable": false,
+	  "max_level": 1,
+	  "effect_type": "enable_volatile_nodes",
+	  "effect_text": "Occasionally spawns a temporary volatile node on the map delivering a burst of resources.",
+	  "costs": [
+		{
+		  "id": "spores",
+		  "qty": 3000
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 1000
+		},
+		{
+		  "id": "compost",
+		  "qty": 500
+		}
+	  ]
+	},
+	{
+	  "id": "volatile_magnitude",
+	  "name": "Volatile Magnitude",
+	  "tier": 3,
+	  "parent_id": "volatile_nodes",
+	  "repeatable": true,
+	  "max_level": 5,
+	  "effect_type": "volatile_magnitude_boost",
+	  "effect_text": "+5% volatile node value per level.",
+	  "costs": [
+		{
+		  "id": "spores",
+		  "qty": 5000
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 2000
+		},
+		{
+		  "id": "cellulose_culture",
+		  "qty": 3
+		}
+	  ]
+	},
+	{
+	  "id": "aura_reach_1",
+	  "name": "Aura Reach I",
+	  "tier": 2,
+	  "parent_id": "aura_activation",
+	  "active_in_pass1": true,
+	  "repeatable": false,
+	  "max_level": 1,
+	  "effect_type": "aura_reach",
+	  "effect_text": "Expands your aura reach, revealing Ring 2 nodes.",
+	  "unlock_nutrients_required": 1500,
+	  "costs": [
+		{
+		  "id": "spores",
+		  "qty": 2000
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 500
+		}
+	  ]
+	},
+	{
+	  "id": "aura_reach_2",
+	  "name": "Aura Reach II",
+	  "tier": 3,
+	  "parent_id": "aura_reach_1",
+	  "active_in_pass1": true,
+	  "repeatable": false,
+	  "max_level": 1,
+	  "effect_type": "aura_reach",
+	  "effect_text": "Expands your aura reach, revealing Ring 3 nodes.",
+	  "unlock_nutrients_required": 15000,
+	  "costs": [
+		{
+		  "id": "spores",
+		  "qty": 10000
+		},
+		{
+		  "id": "hyphae",
+		  "qty": 5000
+		},
+		{
+		  "id": "cellulose",
+		  "qty": 2000
+		}
+	  ]
+	},
+	{
+	  "id": "aura_reach_3",
+	  "name": "Aura Reach III",
+	  "tier": 4,
+	  "parent_id": "aura_reach_2",
+	  "active_in_pass1": true,
+	  "repeatable": false,
+	  "max_level": 1,
+	  "effect_type": "aura_reach",
+	  "effect_text": "Expands your aura reach, revealing Ring 4 nodes.",
+	  "unlock_nutrients_required": 250000,
+	  "costs": [
+		{
+		  "id": "spore_composite",
+		  "qty": 20
+		},
+		{
+		  "id": "hyphal_thread",
+		  "qty": 20
+		},
+		{
+		  "id": "cellulose_weave",
+		  "qty": 10
+		}
+	  ]
+	},
+	{
+	  "id": "aura_reach_4",
+	  "name": "Aura Reach IV",
+	  "tier": 5,
+	  "parent_id": "aura_reach_3",
+	  "active_in_pass1": true,
+	  "repeatable": false,
+	  "max_level": 1,
+	  "effect_type": "aura_reach",
+	  "effect_text": "Expands your aura reach, revealing Ring 5 nodes.",
+	  "unlock_nutrients_required": 8000000,
+	  "costs": [
+		{
+		  "id": "spore_culture",
+		  "qty": 5
+		},
+		{
+		  "id": "hyphal_culture",
+		  "qty": 5
+		},
+		{
+		  "id": "ichor_coagulate",
+		  "qty": 50
+		}
+	  ]
+	},
+	{
+	  "id": "aura_reach_5",
+	  "name": "Aura Reach V",
+	  "tier": 6,
+	  "parent_id": "aura_reach_4",
+	  "active_in_pass1": true,
+	  "repeatable": false,
+	  "max_level": 1,
+	  "effect_type": "aura_reach",
+	  "effect_text": "Expands your aura reach, revealing Ring 6 nodes.",
+	  "unlock_nutrients_required": 500000000,
+	  "costs": [
+		{
+		  "id": "volatile_substrate",
+		  "qty": 3
+		},
+		{
+		  "id": "ichor_extract",
+		  "qty": 5
+		}
+	  ]
+	},
+	{
+	  "id": "aura_reach_6",
+	  "name": "Aura Reach VI",
+	  "tier": 7,
+	  "parent_id": "aura_reach_5",
+	  "active_in_pass1": true,
+	  "repeatable": false,
+	  "max_level": 1,
+	  "effect_type": "aura_reach",
+	  "effect_text": "Expands your aura reach, revealing Ring 7 nodes.",
+	  "unlock_nutrients_required": 30000000000,
+	  "costs": [
+		{
+		  "id": "ichor_serum",
+		  "qty": 3
+		},
+		{
+		  "id": "merged_substrate",
+		  "qty": 2
+		}
+	  ]
+	},
+	{
+	  "id": "aura_reach_7",
+	  "name": "Aura Reach VII",
+	  "tier": 8,
+	  "parent_id": "aura_reach_6",
+	  "active_in_pass1": true,
+	  "repeatable": false,
+	  "max_level": 1,
+	  "effect_type": "aura_reach",
+	  "effect_text": "Expands your aura reach, revealing Ring 8 nodes.",
+	  "unlock_nutrients_required": 1000000000000,
+	  "costs": [
+		{
+		  "id": "void_serum",
+		  "qty": 2
+		},
+		{
+		  "id": "bloom_substrate",
+		  "qty": 2
+		}
+	  ]
+	}
+  ]
 }

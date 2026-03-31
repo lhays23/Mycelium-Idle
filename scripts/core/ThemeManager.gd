@@ -25,6 +25,9 @@ const TOKENS := [
 	"tab_active_bg", # active tab fill (rgba string)
 	"btn_bg",        # action button fill (rgba string)
 	"btn_border",    # action button border
+	"aura_fill",     # aura radial gradient fill color
+	"aura_ring",     # aura outer ring color
+	"aura_pulse",    # aura pulse wave color
 ]
 
 # ── Theme definitions ─────────────────────────────────────────────────────────
@@ -48,7 +51,10 @@ const THEMES := {
 		"nav_bg":        Color(0.039, 0.078, 0.031),
 		"tab_active_bg": Color(0.392, 0.706, 0.196, 0.15),
 		"btn_bg":        Color(0.392, 0.706, 0.196, 0.12),
-		"btn_border":    Color(0.290, 0.604, 0.188),
+		"btn_border":   Color(0.290, 0.604, 0.188),
+		"aura_fill":  Color(0.302, 1.000, 0.816, 1.0),
+		"aura_ring":  Color(0.302, 1.000, 0.816, 1.0),
+		"aura_pulse":  Color(0.502, 1.000, 0.878, 1.0),
 	},
 	"mycelium_violet": {
 		"id":           "mycelium_violet",
@@ -69,7 +75,10 @@ const THEMES := {
 		"nav_bg":        Color(0.031, 0.024, 0.071),
 		"tab_active_bg": Color(0.627, 0.392, 0.941, 0.15),
 		"btn_bg":        Color(0.627, 0.392, 0.941, 0.12),
-		"btn_border":    Color(0.439, 0.314, 0.753),
+		"btn_border":   Color(0.439, 0.314, 0.753),
+		"aura_fill":  Color(0.749, 0.502, 1.000, 1.0),
+		"aura_ring":  Color(0.749, 0.502, 1.000, 1.0),
+		"aura_pulse":  Color(0.878, 0.690, 1.000, 1.0),
 	},
 	"amber_spore": {
 		"id":           "amber_spore",
@@ -90,7 +99,10 @@ const THEMES := {
 		"nav_bg":        Color(0.071, 0.055, 0.016),
 		"tab_active_bg": Color(0.784, 0.588, 0.157, 0.15),
 		"btn_bg":        Color(0.784, 0.588, 0.157, 0.12),
-		"btn_border":    Color(0.627, 0.471, 0.157),
+		"btn_border":   Color(0.627, 0.471, 0.157),
+		"aura_fill":  Color(1.000, 0.702, 0.278, 1.0),
+		"aura_ring":  Color(1.000, 0.702, 0.278, 1.0),
+		"aura_pulse":  Color(1.000, 0.816, 0.502, 1.0),
 	},
 	"accessible_blue": {
 		"id":           "accessible_blue",
@@ -111,7 +123,10 @@ const THEMES := {
 		"nav_bg":        Color(0.024, 0.039, 0.078),
 		"tab_active_bg": Color(0.235, 0.549, 0.941, 0.15),
 		"btn_bg":        Color(0.235, 0.549, 0.941, 0.12),
-		"btn_border":    Color(0.220, 0.439, 0.753),
+		"btn_border":   Color(0.220, 0.439, 0.753),
+		"aura_fill":  Color(0.278, 0.690, 1.000, 1.0),
+		"aura_ring":  Color(0.278, 0.690, 1.000, 1.0),
+		"aura_pulse":  Color(0.502, 0.816, 1.000, 1.0),
 	},
 }
 

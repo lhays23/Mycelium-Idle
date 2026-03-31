@@ -2,7 +2,6 @@
 
 [ext_resource type="Script" uid="uid://uobs8r4vhkco" path="res://scripts/ui/MainUI.gd" id="1_elqb8"]
 [ext_resource type="FontFile" uid="uid://c5luwff4qhsku" path="res://assets/fonts/verdanab.ttf" id="1_wp0k4"]
-[ext_resource type="Texture2D" uid="uid://c4u30hp63lrx7" path="res://art/placeholder/background_1080x1920.png" id="2_nxtc6"]
 [ext_resource type="Texture2D" uid="uid://c7o0lf0d2rxn1" path="res://art/placeholder/spore_cloud_512.png" id="7_bjd11"]
 [ext_resource type="Texture2D" uid="uid://xhfekbys1e3v" path="res://art/placeholder/icon_nutrients_64.png" id="8_lhr70"]
 [ext_resource type="Texture2D" uid="uid://jmjwcpukvh1u" path="res://art/placeholder/icon_glowcaps_64.png" id="9_wp0k4"]
@@ -31,7 +30,6 @@ script = ExtResource("1_elqb8")
 
 [node name="Background" type="Sprite2D" parent="MapLayer" unique_id=1311952276]
 position = Vector2(540, 960)
-texture = ExtResource("2_nxtc6")
 
 [node name="SelectionRing" type="Sprite2D" parent="MapLayer" unique_id=1878258896]
 visible = false
@@ -41,7 +39,6 @@ texture = ExtResource("7_bjd11")
 
 [node name="SporeCloud" type="Sprite2D" parent="MapLayer" unique_id=1687664358]
 position = Vector2(540, 1050)
-texture = ExtResource("7_bjd11")
 
 [node name="UILayer" type="CanvasLayer" parent="." unique_id=525166777]
 layer = 20

@@ -60,10 +60,23 @@ var lines_container: Node = null
 @onready var selection_ring: Sprite2D = $MapLayer/SelectionRing
 @onready var map_layer: Node2D = $MapLayer
 
+# ── Aura visual ───────────────────────────────────────────────────────────────
+var _aura_node: Node2D = null           # draws fill + ring
+var _aura_pulse_node: Node2D = null     # draws expanding pulse wave
+var _aura_pulse_t: float = 0.0          # 0.0 → 1.0 pulse progress
+var _aura_pulse_interval: float = 20.0  # seconds between pulses
+var _aura_target_radius: float = 0.0    # smooth target for ring
+var _aura_current_radius: float = 0.0   # smoothed display radius
+var _aura_pulse_enabled: bool = true    # settings toggle
+var _aura_glow_enabled: bool = true     # settings toggle
+var _aura_fog_node: Node2D = null       # fog of war overlay
+var _aura_fog_enabled: bool = true      # settings toggle
+
 # Currency labels
 var lbl_nutrients: Label = null
 var lbl_glowcaps: Label = null
 var lbl_strain: Label = null
+var _lbl_run_nutrients_debug: Label = null  # DEBUG — total run nutrients display
 
 var _tween: Tween
 var _open_panel: Control = null
@@ -147,10 +160,7 @@ var _disc_popup_disc_id: String = ""
 var _disc_popup_layer: CanvasLayer = null
 var _disc_popup_cost_labels: Array = []   # Array of {res_id, qty, lbl} for live refresh
 var _disc_popup_buy_btn: Button = null     # Discover/Upgrade button for live enable/disable
-var _volatile_popup_layer: CanvasLayer = null
-var _volatile_popup_timer_lbl: Label = null
-var _volatile_popup_obtained_lbl: Label = null
-var _volatile_popup_progress: ProgressBar = null
+# volatile popup refs removed (unused)
 var volatile_panel: Control = null        # built dynamically, lives in _panel_container
 var _vp_res_lbl: Label       = null       # resource name label
 var _vp_total_lbl: Label     = null       # total yield
@@ -269,6 +279,7 @@ func _ready() -> void:
 	_build_node_registry()
 	_setup_initial_camera()
 	_refresh_node_world_state()
+	_setup_aura_layer()
 
 	_register_root_transfer_positions()
 	_setup_root_pulses()
@@ -866,6 +877,7 @@ func _process(dt: float) -> void:
 
 	_update_root_pulse_visuals()
 	_poll_root_transfer_feedback()
+	_update_aura_visual(dt)
 
 	# Hold-to-auto-digest timer
 	if _digest_hold_id != "":
@@ -940,7 +952,6 @@ func _register_root_transfer_positions() -> void:
 		if node_id == "" or node_raw == null or not is_instance_valid(node_raw):
 			continue
 		var node_ref: Node2D = node_raw as Node2D
-		# Use global_position so map_layer scale/offset is correctly accounted for
 		game_state.call("register_node_world_position", node_id, node_ref.global_position)
 
 
@@ -1504,20 +1515,32 @@ func _clear_digest_rows() -> void:
 func _refresh_digest_tab_buttons() -> void:
 	if digest_tab_resources == null:
 		return
-	var compounds_unlocked := false
-	var solutions_unlocked := false
+	var compounds_ever := false
+	var solutions_ever := false
+	if game_state != null:
+		if game_state.has_method("has_refinery_ever_been_seen"):
+			compounds_ever = bool(game_state.call("has_refinery_ever_been_seen"))
+		if game_state.has_method("has_synth_ever_been_seen"):
+			solutions_ever = bool(game_state.call("has_synth_ever_been_seen"))
+
+	digest_tab_compounds.visible = compounds_ever
+	digest_tab_solutions.visible = solutions_ever
+
+	# Also disable if not active this run
+	var compounds_active := false
+	var solutions_active := false
 	if game_state != null:
 		if game_state.has_method("is_refinery_unlocked"):
-			compounds_unlocked = bool(game_state.call("is_refinery_unlocked"))
+			compounds_active = bool(game_state.call("is_refinery_unlocked"))
 		if game_state.has_method("is_synth_unlocked"):
-			solutions_unlocked = bool(game_state.call("is_synth_unlocked"))
+			solutions_active = bool(game_state.call("is_synth_unlocked"))
 
-	digest_tab_compounds.disabled = not compounds_unlocked
-	digest_tab_solutions.disabled = not solutions_unlocked
+	digest_tab_compounds.disabled = not compounds_active
+	digest_tab_solutions.disabled = not solutions_active
 
-	if not compounds_unlocked and _digest_active_category == "compound":
+	if not compounds_active and _digest_active_category == "compound":
 		_digest_active_category = "resource"
-	if not solutions_unlocked and _digest_active_category == "solution":
+	if not solutions_active and _digest_active_category == "solution":
 		_digest_active_category = "resource"
 
 	_theme_tab_button(digest_tab_resources, _digest_active_category == "resource")
@@ -1806,8 +1829,8 @@ func _execute_auto_digest() -> void:
 		var digest_amt: int = int(floor(incoming * pct))
 		if digest_amt > 0 and game_state.has_method("digest_inventory_item"):
 			game_state.call("digest_inventory_item", item_id, digest_amt)
-		# Record current amount as baseline for next tick
-		_digest_auto_last_amt[item_id] = current_amt
+		# Store post-digest amount as baseline — using pre-digest causes incoming=0 next tick
+		_digest_auto_last_amt[item_id] = max(0, current_amt - digest_amt)
 
 
 func _toggle_digest_auto(item_id: String) -> void:
@@ -2110,20 +2133,21 @@ func _refresh_discoveries_panel() -> void:
 	var cx: float = 206.0
 	var node_w := 88.0
 	var node_h := 88.0
-	var col_l  := cx - node_w * 1.5 - 20.0   # left column  ≈ 54
-	var col_c  := cx - node_w * 0.5           # center       ≈ 162
-	var col_r  := cx + node_w * 0.5 + 20.0   # right column ≈ 306
+	var col_l    := cx - node_w * 1.5 - 20.0   # left column  ≈ 54   (refinery chain)
+	var col_c    := cx - node_w * 0.5           # center       ≈ 162  (aura chain)
+	var col_r    := cx + node_w * 0.5 + 20.0   # right column ≈ 306  (excess/volatile chain)
+	var col_slot := cx + node_w * 1.5 + 40.0   # far right    ≈ 392  (mutagen lab slots)
 
 	var row: Dictionary = {
-		0:  30.0,   # aura
+		0:  30.0,   # aura_activation
 		1:  160.0,  # root row
-		2:  290.0,  # refinery children / nutrient_eff
-		3:  420.0,  # synthesis / mutagen_lab / volatile_nodes
-		4:  550.0,  # strain_t2 / volatile_magnitude
-		5:  680.0,  # strain_t3
-		6:  810.0,  # strain_t4 / mutagen_lab_slot2
-		7:  940.0,  # strain_t5
-		8:  1070.0, # strain_t6 / mutagen_lab_slot3
+		2:  290.0,  # refinery children / nutrient_eff / aura_reach_1
+		3:  420.0,  # synthesis / mutagen_lab / volatile_nodes / aura_reach_2
+		4:  550.0,  # strain_t2 / volatile_magnitude / aura_reach_3
+		5:  680.0,  # strain_t3 / aura_reach_4
+		6:  810.0,  # strain_t4 / aura_reach_5
+		7:  940.0,  # strain_t5 / aura_reach_6
+		8:  1070.0, # strain_t6 / aura_reach_7
 	}
 
 	var positions: Dictionary = {
@@ -2133,6 +2157,14 @@ func _refresh_discoveries_panel() -> void:
 		"primitive_refinery":    Vector2(col_l, row[1]),
 		"excess_fertilizer":     Vector2(col_r, row[1]),
 		"nutrient_efficiency_1": Vector2(col_r, row[2]),
+		# Aura reach chain — center column, below aura_activation
+		"aura_reach_1":          Vector2(col_c, row[2]),
+		"aura_reach_2":          Vector2(col_c, row[3]),
+		"aura_reach_3":          Vector2(col_c, row[4]),
+		"aura_reach_4":          Vector2(col_c, row[5]),
+		"aura_reach_5":          Vector2(col_c, row[6]),
+		"aura_reach_6":          Vector2(col_c, row[7]),
+		"aura_reach_7":          Vector2(col_c, row[8]),
 		# Synth chain
 		"synthesis":             Vector2(col_l, row[2]),
 		# Volatile chain (right column, branching from aura)
@@ -2142,10 +2174,10 @@ func _refresh_discoveries_panel() -> void:
 		"mutagen_lab":           Vector2(col_l, row[3]),
 		"strain_t2":             Vector2(col_l, row[4]),
 		"strain_t3":             Vector2(col_l, row[5]),
-		"mutagen_lab_slot2":     Vector2(col_c, row[5]),
+		"mutagen_lab_slot2":     Vector2(col_slot, row[5]),
 		"strain_t4":             Vector2(col_l, row[6]),
 		"strain_t5":             Vector2(col_l, row[7]),
-		"mutagen_lab_slot3":     Vector2(col_c, row[7]),
+		"mutagen_lab_slot3":     Vector2(col_slot, row[7]),
 		"strain_t6":             Vector2(col_l, row[8]),
 	}
 
@@ -2155,6 +2187,14 @@ func _refresh_discoveries_panel() -> void:
 		["mycelial_insight", "primitive_refinery"],
 		["mycelial_insight", "excess_fertilizer"],
 		["excess_fertilizer", "nutrient_efficiency_1"],
+		# Aura reach chain
+		["aura_activation",  "aura_reach_1"],
+		["aura_reach_1",     "aura_reach_2"],
+		["aura_reach_2",     "aura_reach_3"],
+		["aura_reach_3",     "aura_reach_4"],
+		["aura_reach_4",     "aura_reach_5"],
+		["aura_reach_5",     "aura_reach_6"],
+		["aura_reach_6",     "aura_reach_7"],
 		# Refinery → Synthesis
 		["primitive_refinery", "synthesis"],
 		# Volatile chain
@@ -2544,8 +2584,9 @@ func _show_disc_popup(disc_id: String, entry: Dictionary) -> void:
 		popup.position = Vector2(px, py)
 
 	# Fade in dimmer
-	var tw := create_tween()
-	tw.tween_property(_disc_popup_dimmer, "color:a", 0.55, 0.15)
+	if _disc_popup_dimmer != null and is_instance_valid(_disc_popup_dimmer):
+		var tw := create_tween()
+		tw.tween_property(_disc_popup_dimmer, "color:a", 0.55, 0.15)
 
 
 func _close_disc_popup() -> void:
@@ -2601,7 +2642,7 @@ func _bind_volatile_panel() -> void:
 	_panel_container.add_child(panel)
 	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	panel.position = Vector2.ZERO
-	panel.size     = _panel_container.size
+	panel.set_deferred("size", _panel_container.size)
 	_set_panel_closed(panel)
 	volatile_panel = panel
 
@@ -2905,15 +2946,19 @@ func _refresh_refinery_tab_buttons() -> void:
 	var compounds_unlocked := false
 	var solutions_unlocked := false
 	var lab_unlocked       := false
+	var solutions_ever     := false
 	if game_state != null:
 		if game_state.has_method("is_refinery_unlocked"):
 			compounds_unlocked = bool(game_state.call("is_refinery_unlocked"))
 		if game_state.has_method("is_synth_unlocked"):
 			solutions_unlocked = bool(game_state.call("is_synth_unlocked"))
+		if game_state.has_method("has_synth_ever_been_seen"):
+			solutions_ever = bool(game_state.call("has_synth_ever_been_seen"))
 		if game_state.has_method("is_mutagen_lab_unlocked"):
 			lab_unlocked = bool(game_state.call("is_mutagen_lab_unlocked"))
 
 	refinery_tab_compounds.disabled = not compounds_unlocked
+	refinery_tab_solutions.visible  = solutions_ever
 	refinery_tab_solutions.disabled = not solutions_unlocked
 
 	# Mutagen Lab tab — visible always once unlocked (permanent), hidden before
@@ -2941,32 +2986,33 @@ func _set_refinery_active_category(category: String) -> void:
 func _update_refinery_slot_progress() -> void:
 	if refinery_list == null or game_state == null:
 		return
+
+	var _update_slot := func(entries_v, cat: String) -> void:
+		if typeof(entries_v) != TYPE_ARRAY:
+			return
+		for entry_variant in entries_v as Array:
+			var entry: Dictionary = entry_variant as Dictionary
+			if str(entry.get("type", "")) != "slot":
+				continue
+			var slot_num: int       = int(entry.get("slot_number", 0))
+			var pct: int            = int(entry.get("progress_pct", 0))
+			var craft_sec: float    = float(entry.get("craft_time_sec", 0.0))
+			var progress_sec: float = float(entry.get("progress_sec", 0.0))
+			var remaining: float    = maxf(0.0, craft_sec - progress_sec)
+
+			var fill := refinery_list.find_child("SlotFill_%s_%d" % [cat, slot_num], true, false) as Control
+			if fill != null and is_instance_valid(fill):
+				fill.set_meta("_pct", pct)
+				fill.queue_redraw()
+
+			var cd_lbl := refinery_list.find_child("SlotCountdown_%s_%d" % [cat, slot_num], true, false) as Label
+			if cd_lbl != null and is_instance_valid(cd_lbl):
+				cd_lbl.text = _fmt_seconds(remaining)
+
 	if game_state.has_method("get_refinery_ui_entries"):
-		var entries_v = game_state.call("get_refinery_ui_entries")
-		if typeof(entries_v) == TYPE_ARRAY:
-			for entry_variant in entries_v as Array:
-				var entry: Dictionary = entry_variant as Dictionary
-				if str(entry.get("type", "")) != "slot":
-					continue
-				var slot_num: int = int(entry.get("slot_number", 0))
-				var pct: int = int(entry.get("progress_pct", 0))
-				var fill := refinery_list.find_child("SlotFill_compound_%d" % slot_num, true, false) as Control
-				if fill != null and is_instance_valid(fill):
-					fill.set_meta("_pct", pct)
-					fill.queue_redraw()
+		_update_slot.call(game_state.call("get_refinery_ui_entries"), "compound")
 	if game_state.has_method("get_synth_ui_entries"):
-		var entries_v2 = game_state.call("get_synth_ui_entries")
-		if typeof(entries_v2) == TYPE_ARRAY:
-			for entry_variant in entries_v2 as Array:
-				var entry: Dictionary = entry_variant as Dictionary
-				if str(entry.get("type", "")) != "slot":
-					continue
-				var slot_num: int = int(entry.get("slot_number", 0))
-				var pct: int = int(entry.get("progress_pct", 0))
-				var fill := refinery_list.find_child("SlotFill_solution_%d" % slot_num, true, false) as Control
-				if fill != null and is_instance_valid(fill):
-					fill.set_meta("_pct", pct)
-					fill.queue_redraw()
+		_update_slot.call(game_state.call("get_synth_ui_entries"), "solution")
 
 
 func _refresh_refinery_panel() -> void:
@@ -3120,11 +3166,11 @@ func _make_mutagen_slot_card(slot_index: int, slot: Dictionary, available_tiers:
 	var held: int           = int(slot.get("held", 0))
 	var pct: int            = int(slot.get("progress_pct", 0))
 	var stalled: bool       = bool(slot.get("stalled", false))
-	var next_gs: int        = int(slot.get("next_gs", 0))
+	var _next_gs: int       = int(slot.get("next_gs", 0))
 	var run_gs: int         = int(slot.get("run_gs", 0))
 	var gs_table: Array     = slot.get("gs_table", []) as Array
 	var crafted: int        = int(slot.get("crafted_count", 0))
-	var craft_time: float   = float(slot.get("craft_time_sec", 0.0))
+	var _craft_time: float  = float(slot.get("craft_time_sec", 0.0))
 
 	var card := _make_refinery_card_shell()
 	var vbox := VBoxContainer.new()
@@ -3419,8 +3465,12 @@ func _make_slot_row(entry: Dictionary, category: String) -> Control:
 			badge.add_theme_color_override("font_color", tm.c("text_muted"))
 			top.add_child(badge)
 
-	# ── Progress bar (only when active) ──────────────────────────────────
+	# ── Progress bar + countdown (only when active) ──────────────────────
 	if not is_idle:
+		var craft_time_sec: float = float(entry.get("craft_time_sec", 0.0))
+		var progress_sec: float   = float(entry.get("progress_sec",  0.0))
+		var remaining_sec: float  = maxf(0.0, craft_time_sec - progress_sec)
+
 		var track := PanelContainer.new()
 		var sb_t := StyleBoxFlat.new()
 		sb_t.bg_color = tm.c("bg_deep")
@@ -3448,6 +3498,14 @@ func _make_slot_row(entry: Dictionary, category: String) -> Control:
 				fill.draw_style_box(sb_f, Rect2(0, 0, w, fill.size.y))
 		)
 		track.add_child(fill)
+
+		# Countdown label
+		var countdown_lbl := Label.new()
+		countdown_lbl.name = "SlotCountdown_%s_%d" % [category, slot_number]
+		countdown_lbl.add_theme_font_size_override("font_size", 10)
+		countdown_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		countdown_lbl.text = _fmt_seconds(remaining_sec)
+		vbox.add_child(countdown_lbl)
 
 	# ── Tap row to open slot popup ────────────────────────────────────────
 	row.gui_input.connect(func(ev: InputEvent):
@@ -4213,61 +4271,99 @@ func _on_synth_unlock_slot_pressed(slot_number: int) -> void:
 # ---------------- SettingsPanel ----------------
 
 func _bind_settings_panel() -> void:
-	var root_box: VBoxContainer = settings_panel.find_child("VBoxContainer", true, false) as VBoxContainer
-	if root_box == null:
-		return
-	for child in root_box.get_children():
-		child.queue_free()
+	# Same approach as Digest — hide scene MarginContainer, build from scratch
+	var margin_c: Control = settings_panel.find_child("MarginContainer", true, false) as Control
+	if margin_c != null:
+		margin_c.visible = false
 
-	# Ensure fill
-	settings_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root_box.size_flags_vertical       = Control.SIZE_EXPAND_FILL
-	root_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var existing := settings_panel.find_child("SettingsRoot", true, false) as Control
+	if existing != null:
+		existing.queue_free()
 
 	var tm := ThemeManager
 
-	# ── Header ────────────────────────────────────────────────────────────
+	# ── Root Control ──────────────────────────────────────────────────────
+	var root := Control.new()
+	root.name = "SettingsRoot"
+	root.mouse_filter = Control.MOUSE_FILTER_PASS
+	settings_panel.add_child(root)
+
+	# ── Padded header ─────────────────────────────────────────────────────
+	var top_pad := MarginContainer.new()
+	top_pad.name = "SettingsTopPad"
+	top_pad.add_theme_constant_override("margin_left",   10)
+	top_pad.add_theme_constant_override("margin_right",  10)
+	top_pad.add_theme_constant_override("margin_top",    10)
+	top_pad.add_theme_constant_override("margin_bottom", 0)
+	root.add_child(top_pad)
+
 	var header := Label.new()
 	header.text = "Settings"
 	header.add_theme_font_size_override("font_size", 16)
 	header.add_theme_color_override("font_color", tm.c("accent"))
-	root_box.add_child(header)
+	top_pad.add_child(header)
+
+	# ── Scroll area ───────────────────────────────────────────────────────
+	var scroll := ScrollContainer.new()
+	scroll.name = "SettingsScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
+	root.add_child(scroll)
+
+	# Hide scrollbar visually
+	await get_tree().process_frame
+	var vscroll := scroll.get_node_or_null("_v_scroll") as ScrollBar
+	if vscroll != null:
+		vscroll.add_theme_stylebox_override("scroll", StyleBoxEmpty.new())
+		vscroll.custom_minimum_size = Vector2(0, 0)
+
+	var inner := VBoxContainer.new()
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inner.add_theme_constant_override("separation", 6)
+	scroll.add_child(inner)
+
+	# ── Padded inner content ──────────────────────────────────────────────
+	var pad := MarginContainer.new()
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_left",   10)
+	pad.add_theme_constant_override("margin_right",  10)
+	pad.add_theme_constant_override("margin_top",    8)
+	pad.add_theme_constant_override("margin_bottom", 16)
+	inner.add_child(pad)
+
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 10)
+	pad.add_child(content)
 
 	# ── Theme section ─────────────────────────────────────────────────────
 	var theme_header := Label.new()
 	theme_header.text = "Theme"
 	theme_header.add_theme_font_size_override("font_size", 12)
 	theme_header.add_theme_color_override("font_color", tm.c("text_muted"))
-	root_box.add_child(theme_header)
+	content.add_child(theme_header)
 
 	var themes: Array = ThemeManager.get_theme_list()
 	for theme_info_v in themes:
 		var theme_info: Dictionary = theme_info_v as Dictionary
-		var tid: String   = str(theme_info.get("id", ""))
-		var tname: String = str(theme_info.get("name", tid))
+		var tid: String    = str(theme_info.get("id", ""))
+		var tname: String  = str(theme_info.get("name", tid))
 		var unlocked: bool = bool(theme_info.get("unlocked", false))
 		var is_active: bool = tid == ThemeManager.active_id()
+		content.add_child(_make_settings_theme_row(tid, tname, unlocked, is_active))
 
-		var row := _make_settings_theme_row(tid, tname, unlocked, is_active)
-		root_box.add_child(row)
+	_add_settings_divider(content, tm)
 
-	# ── Divider ───────────────────────────────────────────────────────────
-	var div := HSeparator.new()
-	var sb_div := StyleBoxFlat.new()
-	sb_div.bg_color = tm.c("border")
-	div.add_theme_stylebox_override("separator", sb_div)
-	root_box.add_child(div)
-
-	# ── Debug: rate multiplier ────────────────────────────────────────────
+	# ── Debug section ─────────────────────────────────────────────────────
 	var debug_header := Label.new()
 	debug_header.text = "Debug"
 	debug_header.add_theme_font_size_override("font_size", 12)
 	debug_header.add_theme_color_override("font_color", tm.c("text_muted"))
-	root_box.add_child(debug_header)
+	content.add_child(debug_header)
 
 	var rate_row := HBoxContainer.new()
 	rate_row.add_theme_constant_override("separation", 10)
-	root_box.add_child(rate_row)
+	content.add_child(rate_row)
 
 	var rate_lbl := Label.new()
 	rate_lbl.text = "Rate ×"
@@ -4300,18 +4396,30 @@ func _bind_settings_panel() -> void:
 		rate_val_lbl.text = "×%d" % int(v)
 	)
 
-	var div2 := HSeparator.new()
-	var sb_div2 := StyleBoxFlat.new()
-	sb_div2.bg_color = tm.c("border")
-	div2.add_theme_stylebox_override("separator", sb_div2)
-	root_box.add_child(div2)
+	_add_settings_divider(content, tm)
 
-	# ── Save / load section ───────────────────────────────────────────────
+	# ── Aura visuals section ──────────────────────────────────────────────
+	var aura_header := Label.new()
+	aura_header.text = "Aura Visuals"
+	aura_header.add_theme_font_size_override("font_size", 12)
+	aura_header.add_theme_color_override("font_color", tm.c("text_muted"))
+	content.add_child(aura_header)
+
+	content.add_child(_make_settings_toggle(tm, "Aura Pulse", _aura_pulse_enabled,
+		func(v: bool): _aura_pulse_enabled = v))
+	content.add_child(_make_settings_toggle(tm, "Aura Glow", _aura_glow_enabled,
+		func(v: bool): _aura_glow_enabled = v))
+	content.add_child(_make_settings_toggle(tm, "Fog of War", _aura_fog_enabled,
+		func(v: bool): _aura_fog_enabled = v))
+
+	_add_settings_divider(content, tm)
+
+	# ── Save data section ─────────────────────────────────────────────────
 	var save_header := Label.new()
-	save_header.text = "Save data"
+	save_header.text = "Save Data"
 	save_header.add_theme_font_size_override("font_size", 12)
 	save_header.add_theme_color_override("font_color", tm.c("text_muted"))
-	root_box.add_child(save_header)
+	content.add_child(save_header)
 
 	settings_feedback = Label.new()
 	settings_feedback.name = "SettingsFeedback"
@@ -4319,11 +4427,11 @@ func _bind_settings_panel() -> void:
 	settings_feedback.add_theme_font_size_override("font_size", 13)
 	settings_feedback.add_theme_color_override("font_color", tm.c("text_muted"))
 	settings_feedback.text = "Manage save data for this run."
-	root_box.add_child(settings_feedback)
+	content.add_child(settings_feedback)
 
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 8)
-	root_box.add_child(btn_row)
+	content.add_child(btn_row)
 
 	settings_btn_save = Button.new()
 	settings_btn_save.text = "Save Now"
@@ -4344,9 +4452,67 @@ func _bind_settings_panel() -> void:
 	settings_btn_new_game.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	settings_btn_new_game.pressed.connect(_on_settings_new_game_pressed)
 	_theme_action_button(settings_btn_new_game)
-	root_box.add_child(settings_btn_new_game)
+	content.add_child(settings_btn_new_game)
 
 	_refresh_settings_panel()
+	_layout_settings_panel()
+
+
+func _layout_settings_panel() -> void:
+	var root := settings_panel.find_child("SettingsRoot", true, false) as Control
+	if root == null or _panel_container == null:
+		return
+	var W: float = _panel_container.size.x
+	var H: float = _panel_container.size.y
+	if W <= 0 or H <= 0:
+		return
+
+	root.position = Vector2.ZERO
+	root.size     = Vector2(W, H)
+
+	var top_pad := root.find_child("SettingsTopPad", true, false) as Control
+	var top_h := 48.0
+	if top_pad != null:
+		top_pad.position = Vector2.ZERO
+		top_pad.size     = Vector2(W, top_h)
+
+	var scroll := root.find_child("SettingsScroll", true, false) as Control
+	if scroll != null:
+		scroll.position = Vector2(0, top_h)
+		scroll.size     = Vector2(W, H - top_h)
+
+
+func _add_settings_divider(parent: VBoxContainer, tm) -> void:
+	var div := HSeparator.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = tm.c("border")
+	div.add_theme_stylebox_override("separator", sb)
+	parent.add_child(div)
+
+
+func _make_settings_toggle(tm, label_text: String, current_val: bool, on_toggle: Callable) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var lbl := Label.new()
+	lbl.text = label_text
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.add_theme_font_size_override("font_size", 13)
+	lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+	row.add_child(lbl)
+	var btn := Button.new()
+	btn.text = "ON" if current_val else "OFF"
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.toggle_mode = true
+	btn.button_pressed = current_val
+	btn.add_theme_color_override("font_color", tm.c("accent") if current_val else tm.c("text_muted"))
+	btn.pressed.connect(func():
+		var v: bool = btn.button_pressed
+		btn.text = "ON" if v else "OFF"
+		btn.add_theme_color_override("font_color", tm.c("accent") if v else tm.c("text_muted"))
+		on_toggle.call(v)
+	)
+	row.add_child(btn)
+	return row
 
 
 func _make_settings_theme_row(tid: String, tname: String, unlocked: bool, is_active: bool) -> Control:
@@ -5125,6 +5291,15 @@ func _bind_currency_labels() -> void:
 	lbl_glowcaps = _find_row_value_label(cs, "RowPremium")
 	lbl_strain = _find_row_value_label(cs, "RowPrestige")
 
+	# DEBUG — total run nutrients label below strain points
+	if lbl_strain != null and is_instance_valid(lbl_strain):
+		_lbl_run_nutrients_debug = Label.new()
+		_lbl_run_nutrients_debug.name = "DebugRunNutrients"
+		_lbl_run_nutrients_debug.add_theme_font_size_override("font_size", 10)
+		_lbl_run_nutrients_debug.add_theme_color_override("font_color", Color(0.6, 1.0, 0.8, 0.8))
+		_lbl_run_nutrients_debug.text = "0 run"
+		lbl_strain.get_parent().add_child(_lbl_run_nutrients_debug)
+
 
 func _find_row_value_label(cs: Node, row_name: String) -> Label:
 	var row := cs.find_child(row_name, true, false)
@@ -5188,6 +5363,7 @@ func _open(panel: Control) -> void:
 		_refresh_refinery_panel()
 	if panel == settings_panel:
 		_refresh_settings_panel()
+		_layout_settings_panel()
 	if panel == node_panel:
 		_refresh_nodepanel_all()
 	if panel == mutation_chamber_panel:
@@ -5630,6 +5806,147 @@ func _try_select_node(screen_pos: Vector2) -> void:
 		return
 
 
+# ── Aura Visual System ────────────────────────────────────────────────────────
+
+func _setup_aura_layer() -> void:
+	# ── Fill + ring node ──────────────────────────────────────────────────
+	_aura_node = Node2D.new()
+	_aura_node.name = "AuraLayer"
+	_aura_node.z_index = -1
+	_aura_node.draw.connect(func():
+		if not is_instance_valid(_aura_node) or game_state == null:
+			return
+		if not game_state.has_method("is_aura_active") or not bool(game_state.call("is_aura_active")):
+			return
+		if _aura_current_radius <= 1.0:
+			return
+		var center: Vector2 = spore_cloud.position
+		var r: float = _aura_current_radius
+		var tm := ThemeManager
+
+		# Radial fill — draw concentric circles fading outward
+		if _aura_glow_enabled:
+			var steps := 32
+			for i in range(steps, 0, -1):
+				var t: float = float(i) / float(steps)
+				var col: Color = tm.c("aura_fill")
+				col.a = 0.18 * (1.0 - t)
+				_aura_node.draw_circle(center, r * t, col)
+
+		var ring_col: Color = tm.c("aura_ring")
+		ring_col.a = 0.9
+		_aura_node.draw_arc(center, r, 0.0, TAU, 80, ring_col, 2.5, true)
+	)
+	map_layer.add_child(_aura_node)
+
+	# ── Pulse node ────────────────────────────────────────────────────────
+	_aura_pulse_node = Node2D.new()
+	_aura_pulse_node.name = "AuraPulse"
+	_aura_pulse_node.z_index = -1
+	_aura_pulse_node.draw.connect(func():
+		if not is_instance_valid(_aura_pulse_node) or not _aura_pulse_enabled:
+			return
+		if game_state == null or not bool(game_state.call("is_aura_active")):
+			return
+		if _aura_current_radius <= 1.0 or _aura_pulse_t <= 0.01:
+			return
+		var center: Vector2 = spore_cloud.position
+		var r: float = (_aura_current_radius) * _aura_pulse_t
+		var alpha: float = sin(_aura_pulse_t * PI) * 0.6
+		var col: Color = ThemeManager.c("aura_pulse")
+		col.a = alpha
+		_aura_pulse_node.draw_arc(center, r, 0.0, TAU, 64, col, 2.0, true)
+	)
+	map_layer.add_child(_aura_pulse_node)
+
+	# ── Fog of war ────────────────────────────────────────────────────────
+	# Lives on a CanvasLayer above the map so it renders in screen space.
+	# We convert the aura world center to screen coords each frame.
+	var fog_layer := CanvasLayer.new()
+	fog_layer.name = "FogLayer"
+	fog_layer.layer = 2  # above map (layer 0) but below UI panels
+	add_child(fog_layer)
+
+	_aura_fog_node = Node2D.new()
+	_aura_fog_node.name = "AuraFog"
+	_aura_fog_node.draw.connect(func():
+		if not is_instance_valid(_aura_fog_node) or not _aura_fog_enabled:
+			return
+		if game_state == null or not bool(game_state.call("is_aura_active")):
+			return
+		if _aura_current_radius <= 1.0:
+			return
+
+		# Convert aura center and radius to screen space
+		var world_center: Vector2 = spore_cloud.global_position
+		var screen_center: Vector2 = get_viewport().get_screen_transform() * world_center
+		var screen_radius: float = _aura_current_radius * _map_zoom
+
+		var fog_col := Color(0.04, 0.07, 0.04, 0.90)
+		var steps := 64
+
+		# Annular polygon: outer circle (clockwise) + inner circle (counter-clockwise)
+		# Both circles close back to angle=0 so both bridge edges are coincident
+		var pts: PackedVector2Array = PackedVector2Array()
+		var outer_r := maxf(get_viewport_rect().size.x, get_viewport_rect().size.y) * 2.0
+
+		# Outer circle — clockwise, steps+1 so it closes back to angle=0
+		for i in range(steps + 1):
+			var angle := TAU * float(i) / float(steps)
+			pts.append(screen_center + Vector2(cos(angle), sin(angle)) * outer_r)
+
+		# Inner circle — counter-clockwise from angle=TAU back to angle=0
+		for i in range(steps + 1):
+			var angle := TAU * float(steps - i) / float(steps)
+			pts.append(screen_center + Vector2(cos(angle), sin(angle)) * screen_radius)
+
+		_aura_fog_node.draw_colored_polygon(pts, fog_col)
+	)
+	fog_layer.add_child(_aura_fog_node)
+
+
+func _draw_aura() -> void:
+	pass  # Logic moved to lambda in _setup_aura_layer
+
+
+func _draw_aura_pulse() -> void:
+	pass  # Logic moved to lambda in _setup_aura_layer
+
+
+func _update_aura_visual(dt: float) -> void:
+	if game_state == null:
+		return
+
+	var target: float = 0.0
+	if game_state.has_method("get_aura_radius_px"):
+		target = float(game_state.call("get_aura_radius_px"))
+	_aura_target_radius = target
+
+	# Grow smoothly toward target (never shrink)
+	if _aura_current_radius < _aura_target_radius:
+		_aura_current_radius = move_toward(_aura_current_radius, _aura_target_radius, dt * 40.0)
+
+	# Pulse progress
+	if _aura_pulse_enabled and _aura_current_radius > 1.0:
+		_aura_pulse_t += dt / _aura_pulse_interval
+		if _aura_pulse_t >= 1.0:
+			_aura_pulse_t = 0.0
+			_aura_current_radius = _aura_target_radius  # snap on pulse completion
+
+	# Drive node reveals from the VISUAL radius so reveals match what the player sees
+	if game_state != null and game_state.has_method("update_node_reveals_with_radius"):
+		game_state.call("update_node_reveals_with_radius", _aura_current_radius)
+
+	if _aura_node != null and is_instance_valid(_aura_node):
+		_aura_node.queue_redraw()
+	if _aura_pulse_node != null and is_instance_valid(_aura_pulse_node):
+		_aura_pulse_node.queue_redraw()
+	if _aura_fog_node != null and is_instance_valid(_aura_fog_node):
+		_aura_fog_node.queue_redraw()
+
+	# DEBUG — every 5 seconds
+
+
 func _setup_map_containers() -> void:
 	var map: Node2D = get_node_or_null("MapLayer") as Node2D
 	if map == null:
@@ -5699,7 +6016,7 @@ func _build_node_registry() -> void:
 			node_ref.name = legacy_name
 			node_ref.set_meta("runtime_spawned", true)
 			node_ref.position = world_pos
-			_add_node_visual(node_ref, node_id, node_name)
+			_add_node_visual(node_ref, node_id, node_name, int(def.get("number", 0)))
 			nodes_container.add_child(node_ref)
 		else:
 			# Reposition the static scene node to the data-driven position
@@ -5710,13 +6027,26 @@ func _build_node_registry() -> void:
 		_node_lookup[node_id] = entry
 
 
-func _add_node_visual(parent: Node2D, node_id: String, node_name: String) -> void:
-	# Create a simple visual circle for the node using a generated texture
+func _add_node_visual(parent: Node2D, node_id: String, node_name: String, node_number: int = 0) -> void:
 	var spr := Sprite2D.new()
 	spr.name = node_name.replace(" ", "")
-	spr.texture = _make_circle_texture(48, false)
-	spr.modulate = _node_color_for_id(node_id)
 	spr.centered = true
+
+	# Try to load icon from assets — path: res://assets/icons/nodes/NN_node_id.png
+	var icon_texture: Texture2D = null
+	if node_number > 0:
+		var icon_path := "res://assets/icons/nodes/%02d_%s.png" % [node_number, node_id]
+		if ResourceLoader.exists(icon_path):
+			icon_texture = load(icon_path) as Texture2D
+
+	if icon_texture != null:
+		spr.texture = icon_texture
+		spr.scale   = Vector2(0.375, 0.375)  # 128px icon → ~48px display size
+	else:
+		# Fallback: generated circle (same as before)
+		spr.texture  = _make_circle_texture(48, false)
+		spr.modulate = _node_color_for_id(node_id)
+
 	parent.add_child(spr)
 
 	# Collision shape for tap detection
@@ -6187,8 +6517,9 @@ func _show_mutate_popup() -> void:
 			(vp.x - popup.size.x) * 0.5,
 			(vp.y - popup.size.y) * 0.5
 		)
-	var tw := create_tween()
-	tw.tween_property(_mc_popup_dimmer, "color:a", 0.55, 0.15)
+	if _mc_popup_dimmer != null and is_instance_valid(_mc_popup_dimmer):
+		var tw := create_tween()
+		tw.tween_property(_mc_popup_dimmer, "color:a", 0.55, 0.15)
 
 
 func _show_mutations_popup() -> void:
@@ -6295,11 +6626,12 @@ func _show_mutations_popup() -> void:
 			(vp.x - popup.size.x) * 0.5,
 			(vp.y - popup.size.y) * 0.5
 		)
-	var tw := create_tween()
-	tw.tween_property(_mc_popup_dimmer, "color:a", 0.55, 0.15)
+	if _mc_popup_dimmer != null and is_instance_valid(_mc_popup_dimmer):
+		var tw := create_tween()
+		tw.tween_property(_mc_popup_dimmer, "color:a", 0.55, 0.15)
 
 
-func _make_mutation_select_card(m: Dictionary, unlock_cost: int, cards_parent: VBoxContainer) -> Control:
+func _make_mutation_select_card(m: Dictionary, _unlock_cost: int, cards_parent: VBoxContainer) -> Control:
 	var tm := ThemeManager
 	var mid: String      = str(m.get("id", ""))
 	var can_unlock: bool = bool(m.get("can_unlock", false))
@@ -6455,6 +6787,14 @@ func _refresh_currency_ui() -> void:
 	lbl_glowcaps.text  = _fmt_int(int(game_state.call("get_amount", "glowcaps")))
 	lbl_strain.text    = _fmt_int(int(game_state.call("get_amount", "strain_points")))
 
+	# DEBUG — show total run nutrients for aura tuning
+	if _lbl_run_nutrients_debug != null and is_instance_valid(_lbl_run_nutrients_debug):
+		var run_total: int = int(game_state.get("total_nutrients_earned_run"))
+		var aura_r: float = 0.0
+		if game_state.has_method("get_aura_radius_px"):
+			aura_r = float(game_state.call("get_aura_radius_px"))
+		_lbl_run_nutrients_debug.text = "%s run | aura=%.0fpx" % [_fmt_compact(run_total), aura_r]
+
 
 # ---------------- Formatting helpers ----------------
 
@@ -6489,6 +6829,29 @@ func _fmt_rate(r: float) -> String:
 	if r >= 10.0:
 		return str(snapped(r, 0.1))
 	return str(snapped(r, 0.01))
+
+
+func _fmt_compact(v: int) -> String:
+	if v >= 1_000_000_000_000:
+		return "%.1fT" % (v / 1_000_000_000_000.0)
+	if v >= 1_000_000_000:
+		return "%.1fB" % (v / 1_000_000_000.0)
+	if v >= 1_000_000:
+		return "%.1fM" % (v / 1_000_000.0)
+	if v >= 1_000:
+		return "%.1fK" % (v / 1_000.0)
+	return str(v)
+
+
+func _fmt_seconds(sec: float) -> String:
+	var s := int(ceil(sec))
+	if s <= 0:
+		return "Done"
+	if s < 60:
+		return "%ds" % s
+	var m: int = s / 60
+	var r: int = s % 60
+	return "%dm %02ds" % [m, r]
 
 
 func _fmt_int(v: int) -> String:
