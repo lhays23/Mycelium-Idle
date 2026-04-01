@@ -428,6 +428,7 @@ func _theme_panels() -> void:
 	_theme_panel_shell(refinery_panel)
 	_theme_panel_shell(settings_panel)
 	_theme_panel_shell(node_panel)
+	_theme_panel_shell(mutation_chamber_panel)
 	_theme_digest_panel()
 	_theme_settings_panel()
 
@@ -605,7 +606,7 @@ func _refresh_all_panels() -> void:
 	if _open_panel == digest_panel:           _refresh_digest_panel()
 	if _open_panel == discoveries_panel:      _refresh_discoveries_panel()
 	if _open_panel == refinery_panel:         _refresh_refinery_panel()
-	if _open_panel == settings_panel:         _refresh_settings_panel()
+	if _open_panel == settings_panel:         _bind_settings_panel()  # full rebuild on theme change
 	if _open_panel == node_panel:             _refresh_nodepanel_all()
 	if _open_panel == mutation_chamber_panel: _refresh_mutation_chamber_panel()
 	if volatile_panel != null and _open_panel == volatile_panel: _refresh_volatile_panel()
@@ -2845,41 +2846,36 @@ func _on_discovery_buy_pressed(discovery_id: String) -> void:
 # ---------------- RefineryPanel ----------------
 
 func _bind_refinery_panel() -> void:
-	# Hide the scene-provided MarginContainer — its margins are baked in the scene
-	# and can't be reliably overridden at runtime. Same approach as Digest panel.
 	var margin_c: Control = refinery_panel.find_child("MarginContainer", true, false) as Control
 	if margin_c != null:
 		margin_c.visible = false
 
-	# Build our own VBoxContainer directly on the panel with zero margins
-	var existing_list := refinery_panel.find_child("RefineryListRoot", true, false) as VBoxContainer
-	if existing_list != null:
-		existing_list.queue_free()
-
-	var list := VBoxContainer.new()
-	list.name = "RefineryListRoot"
-	list.set_anchors_preset(Control.PRESET_FULL_RECT)
-	list.add_theme_constant_override("separation", 0)
-	refinery_panel.add_child(list)
-	refinery_list = list
+	var existing := refinery_panel.find_child("RefineryRoot", true, false) as Control
+	if existing != null:
+		existing.free()
 
 	var tm := ThemeManager
 
-	# ── Padded top section (header + tabs) ────────────────────────────────
+	# ── Root Control ──────────────────────────────────────────────────────
+	var root := Control.new()
+	root.name = "RefineryRoot"
+	root.mouse_filter = Control.MOUSE_FILTER_PASS
+	refinery_panel.add_child(root)
+
+	# ── Top pad: header + tabs ────────────────────────────────────────────
 	var top_pad := MarginContainer.new()
-	top_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_pad.name = "RefineryTopPad"
 	top_pad.add_theme_constant_override("margin_left",   10)
 	top_pad.add_theme_constant_override("margin_right",  10)
 	top_pad.add_theme_constant_override("margin_top",    10)
 	top_pad.add_theme_constant_override("margin_bottom", 0)
-	refinery_list.add_child(top_pad)
+	root.add_child(top_pad)
 	_refinery_top_pad = top_pad
 
 	var top_vbox := VBoxContainer.new()
 	top_vbox.add_theme_constant_override("separation", 6)
 	top_pad.add_child(top_vbox)
 
-	# ── Header ────────────────────────────────────────────────────────────
 	_refinery_header = Label.new()
 	_refinery_header.text = "Refinery"
 	_refinery_header.add_theme_font_size_override("font_size", 16)
@@ -2911,30 +2907,52 @@ func _bind_refinery_panel() -> void:
 			"solution":  refinery_tab_solutions = btn
 			"mutagen":   refinery_tab_mutagens  = btn
 
-	# Enforce equal fixed width after layout — each button gets 1/3 of available space
 	await get_tree().process_frame
 	if is_instance_valid(refinery_tabs_row):
-		var avail := refinery_tabs_row.size.x - 4 * 2  # subtract separations
+		var avail := refinery_tabs_row.size.x - 4 * 2
 		var btn_w  := floorf(avail / 3.0)
 		for child in refinery_tabs_row.get_children():
 			if child is Button:
 				(child as Button).custom_minimum_size = Vector2(btn_w, 0)
+
+	# ── Scroll area ───────────────────────────────────────────────────────
+	var scroll := ScrollContainer.new()
+	scroll.name = "RefineryScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
+	root.add_child(scroll)
+
+	scroll.ready.connect(func():
+		var vscroll := scroll.get_node_or_null("_v_scroll") as ScrollBar
+		if vscroll != null:
+			vscroll.add_theme_stylebox_override("scroll", StyleBoxEmpty.new())
+			vscroll.custom_minimum_size = Vector2(0, 0)
+	, CONNECT_ONE_SHOT)
+
+	var inner := VBoxContainer.new()
+	inner.name = "RefineryInner"
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inner.add_theme_constant_override("separation", 0)
+	scroll.add_child(inner)
 
 	refinery_feedback = Label.new()
 	refinery_feedback.name = "RefineryFeedback"
 	refinery_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	refinery_feedback.text = ""
 	refinery_feedback.visible = false
-	refinery_list.add_child(refinery_feedback)
+	inner.add_child(refinery_feedback)
+
+	refinery_list = inner
 
 	_set_refinery_active_category("compound")
+	_layout_refinery_panel()
 
 
 func _clear_refinery_rows() -> void:
 	if refinery_list == null:
 		return
 	for child in refinery_list.get_children():
-		if child == refinery_feedback or child == _refinery_top_pad:
+		if child == refinery_feedback:
 			continue
 		child.queue_free()
 
@@ -3064,6 +3082,11 @@ func _refresh_refinery_panel() -> void:
 			for recipe_id_variant in visible_unlock_ids:
 				var recipe_id := str(recipe_id_variant)
 				refinery_list.add_child(_make_refinery_recipe_unlock_card(recipe_id))
+
+		# Bottom padding
+		var bottom_pad_c := Control.new()
+		bottom_pad_c.custom_minimum_size = Vector2(0, 48)
+		refinery_list.add_child(bottom_pad_c)
 		return
 
 	if _refinery_active_category == "solution":
@@ -3101,8 +3124,19 @@ func _refresh_refinery_panel() -> void:
 				var recipe_id := str(recipe_id_variant)
 				refinery_list.add_child(_make_synth_recipe_unlock_card(recipe_id))
 
+		# Bottom padding
+		var bottom_pad_s := Control.new()
+		bottom_pad_s.custom_minimum_size = Vector2(0, 48)
+		refinery_list.add_child(bottom_pad_s)
+		return
+
 	if _refinery_active_category == "mutagen":
 		_build_mutagen_lab_tab()
+
+	# Bottom padding for mutagen tab
+	var bottom_pad := Control.new()
+	bottom_pad.custom_minimum_size = Vector2(0, 48)
+	refinery_list.add_child(bottom_pad)
 
 
 func _build_mutagen_lab_tab() -> void:
@@ -3121,7 +3155,7 @@ func _build_mutagen_lab_tab() -> void:
 	var total_run_gs: int          = int(data.get("total_run_gs", 0))
 	var tm := ThemeManager
 
-	# ── Run GS summary bar ────────────────────────────────────────────────────
+	# ── Run GS summary bar — tappable for breakdown ──────────────────────────
 	var summary_card := _make_refinery_card_shell()
 	var sb_sum := StyleBoxFlat.new()
 	sb_sum.bg_color     = tm.c("bg_row")
@@ -3133,6 +3167,8 @@ func _build_mutagen_lab_tab() -> void:
 	sb_sum.content_margin_top    = 8
 	sb_sum.content_margin_bottom = 8
 	summary_card.add_theme_stylebox_override("panel", sb_sum)
+	summary_card.mouse_filter = Control.MOUSE_FILTER_STOP
+	summary_card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 	var sum_hbox := HBoxContainer.new()
 	summary_card.add_child(sum_hbox)
@@ -3142,13 +3178,25 @@ func _build_mutagen_lab_tab() -> void:
 	sum_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sum_lbl.add_theme_font_size_override("font_size", 13)
 	sum_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+	sum_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sum_hbox.add_child(sum_lbl)
 
 	var sum_val := Label.new()
-	sum_val.text = "+%s GS" % _fmt_int(total_run_gs)
+	sum_val.text = "+%s GS  ▸" % _fmt_int(total_run_gs)
 	sum_val.add_theme_font_size_override("font_size", 14)
 	sum_val.add_theme_color_override("font_color", tm.c("accent"))
+	sum_val.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sum_hbox.add_child(sum_val)
+
+	# Capture slots snapshot for popup
+	var slots_snapshot: Array = slots.duplicate(true)
+	summary_card.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed and \
+		   (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+			_show_mutagen_gs_breakdown_popup(slots_snapshot, total_run_gs)
+		elif ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed:
+			_show_mutagen_gs_breakdown_popup(slots_snapshot, total_run_gs)
+	)
 	refinery_list.add_child(summary_card)
 
 	# ── Slot cards ────────────────────────────────────────────────────────────
@@ -3283,9 +3331,9 @@ func _make_mutagen_slot_card(slot_index: int, slot: Dictionary, available_tiers:
 			gs_vbox.add_child(row)
 		vbox.add_child(gs_info)
 
-	# ── Tier picker button ────────────────────────────────────────────────────
+	# ── Select Recipe button ──────────────────────────────────────────────────
 	var pick_btn := Button.new()
-	pick_btn.text = "Change Tier" if tier_id != "" else "Assign Tier"
+	pick_btn.text = "Select Recipe" if tier_id == "" else "Change Recipe"
 	pick_btn.custom_minimum_size = Vector2(0, 36)
 	pick_btn.focus_mode = Control.FOCUS_NONE
 	_theme_action_button(pick_btn)
@@ -3296,77 +3344,332 @@ func _make_mutagen_slot_card(slot_index: int, slot: Dictionary, available_tiers:
 	return card
 
 
-func _show_mutagen_tier_picker(slot_index: int, available_tiers: Array) -> void:
+func _show_mutagen_gs_breakdown_popup(slots: Array, total_run_gs: int) -> void:
 	var tm := ThemeManager
-	# Build a simple popup-style panel inside refinery_list
-	# Remove any existing picker first
-	for child in refinery_list.get_children():
-		if child.name == "MutaPickerPanel":
-			child.queue_free()
+	var vp := get_viewport_rect().size
 
-	var panel := PanelContainer.new()
-	panel.name = "MutaPickerPanel"
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Dimmer layer
+	var layer := CanvasLayer.new()
+	layer.layer = 128
+	add_child(layer)
+
+	var dimmer := ColorRect.new()
+	dimmer.size     = vp
+	dimmer.position = Vector2.ZERO
+	dimmer.color    = Color(0, 0, 0, 0.55)
+	dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	layer.add_child(dimmer)
+
+	var popup := PanelContainer.new()
+	popup.custom_minimum_size = Vector2(320, 0)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color     = tm.c("bg_panel")
-	sb.border_color = tm.c("accent_border")
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(10)
-	sb.content_margin_left = 12; sb.content_margin_right = 12
-	sb.content_margin_top  = 10; sb.content_margin_bottom = 10
-	panel.add_theme_stylebox_override("panel", sb)
+	sb.border_color = tm.c("bark_stripe")
+	sb.set_border_width_all(1)
+	sb.border_width_top = 3
+	sb.set_corner_radius_all(16)
+	sb.content_margin_left   = 16; sb.content_margin_right  = 16
+	sb.content_margin_top    = 14; sb.content_margin_bottom = 16
+	popup.add_theme_stylebox_override("panel", sb)
+	layer.add_child(popup)
 
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	panel.add_child(vbox)
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 10)
+	popup.add_child(outer)
 
+	# Header
+	var hdr := HBoxContainer.new()
+	outer.add_child(hdr)
 	var title := Label.new()
-	title.text = "Select tier for Slot %d" % (slot_index + 1)
-	title.add_theme_font_size_override("font_size", 13)
+	title.text = "GS Breakdown"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 15)
 	title.add_theme_color_override("font_color", tm.c("accent"))
-	vbox.add_child(title)
+	hdr.add_child(title)
+	var close_btn := Button.new()
+	close_btn.flat = true
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.custom_minimum_size = Vector2(28, 28)
+	close_btn.draw.connect(func():
+		var col: Color = tm.c("text_muted")
+		var cx2 := close_btn.size.x * 0.5; var cy2 := close_btn.size.y * 0.5; var r := 5.0
+		close_btn.draw_line(Vector2(cx2-r, cy2-r), Vector2(cx2+r, cy2+r), col, 1.5, true)
+		close_btn.draw_line(Vector2(cx2+r, cy2-r), Vector2(cx2-r, cy2+r), col, 1.5, true)
+	)
+	close_btn.pressed.connect(func(): layer.queue_free())
+	hdr.add_child(close_btn)
 
-	# Empty option
-	var empty_btn := Button.new()
-	empty_btn.text = "Clear slot"
-	empty_btn.focus_mode = Control.FOCUS_NONE
-	empty_btn.pressed.connect(func():
-		if game_state and game_state.has_method("assign_mutagen_slot"):
-			game_state.call("assign_mutagen_slot", slot_index, "")
-		panel.queue_free()
-		_refresh_refinery_panel())
-	vbox.add_child(empty_btn)
+	# Divider
+	var div := HSeparator.new()
+	var sb_div := StyleBoxFlat.new()
+	sb_div.bg_color = tm.c("border")
+	div.add_theme_stylebox_override("separator", sb_div)
+	outer.add_child(div)
 
+	# Explanation
+	var explain := Label.new()
+	explain.text = "Mutagens give diminishing GS returns each time you craft the same tier. Higher tiers give more GS per craft."
+	explain.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	explain.add_theme_font_size_override("font_size", 11)
+	explain.add_theme_color_override("font_color", tm.c("text_secondary"))
+	outer.add_child(explain)
+
+	# Per-tier breakdown
+	var craft_labels := ["1st", "2nd", "3rd", "4th+"]
+	for slot_v in slots:
+		var slot: Dictionary = slot_v as Dictionary
+		var tier_id: String = str(slot.get("tier_id", ""))
+		if tier_id == "":
+			continue
+		var tier_name: String  = str(slot.get("tier_name", tier_id))
+		var gs_table: Array    = slot.get("gs_table", []) as Array
+		var crafted: int       = int(slot.get("crafted_count", 0))
+		var run_gs: int        = int(slot.get("run_gs", 0))
+
+		var tier_section := VBoxContainer.new()
+		tier_section.add_theme_constant_override("separation", 3)
+		outer.add_child(tier_section)
+
+		var tier_hdr := HBoxContainer.new()
+		var tier_lbl := Label.new()
+		tier_lbl.text = tier_name
+		tier_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tier_lbl.add_theme_font_size_override("font_size", 13)
+		tier_lbl.add_theme_color_override("font_color", tm.c("text_primary"))
+		tier_hdr.add_child(tier_lbl)
+		if run_gs > 0:
+			var earned_lbl := Label.new()
+			earned_lbl.text = "+%s GS earned" % _fmt_int(run_gs)
+			earned_lbl.add_theme_font_size_override("font_size", 11)
+			earned_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+			tier_hdr.add_child(earned_lbl)
+		tier_section.add_child(tier_hdr)
+
+		for ci in range(mini(gs_table.size(), 4)):
+			var is_next: bool = (ci == 0 and crafted == 0) or \
+								(ci == 1 and crafted == 1) or \
+								(ci == 2 and crafted == 2) or \
+								(ci == 3 and crafted >= 3)
+			var row := HBoxContainer.new()
+			var lk := Label.new()
+			lk.text = ("▶ " if is_next else "   ") + craft_labels[ci] + " craft:"
+			lk.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			lk.add_theme_font_size_override("font_size", 11)
+			lk.add_theme_color_override("font_color",
+				tm.c("accent") if is_next else tm.c("text_muted"))
+			row.add_child(lk)
+			var lv := Label.new()
+			lv.text = "+%d GS" % int(gs_table[ci])
+			lv.add_theme_font_size_override("font_size", 11)
+			lv.add_theme_color_override("font_color",
+				tm.c("accent") if is_next else tm.c("text_muted"))
+			row.add_child(lv)
+			tier_section.add_child(row)
+
+	# Total
+	var div2 := HSeparator.new()
+	div2.add_theme_stylebox_override("separator", sb_div)
+	outer.add_child(div2)
+	var total_row := HBoxContainer.new()
+	var total_lbl := Label.new()
+	total_lbl.text = "Total this run:"
+	total_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	total_lbl.add_theme_font_size_override("font_size", 13)
+	total_lbl.add_theme_color_override("font_color", tm.c("text_secondary"))
+	total_row.add_child(total_lbl)
+	var total_val := Label.new()
+	total_val.text = "+%s GS" % _fmt_int(total_run_gs)
+	total_val.add_theme_font_size_override("font_size", 14)
+	total_val.add_theme_color_override("font_color", tm.c("accent"))
+	total_row.add_child(total_val)
+	outer.add_child(total_row)
+
+	# Position popup centered
+	await get_tree().process_frame
+	if is_instance_valid(popup):
+		popup.position = Vector2(
+			(vp.x - popup.size.x) * 0.5,
+			(vp.y - popup.size.y) * 0.5
+		)
+
+	# Tap dimmer to close
+	dimmer.gui_input.connect(func(ev: InputEvent):
+		if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) or \
+		   (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
+			layer.queue_free()
+	)
+
+
+func _show_mutagen_tier_picker(slot_index: int, available_tiers: Array) -> void:
+	var tm := ThemeManager
+	var vp := get_viewport_rect().size
+
+	# Dimmer layer
+	var layer := CanvasLayer.new()
+	layer.layer = 128
+	add_child(layer)
+
+	var dimmer := ColorRect.new()
+	dimmer.size     = vp
+	dimmer.position = Vector2.ZERO
+	dimmer.color    = Color(0, 0, 0, 0.55)
+	dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	layer.add_child(dimmer)
+
+	var popup := PanelContainer.new()
+	popup.custom_minimum_size = Vector2(320, 0)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("bark_stripe")
+	sb.set_border_width_all(1)
+	sb.border_width_top = 3
+	sb.set_corner_radius_all(16)
+	sb.content_margin_left   = 16; sb.content_margin_right  = 16
+	sb.content_margin_top    = 14; sb.content_margin_bottom = 16
+	popup.add_theme_stylebox_override("panel", sb)
+	layer.add_child(popup)
+
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 8)
+	popup.add_child(outer)
+
+	# Header
+	var hdr := HBoxContainer.new()
+	outer.add_child(hdr)
+	var title := Label.new()
+	title.text = "Select Recipe — Slot %d" % (slot_index + 1)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 15)
+	title.add_theme_color_override("font_color", tm.c("accent"))
+	hdr.add_child(title)
+	var close_btn := Button.new()
+	close_btn.flat = true
+	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.custom_minimum_size = Vector2(28, 28)
+	close_btn.draw.connect(func():
+		var col: Color = tm.c("text_muted")
+		var cx2 := close_btn.size.x * 0.5; var cy2 := close_btn.size.y * 0.5; var r := 5.0
+		close_btn.draw_line(Vector2(cx2-r, cy2-r), Vector2(cx2+r, cy2+r), col, 1.5, true)
+		close_btn.draw_line(Vector2(cx2+r, cy2-r), Vector2(cx2-r, cy2+r), col, 1.5, true)
+	)
+	close_btn.pressed.connect(func(): layer.queue_free())
+	hdr.add_child(close_btn)
+
+	var div := HSeparator.new()
+	var sb_div := StyleBoxFlat.new()
+	sb_div.bg_color = tm.c("border")
+	div.add_theme_stylebox_override("separator", sb_div)
+	outer.add_child(div)
+
+	# Tier rows
 	for tier_v in available_tiers:
 		var tier: Dictionary = tier_v as Dictionary
-		var tid: String   = str(tier.get("id", ""))
-		var tname: String = str(tier.get("name", tid))
-		var inp_name: String = str(tier.get("input_name",""))
-		var inp_held: int = int(tier.get("input_held", 0))
-		var next_gs: int  = int(tier.get("next_gs", 0))
-		var ct: float     = float(tier.get("craft_time", 0))
-		var mins: int     = int(ct) / 60
+		var tid: String      = str(tier.get("id", ""))
+		var tname: String    = str(tier.get("name", tid))
+		var inp_name: String = str(tier.get("input_name", ""))
+		var inp_held: int    = int(tier.get("input_held", 0))
+		var next_gs: int     = int(tier.get("next_gs", 0))
+		var ct: float        = float(tier.get("craft_time", 0))
+		var mins: int        = int(ct) / 60
+		var secs: int        = int(ct) % 60
 
-		var btn := Button.new()
-		btn.text = "%s — %s  (%s held)  +%d GS  [%dm]" % [
-			tname, inp_name, _fmt_int(inp_held), next_gs, mins]
-		btn.focus_mode   = Control.FOCUS_NONE
-		btn.disabled     = (inp_held <= 0)
-		btn.pressed.connect(func():
-			if game_state and game_state.has_method("assign_mutagen_slot"):
-				game_state.call("assign_mutagen_slot", slot_index, tid)
-			panel.queue_free()
-			_refresh_refinery_panel())
-		vbox.add_child(btn)
+		var row := PanelContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var sb_row := StyleBoxFlat.new()
+		sb_row.bg_color     = tm.c("bg_row") if inp_held > 0 else Color(0, 0, 0, 0)
+		sb_row.border_color = tm.c("border")
+		sb_row.set_border_width_all(1)
+		sb_row.set_corner_radius_all(8)
+		sb_row.content_margin_left = 10; sb_row.content_margin_right  = 10
+		sb_row.content_margin_top  = 8;  sb_row.content_margin_bottom = 8
+		row.add_theme_stylebox_override("panel", sb_row)
+		row.mouse_filter = Control.MOUSE_FILTER_STOP
+		if inp_held > 0:
+			row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
-	# Cancel
-	var cancel_btn := Button.new()
-	cancel_btn.text = "Cancel"
-	cancel_btn.focus_mode = Control.FOCUS_NONE
-	cancel_btn.pressed.connect(func(): panel.queue_free())
-	vbox.add_child(cancel_btn)
+		var rvbox := VBoxContainer.new()
+		rvbox.add_theme_constant_override("separation", 3)
+		rvbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(rvbox)
 
-	refinery_list.add_child(panel)
+		var top_row := HBoxContainer.new()
+		top_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var name_lbl := Label.new()
+		name_lbl.text = tname
+		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_lbl.add_theme_font_size_override("font_size", 13)
+		name_lbl.add_theme_color_override("font_color",
+			tm.c("text_primary") if inp_held > 0 else tm.c("text_muted"))
+		name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		top_row.add_child(name_lbl)
+		var gs_lbl := Label.new()
+		gs_lbl.text = "+%d GS" % next_gs
+		gs_lbl.add_theme_font_size_override("font_size", 13)
+		gs_lbl.add_theme_color_override("font_color",
+			tm.c("accent") if inp_held > 0 else tm.c("text_muted"))
+		gs_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		top_row.add_child(gs_lbl)
+		rvbox.add_child(top_row)
+
+		var bot_row := HBoxContainer.new()
+		bot_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var inp_lbl := Label.new()
+		inp_lbl.text = "Input: %s (%s held)" % [inp_name, _fmt_int(inp_held)]
+		inp_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		inp_lbl.add_theme_font_size_override("font_size", 11)
+		inp_lbl.add_theme_color_override("font_color",
+			tm.c("text_secondary") if inp_held > 0 else tm.c("text_muted"))
+		inp_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bot_row.add_child(inp_lbl)
+		var time_lbl := Label.new()
+		time_lbl.text = "%dm %ds" % [mins, secs] if mins > 0 else "%ds" % secs
+		time_lbl.add_theme_font_size_override("font_size", 11)
+		time_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+		time_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bot_row.add_child(time_lbl)
+		rvbox.add_child(bot_row)
+
+		if inp_held > 0:
+			row.gui_input.connect(func(ev: InputEvent):
+				if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed and \
+				   (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT) or \
+				   (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
+					if game_state and game_state.has_method("assign_mutagen_slot"):
+						game_state.call("assign_mutagen_slot", slot_index, tid)
+					layer.queue_free()
+					_refresh_refinery_panel()
+			)
+
+		outer.add_child(row)
+
+	# Clear slot option
+	var div2 := HSeparator.new()
+	div2.add_theme_stylebox_override("separator", sb_div)
+	outer.add_child(div2)
+	var clear_btn := Button.new()
+	clear_btn.text = "Clear Slot"
+	clear_btn.focus_mode = Control.FOCUS_NONE
+	_theme_action_button(clear_btn)
+	clear_btn.pressed.connect(func():
+		if game_state and game_state.has_method("assign_mutagen_slot"):
+			game_state.call("assign_mutagen_slot", slot_index, "")
+		layer.queue_free()
+		_refresh_refinery_panel())
+	outer.add_child(clear_btn)
+
+	# Position centered
+	await get_tree().process_frame
+	if is_instance_valid(popup):
+		popup.position = Vector2(
+			(vp.x - popup.size.x) * 0.5,
+			(vp.y - popup.size.y) * 0.5
+		)
+
+	dimmer.gui_input.connect(func(ev: InputEvent):
+		if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) or \
+		   (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
+			layer.queue_free()
+	)
 
 
 func _make_refinery_progress_bar(pct: int, width: int = 10) -> String:
@@ -4278,7 +4581,7 @@ func _bind_settings_panel() -> void:
 
 	var existing := settings_panel.find_child("SettingsRoot", true, false) as Control
 	if existing != null:
-		existing.queue_free()
+		existing.free()
 
 	var tm := ThemeManager
 
@@ -4310,12 +4613,13 @@ func _bind_settings_panel() -> void:
 	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
 	root.add_child(scroll)
 
-	# Hide scrollbar visually
-	await get_tree().process_frame
-	var vscroll := scroll.get_node_or_null("_v_scroll") as ScrollBar
-	if vscroll != null:
-		vscroll.add_theme_stylebox_override("scroll", StyleBoxEmpty.new())
-		vscroll.custom_minimum_size = Vector2(0, 0)
+	# Hide scrollbar visually — deferred so node is in tree first
+	scroll.ready.connect(func():
+		var vscroll := scroll.get_node_or_null("_v_scroll") as ScrollBar
+		if vscroll != null:
+			vscroll.add_theme_stylebox_override("scroll", StyleBoxEmpty.new())
+			vscroll.custom_minimum_size = Vector2(0, 0)
+	, CONNECT_ONE_SHOT)
 
 	var inner := VBoxContainer.new()
 	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4328,7 +4632,7 @@ func _bind_settings_panel() -> void:
 	pad.add_theme_constant_override("margin_left",   10)
 	pad.add_theme_constant_override("margin_right",  10)
 	pad.add_theme_constant_override("margin_top",    8)
-	pad.add_theme_constant_override("margin_bottom", 16)
+	pad.add_theme_constant_override("margin_bottom", 32)
 	inner.add_child(pad)
 
 	var content := VBoxContainer.new()
@@ -4482,6 +4786,31 @@ func _layout_settings_panel() -> void:
 		scroll.size     = Vector2(W, H - top_h)
 
 
+func _layout_refinery_panel() -> void:
+	var root := refinery_panel.find_child("RefineryRoot", true, false) as Control
+	if root == null or _panel_container == null:
+		return
+	var W: float = _panel_container.size.x
+	var H: float = _panel_container.size.y
+	if W <= 0 or H <= 0:
+		return
+
+	root.position = Vector2.ZERO
+	root.size     = Vector2(W, H)
+
+	var top_pad := root.find_child("RefineryTopPad", true, false) as Control
+	# Fixed top_h: MarginContainer(margin_top=10) + Label(~20) + sep(6) + HBox tabs(~36) + margin_bottom(0) ≈ 72px
+	var top_h := 78.0
+	if top_pad != null:
+		top_pad.position = Vector2.ZERO
+		top_pad.size     = Vector2(W, top_h)
+
+	var scroll := root.find_child("RefineryScroll", true, false) as Control
+	if scroll != null:
+		scroll.position = Vector2(0, top_h)
+		scroll.size     = Vector2(W, H - top_h)
+
+
 func _add_settings_divider(parent: VBoxContainer, tm) -> void:
 	var div := HSeparator.new()
 	var sb := StyleBoxFlat.new()
@@ -4602,11 +4931,8 @@ func _theme_swatch_color(tid: String) -> Color:
 
 
 func _on_settings_theme_selected(tid: String) -> void:
-	if ThemeManager.set_theme(tid):
-		# Rebuild settings panel so active state updates
-		_bind_settings_panel()
-		if settings_feedback != null:
-			settings_feedback.text = "Theme changed."
+	ThemeManager.set_theme(tid)
+	# _on_theme_changed fires automatically via signal and handles the full rebuild
 
 
 func _refresh_settings_panel() -> void:
@@ -5360,7 +5686,9 @@ func _open(panel: Control) -> void:
 		_disc_reset_view()
 		_refresh_discoveries_panel()
 	if panel == refinery_panel:
+		_layout_refinery_panel()
 		_refresh_refinery_panel()
+		_layout_refinery_panel()  # re-layout after slots added to get correct scroll size
 	if panel == settings_panel:
 		_refresh_settings_panel()
 		_layout_settings_panel()
@@ -5380,6 +5708,10 @@ func _open(panel: Control) -> void:
 	_tween.parallel().tween_property(pc, "position:y", open_y, 0.18)
 	if panel == digest_panel:
 		_tween.tween_callback(_layout_digest_panel)
+	if panel == refinery_panel:
+		_tween.tween_callback(_layout_refinery_panel)
+	if panel == settings_panel:
+		_tween.tween_callback(_layout_settings_panel)
 
 
 
