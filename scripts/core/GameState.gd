@@ -1903,6 +1903,10 @@ func buy_discovery(discovery_id: String) -> Dictionary:
 		meta_state["synth_ever_seen"] = true
 	elif discovery_id == "mutagen_lab":
 		_unlock_mutagen_lab_permanent()
+	elif discovery_id == "mutagen_lab_slot2":
+		_try_unlock_mutagen_lab_slot2()
+	elif discovery_id == "mutagen_lab_slot3":
+		_try_unlock_mutagen_lab_slot3()
 	elif discovery_id == "aura_activation":
 		_update_node_reveals()
 	check["ok"] = true
@@ -1997,6 +2001,13 @@ func _get_pass1_discovery_display_order() -> Array[String]:
 		"primitive_refinery",
 		"synthesis",
 		"mutagen_lab",
+		"strain_t2",
+		"strain_t3",
+		"mutagen_lab_slot2",
+		"strain_t4",
+		"strain_t5",
+		"mutagen_lab_slot3",
+		"strain_t6",
 		"aura_activation",
 		"volatile_nodes",
 		"volatile_magnitude",
@@ -2460,18 +2471,6 @@ func _grant_solution_output(recipe_id: String) -> void:
 		resources[recipe_id] = 0.0
 	resources[recipe_id] = float(resources.get(recipe_id, 0.0)) + float(qty)
 
-	# Mutagen Lab permanent unlock — fires on first ever craft of the trigger solution
-	if recipe_id == MUTAGEN_LAB_UNLOCK_SOLUTION_ID:
-		_unlock_mutagen_lab_permanent()
-
-	# Slot 2 unlock — fires on first craft of Strain Serum (T3)
-	if recipe_id == MUTAGEN_LAB_SLOT2_TRIGGER:
-		_try_unlock_mutagen_lab_slot2()
-
-	# Slot 3 unlock — fires on first craft of Strain Elixir (T5)
-	if recipe_id == MUTAGEN_LAB_SLOT3_TRIGGER:
-		_try_unlock_mutagen_lab_slot3()
-
 
 func assign_synth_recipe(slot_number: int, recipe_id: String) -> bool:
 	_ensure_synth_slots_initialized()
@@ -2822,7 +2821,7 @@ func _ensure_mutagen_lab_slots_initialized() -> void:
 
 # ── Mutagen Lab — slot crafting ───────────────────────────────────────────────
 
-func assign_mutagen_slot(slot_index: int, tier_id: String) -> Dictionary:
+func assign_mutagen_slot(slot_index: int, strain_id: String) -> Dictionary:
 	var out := {"ok": false, "reason": ""}
 	_ensure_mutagen_lab_slots_initialized()
 
@@ -2830,30 +2829,28 @@ func assign_mutagen_slot(slot_index: int, tier_id: String) -> Dictionary:
 		out["reason"] = "Slot not available."
 		return out
 
-	if tier_id != "" and not MUTAGEN_GS_TABLE.has(tier_id):
-		out["reason"] = "Unknown mutagen tier."
+	if strain_id != "" and not MUTAGEN_GS_TABLE.has(strain_id):
+		out["reason"] = "Unknown strain."
 		return out
 
 	var slot: Dictionary = mutagen_lab_slots[slot_index] as Dictionary
-	slot["tier_id"]        = tier_id
+	slot["tier_id"]        = strain_id
 	slot["progress_sec"]   = 0.0
-	slot["craft_time_sec"] = _get_mutagen_tier_craft_time(tier_id) if tier_id != "" else 0.0
+	slot["craft_time_sec"] = _get_mutagen_tier_craft_time(strain_id) if strain_id != "" else 0.0
 	mutagen_lab_slots[slot_index] = slot
 	out["ok"] = true
 	return out
 
 
-func _get_mutagen_tier_craft_time(tier_id: String) -> float:
-	var sol_id: String = str(MUTAGEN_SOLUTION_INPUTS.get(tier_id, ""))
-	if sol_id == "":
-		return 675.0
-	if solution_defs.has(sol_id):
-		return float((solution_defs[sol_id] as Dictionary).get("craft_time_sec", 675.0))
+func _get_mutagen_tier_craft_time(strain_id: String) -> float:
+	# Read craft time directly from the strain recipe in solution_defs
+	if solution_defs.has(strain_id):
+		return float((solution_defs[strain_id] as Dictionary).get("craft_time_sec", 675.0))
 	return 675.0
 
 
 func tick_mutagen_lab_slots(delta: float) -> Array:
-	"""Called from _process. Returns list of completed tier_ids this tick."""
+	# Called from _process. Crafts Strains directly — consumes all recipe inputs, produces 1 strain.
 	var completed: Array = []
 	if not is_mutagen_lab_unlocked():
 		return completed
@@ -2861,30 +2858,43 @@ func tick_mutagen_lab_slots(delta: float) -> Array:
 
 	for i in range(mutagen_lab_slots.size()):
 		var slot: Dictionary = mutagen_lab_slots[i] as Dictionary
-		var tier_id: String = str(slot.get("tier_id", ""))
-		if tier_id == "":
+		var strain_id: String = str(slot.get("tier_id", ""))
+		if strain_id == "":
 			continue
 
 		var craft_time: float = float(slot.get("craft_time_sec", 675.0))
 		if craft_time <= 0.0:
 			continue
 
-		# Apply M06 Solution Speed bonus (same mutation that speeds solutions)
+		# Check inputs are available before advancing — stall if any are missing
+		var inputs: Array = _get_strain_inputs(strain_id)
+		var has_inputs: bool = true
+		for inp_v in inputs:
+			var inp: Dictionary = inp_v as Dictionary
+			if get_amount(str(inp.get("id", ""))) < int(inp.get("qty", 1)):
+				has_inputs = false
+				break
+
+		if not has_inputs:
+			# Stall — don't advance progress
+			mutagen_lab_slots[i] = slot
+			continue
+
+		# Apply M06 Solution Speed bonus
 		var speed_mult: float = 1.0 + float(get_mutation_level("M06")) * 0.10
 		var effective_delta: float = delta * speed_mult
 
 		var progress: float = float(slot.get("progress_sec", 0.0)) + effective_delta
 		if progress >= craft_time:
-			# Complete — consume input, grant mutagen
-			var input_id: String = str(MUTAGEN_SOLUTION_INPUTS.get(tier_id, ""))
-			if input_id != "" and get_amount(input_id) >= 1:
-				resources[input_id] = maxf(0.0, float(resources.get(input_id, 0.0)) - 1.0)
-				_grant_mutagen_item(tier_id)
-				completed.append(tier_id)
-				slot["progress_sec"] = 0.0  # auto-reset and repeat
-			else:
-				# No input — stall at 100%
-				slot["progress_sec"] = craft_time
+			# Consume inputs and grant strain
+			for inp_v in inputs:
+				var inp: Dictionary = inp_v as Dictionary
+				var iid: String = str(inp.get("id", ""))
+				var qty: int = int(inp.get("qty", 1))
+				resources[iid] = maxf(0.0, float(resources.get(iid, 0.0)) - float(qty))
+			_grant_mutagen_item(strain_id)
+			completed.append(strain_id)
+			slot["progress_sec"] = 0.0  # auto-reset
 		else:
 			slot["progress_sec"] = progress
 		mutagen_lab_slots[i] = slot
@@ -2892,14 +2902,23 @@ func tick_mutagen_lab_slots(delta: float) -> Array:
 	return completed
 
 
-func _grant_mutagen_item(tier_id: String) -> void:
-	var base_gs: int = get_mutagen_gs_for_craft(tier_id)
-	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
-	var _gs_gained: int = int(ceil(float(base_gs) * yield_mult))
-	mutagen_crafted_counts[tier_id] = int(mutagen_crafted_counts.get(tier_id, 0)) + 1
-	if not resources.has(tier_id):
-		resources[tier_id] = 0.0
-	resources[tier_id] = float(resources.get(tier_id, 0.0)) + 1.0
+func _get_strain_inputs(strain_id: String) -> Array:
+	if not solution_defs.has(strain_id):
+		return []
+	return ((solution_defs[strain_id] as Dictionary).get("inputs", []) as Array).duplicate(true)
+
+
+func _grant_mutagen_item(strain_id: String) -> void:
+	# Produce 1 strain and track for GS calculation
+	mutagen_crafted_counts[strain_id] = int(mutagen_crafted_counts.get(strain_id, 0)) + 1
+	if not resources.has(strain_id):
+		resources[strain_id] = 0.0
+	resources[strain_id] = float(resources.get(strain_id, 0.0)) + 1.0
+	# Slot 2 unlocks on first Strain Serum craft, slot 3 on first Strain Elixir craft
+	if strain_id == "strain_serum":
+		_try_unlock_mutagen_lab_slot2()
+	elif strain_id == "strain_elixir":
+		_try_unlock_mutagen_lab_slot3()
 
 
 func get_mutagen_lab_ui() -> Dictionary:
@@ -2909,50 +2928,86 @@ func get_mutagen_lab_ui() -> Dictionary:
 
 	for i in range(slot_count):
 		var slot: Dictionary = mutagen_lab_slots[i] as Dictionary if i < mutagen_lab_slots.size() else {}
-		var tier_id: String    = str(slot.get("tier_id", ""))
+		var strain_id: String  = str(slot.get("tier_id", ""))
 		var progress: float    = float(slot.get("progress_sec", 0.0))
 		var craft_time: float  = float(slot.get("craft_time_sec", 0.0))
 		var pct: int           = 0
 		if craft_time > 0.0:
 			pct = int(round(clamp(progress / craft_time, 0.0, 1.0) * 100.0))
 
-		var input_id: String   = str(MUTAGEN_SOLUTION_INPUTS.get(tier_id, "")) if tier_id != "" else ""
-		var input_held: int    = get_amount(input_id) if input_id != "" else 0
-		var stalled: bool      = (tier_id != "" and craft_time > 0.0
-								 and progress >= craft_time and input_held < 1)
+		var inputs: Array = _get_strain_inputs(strain_id) if strain_id != "" else []
+		# Stalled = at 100% and missing at least one input
+		var stalled: bool = false
+		if strain_id != "" and craft_time > 0.0 and progress >= craft_time:
+			for inp_v in inputs:
+				var inp: Dictionary = inp_v as Dictionary
+				if get_amount(str(inp.get("id", ""))) < int(inp.get("qty", 1)):
+					stalled = true
+					break
+
+		# Build inputs display list
+		var inputs_display: Array = []
+		for inp_v in inputs:
+			var inp: Dictionary = inp_v as Dictionary
+			var iid: String = str(inp.get("id", ""))
+			var qty: int    = int(inp.get("qty", 1))
+			inputs_display.append({
+				"id":   iid,
+				"name": get_resource_name(iid),
+				"qty":  qty,
+				"held": get_amount(iid),
+			})
 
 		slots_ui.append({
 			"slot_index":    i,
-			"tier_id":       tier_id,
-			"tier_name":     _get_mutagen_display_name(tier_id) if tier_id != "" else "Empty",
-			"input_id":      input_id,
-			"input_name":    get_resource_name(input_id) if input_id != "" else "",
-			"input_held":    input_held,
+			"tier_id":       strain_id,
+			"tier_name":     _get_mutagen_display_name(strain_id) if strain_id != "" else "Idle",
+			"inputs":        inputs_display,
 			"progress_sec":  progress,
 			"craft_time_sec":craft_time,
 			"progress_pct":  pct,
 			"stalled":       stalled,
-			"held":          get_amount(tier_id) if tier_id != "" else 0,
-			"next_gs":       get_mutagen_gs_for_craft(tier_id) if tier_id != "" else 0,
-			"run_gs":        _get_mutagen_tier_run_gs(tier_id) if tier_id != "" else 0,
-			"gs_table":      (MUTAGEN_GS_TABLE[tier_id] as Array).duplicate() if MUTAGEN_GS_TABLE.has(tier_id) else [],
-			"crafted_count": int(mutagen_crafted_counts.get(tier_id, 0)) if tier_id != "" else 0,
+			"held":          get_amount(strain_id) if strain_id != "" else 0,
+			"next_gs":       get_mutagen_gs_for_craft(strain_id) if strain_id != "" else 0,
+			"run_gs":        _get_mutagen_tier_run_gs(strain_id) if strain_id != "" else 0,
+			"gs_table":      (MUTAGEN_GS_TABLE[strain_id] as Array).duplicate() if MUTAGEN_GS_TABLE.has(strain_id) else [],
+			"crafted_count": int(mutagen_crafted_counts.get(strain_id, 0)) if strain_id != "" else 0,
 		})
 
-	# Available tiers list for slot assignment UI
+	# Available strains for slot picker — gated by discovery
+	var strain_discovery_gates: Dictionary = {
+		"strain_primer":    "",           # always available once lab is unlocked
+		"strain_compound":  "strain_t2",
+		"strain_serum":     "strain_t3",
+		"strain_catalyst":  "strain_t4",
+		"strain_elixir":    "strain_t5",
+		"strain_ascendant": "strain_t6",
+	}
 	var available_tiers: Array = []
-	for tid in MUTAGEN_TIER_IDS:
-		var sol_id: String = str(MUTAGEN_SOLUTION_INPUTS.get(tid, ""))
-		if sol_id == "" or not solution_defs.has(sol_id):
+	for strain_id in MUTAGEN_TIER_IDS:
+		if not solution_defs.has(strain_id):
 			continue
+		var gate: String = str(strain_discovery_gates.get(strain_id, ""))
+		if gate != "" and not has_discovery(gate):
+			continue  # not yet unlocked
+		var inputs: Array = _get_strain_inputs(strain_id)
+		var inputs_display: Array = []
+		for inp_v in inputs:
+			var inp: Dictionary = inp_v as Dictionary
+			var iid: String = str(inp.get("id", ""))
+			var qty: int    = int(inp.get("qty", 1))
+			inputs_display.append({
+				"id":   iid,
+				"name": get_resource_name(iid),
+				"qty":  qty,
+				"held": get_amount(iid),
+			})
 		available_tiers.append({
-			"id":         tid,
-			"name":       _get_mutagen_display_name(tid),
-			"input_id":   sol_id,
-			"input_name": get_resource_name(sol_id),
-			"input_held": get_amount(sol_id),
-			"craft_time": _get_mutagen_tier_craft_time(tid),
-			"next_gs":    get_mutagen_gs_for_craft(tid),
+			"id":         strain_id,
+			"name":       _get_mutagen_display_name(strain_id),
+			"inputs":     inputs_display,
+			"craft_time": _get_mutagen_tier_craft_time(strain_id),
+			"next_gs":    get_mutagen_gs_for_craft(strain_id),
 		})
 
 	return {
@@ -2977,122 +3032,84 @@ func _unlock_mutagen_lab_permanent() -> void:
 
 # GS payout table per tier: [1st, 2nd, 3rd, 4th+]
 const MUTAGEN_GS_TABLE: Dictionary = {
-	"t1_mutagen": [5, 2, 1, 1],
-	"t2_mutagen": [10, 5, 2, 1],
-	"t3_mutagen": [20, 10, 5, 2],
-	"t4_mutagen": [35, 17, 8, 4],
-	"t5_mutagen": [55, 27, 13, 6],
-	"t6_mutagen": [80, 40, 20, 10],
+	"strain_primer":    [5,  2,  1,  1],
+	"strain_compound":  [10, 5,  2,  1],
+	"strain_serum":     [20, 10, 5,  2],
+	"strain_catalyst":  [35, 17, 8,  4],
+	"strain_elixir":    [55, 27, 13, 6],
+	"strain_ascendant": [80, 40, 20, 10],
 }
 
-# All defined mutagen tier IDs in order
+# All strain IDs in tier order
 const MUTAGEN_TIER_IDS: Array = [
-	"t1_mutagen", "t2_mutagen", "t3_mutagen", "t4_mutagen", "t5_mutagen", "t6_mutagen"
+	"strain_primer", "strain_compound", "strain_serum",
+	"strain_catalyst", "strain_elixir", "strain_ascendant"
 ]
 
-# Input solution per mutagen tier (Strain Primer → T1, etc.)
-const MUTAGEN_SOLUTION_INPUTS: Dictionary = {
-	"t1_mutagen": "strain_primer",
-	"t2_mutagen": "strain_compound",
-	"t3_mutagen": "strain_serum",
-	"t4_mutagen": "strain_catalyst",
-	"t5_mutagen": "strain_elixir",
-	"t6_mutagen": "strain_ascendant",
-}
 
-
-func get_mutagen_gs_for_craft(tier_id: String) -> int:
-	if not MUTAGEN_GS_TABLE.has(tier_id):
+func get_mutagen_gs_for_craft(strain_id: String) -> int:
+	var table: Array = []
+	if MUTAGEN_GS_TABLE.has(strain_id):
+		table = MUTAGEN_GS_TABLE[strain_id] as Array
+	elif solution_defs.has(strain_id):
+		table = ((solution_defs[strain_id] as Dictionary).get("gs_table", []) as Array)
+	if table.is_empty():
 		return 0
-	var table: Array = MUTAGEN_GS_TABLE[tier_id] as Array
-	var count: int = int(mutagen_crafted_counts.get(tier_id, 0))
-	# count is how many have been crafted BEFORE this one
+	var count: int = int(mutagen_crafted_counts.get(strain_id, 0))
 	if count == 0:   return int(table[0])
-	elif count == 1: return int(table[1])
-	elif count == 2: return int(table[2])
-	else:            return int(table[3])
+	elif count == 1: return int(table[1]) if table.size() > 1 else int(table[0])
+	elif count == 2: return int(table[2]) if table.size() > 2 else int(table[-1])
+	else:            return int(table[3]) if table.size() > 3 else int(table[-1])
 
 
-func craft_mutagen(tier_id: String) -> Dictionary:
-	var out := {"ok": false, "reason": "", "gs_gained": 0}
-
-	if not is_mutagen_lab_unlocked():
-		out["reason"] = "Mutagen Lab not unlocked."
-		return out
-
-	var input_solution_id: String = str(MUTAGEN_SOLUTION_INPUTS.get(tier_id, ""))
-	if input_solution_id == "":
-		out["reason"] = "Unknown mutagen tier."
-		return out
-
-	if get_amount(input_solution_id) < 1:
-		out["reason"] = "Requires 1 %s." % get_resource_name(input_solution_id)
-		return out
-
-	# Spend the solution
-	resources[input_solution_id] = maxf(0.0, float(resources.get(input_solution_id, 0.0)) - 1.0)
-
-	# Calculate GS gain (apply M13 Mutagen Yield bonus)
-	var base_gs: int = get_mutagen_gs_for_craft(tier_id)
-	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
-	var _gs_gained: int = int(ceil(float(base_gs) * yield_mult))
-
-	# Track count
-	mutagen_crafted_counts[tier_id] = int(mutagen_crafted_counts.get(tier_id, 0)) + 1
-
-	# Add to mutagen resource inventory (held until Mutate)
-	if not resources.has(tier_id):
-		resources[tier_id] = 0.0
-	resources[tier_id] = float(resources.get(tier_id, 0.0)) + 1.0
-
-	out["ok"] = true
-	out["gs_gained"] = _gs_gained
-	return out
+# craft_mutagen removed — strains are now crafted exclusively via Mutagen Lab slots (auto-craft)
 
 
 func get_mutagen_run_gs_total() -> int:
-	# Total GS this run from mutagens — calculated from craft history
 	var total: int = 0
 	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
-	for tier_id in MUTAGEN_TIER_IDS:
-		if not MUTAGEN_GS_TABLE.has(tier_id):
+	for strain_id in MUTAGEN_TIER_IDS:
+		var table: Array = []
+		if MUTAGEN_GS_TABLE.has(strain_id):
+			table = MUTAGEN_GS_TABLE[strain_id] as Array
+		elif solution_defs.has(strain_id):
+			table = ((solution_defs[strain_id] as Dictionary).get("gs_table", []) as Array)
+		if table.is_empty():
 			continue
-		var table: Array = MUTAGEN_GS_TABLE[tier_id] as Array
-		var count: int = int(mutagen_crafted_counts.get(tier_id, 0))
+		var count: int = int(mutagen_crafted_counts.get(strain_id, 0))
 		for i in range(count):
 			var base: int
 			if i == 0:   base = int(table[0])
-			elif i == 1: base = int(table[1])
-			elif i == 2: base = int(table[2])
-			else:        base = int(table[3])
+			elif i == 1: base = int(table[1]) if table.size() > 1 else int(table[0])
+			elif i == 2: base = int(table[2]) if table.size() > 2 else int(table[-1])
+			else:        base = int(table[3]) if table.size() > 3 else int(table[-1])
 			total += int(ceil(float(base) * yield_mult))
 	return total
 
 
-func _get_mutagen_display_name(tier_id: String) -> String:
-	match tier_id:
-		"t1_mutagen": return "T1 Mutagen"
-		"t2_mutagen": return "T2 Mutagen"
-		"t3_mutagen": return "T3 Mutagen"
-		"t4_mutagen": return "T4 Mutagen"
-		"t5_mutagen": return "T5 Mutagen"
-		"t6_mutagen": return "T6 Mutagen"
-		_: return tier_id
+func _get_mutagen_display_name(strain_id: String) -> String:
+	if solution_defs.has(strain_id):
+		return str((solution_defs[strain_id] as Dictionary).get("name", strain_id))
+	return strain_id
 
 
-func _get_mutagen_tier_run_gs(tier_id: String) -> int:
-	if not MUTAGEN_GS_TABLE.has(tier_id):
+func _get_mutagen_tier_run_gs(strain_id: String) -> int:
+	var table: Array = []
+	if MUTAGEN_GS_TABLE.has(strain_id):
+		table = MUTAGEN_GS_TABLE[strain_id] as Array
+	elif solution_defs.has(strain_id):
+		table = ((solution_defs[strain_id] as Dictionary).get("gs_table", []) as Array)
+	if table.is_empty():
 		return 0
-	var table: Array = MUTAGEN_GS_TABLE[tier_id] as Array
-	var count: int = int(mutagen_crafted_counts.get(tier_id, 0))
+	var count: int = int(mutagen_crafted_counts.get(strain_id, 0))
 	var yield_mult: float = 1.0 + float(get_mutation_level("M13")) * 0.05
 	var total: int = 0
 	for i in range(count):
 		var base: int
 		if i == 0:   base = int(table[0])
-		elif i == 1: base = int(table[1])
-		elif i == 2: base = int(table[2])
-		else:        base = int(table[3])
+		elif i == 1: base = int(table[1]) if table.size() > 1 else int(table[0])
+		elif i == 2: base = int(table[2]) if table.size() > 2 else int(table[-1])
+		else:        base = int(table[3]) if table.size() > 3 else int(table[-1])
 		total += int(ceil(float(base) * yield_mult))
 	return total
 
@@ -3794,6 +3811,16 @@ func _load_all() -> void:
 			if sid == "":
 				continue
 			solution_order.append(sid)
+			solution_defs[sid] = ssrc.duplicate(true)
+
+	# Load strain recipes (Mutagen Lab inputs) into solution_defs
+	var strains_data = _load_json("res://data/strains.json")
+	if strains_data is Dictionary:
+		for s_variant in ((strains_data as Dictionary).get("strains", []) as Array):
+			var ssrc: Dictionary = s_variant as Dictionary
+			var sid: String = str(ssrc.get("id", ""))
+			if sid == "":
+				continue
 			solution_defs[sid] = ssrc.duplicate(true)
 
 	# seed starting amounts

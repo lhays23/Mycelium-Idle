@@ -3032,6 +3032,28 @@ func _update_refinery_slot_progress() -> void:
 	if game_state.has_method("get_synth_ui_entries"):
 		_update_slot.call(game_state.call("get_synth_ui_entries"), "solution")
 
+	# Mutagen lab live updates
+	if _refinery_active_category == "mutagen" and game_state.has_method("get_mutagen_lab_ui"):
+		var data_v = game_state.call("get_mutagen_lab_ui")
+		if typeof(data_v) == TYPE_DICTIONARY:
+			var slots: Array = (data_v as Dictionary).get("slots", []) as Array
+			for slot_v in slots:
+				var slot: Dictionary = slot_v as Dictionary
+				var idx: int        = int(slot.get("slot_index", 0))
+				var pct: int        = int(slot.get("progress_pct", 0))
+				var craft_sec: float   = float(slot.get("craft_time_sec", 0.0))
+				var progress_sec: float = float(slot.get("progress_sec", 0.0))
+				var remaining: float   = maxf(0.0, craft_sec - progress_sec)
+
+				var fill := refinery_list.find_child("SlotFill_mutagen_%d" % (idx + 1), true, false) as Control
+				if fill != null and is_instance_valid(fill):
+					fill.set_meta("_pct", pct)
+					fill.queue_redraw()
+
+				var cd_lbl := refinery_list.find_child("SlotCountdown_mutagen_%d" % (idx + 1), true, false) as Label
+				if cd_lbl != null and is_instance_valid(cd_lbl):
+					cd_lbl.text = _fmt_seconds(remaining)
+
 
 func _refresh_refinery_panel() -> void:
 	if refinery_list == null or game_state == null:
@@ -3207,141 +3229,118 @@ func _build_mutagen_lab_tab() -> void:
 
 func _make_mutagen_slot_card(slot_index: int, slot: Dictionary, available_tiers: Array) -> Control:
 	var tm := ThemeManager
-	var tier_id: String     = str(slot.get("tier_id", ""))
-	var tier_name: String   = str(slot.get("tier_name", "Empty"))
-	var input_name: String  = str(slot.get("input_name", ""))
-	var input_held: int     = int(slot.get("input_held", 0))
-	var held: int           = int(slot.get("held", 0))
-	var pct: int            = int(slot.get("progress_pct", 0))
-	var stalled: bool       = bool(slot.get("stalled", false))
-	var _next_gs: int       = int(slot.get("next_gs", 0))
-	var run_gs: int         = int(slot.get("run_gs", 0))
-	var gs_table: Array     = slot.get("gs_table", []) as Array
-	var crafted: int        = int(slot.get("crafted_count", 0))
-	var _craft_time: float  = float(slot.get("craft_time_sec", 0.0))
+	var tier_id: String    = str(slot.get("tier_id", ""))
+	var tier_name: String  = str(slot.get("tier_name", "Idle"))
+	var inputs: Array       = slot.get("inputs", []) as Array
+	var is_idle: bool      = tier_id == ""
+	var pct: int           = int(slot.get("progress_pct", 0))
+	var stalled: bool      = bool(slot.get("stalled", false))
+	var crafted: int       = int(slot.get("crafted_count", 0))
+	var next_gs: int       = int(slot.get("next_gs", 0))
+	var craft_time: float  = float(slot.get("craft_time_sec", 0.0))
+	var progress: float    = float(slot.get("progress_sec", 0.0))
 
-	var card := _make_refinery_card_shell()
+	var row := PanelContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color     = tm.c("bg_panel")
+	sb.border_color = tm.c("border")
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(8)
+	sb.content_margin_left   = 10; sb.content_margin_right  = 10
+	sb.content_margin_top    = 8;  sb.content_margin_bottom = 8
+	row.add_theme_stylebox_override("panel", sb)
+
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 8)
-	card.add_child(vbox)
+	vbox.add_theme_constant_override("separation", 4)
+	row.add_child(vbox)
 
-	# ── Slot header ───────────────────────────────────────────────────────────
-	var hdr_row := HBoxContainer.new()
+	# ── Top line: slot label + tier name + GS badge ───────────────────────
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+	vbox.add_child(top)
+
 	var slot_lbl := Label.new()
 	slot_lbl.text = "Slot %d" % (slot_index + 1)
 	slot_lbl.add_theme_font_size_override("font_size", 11)
 	slot_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
-	slot_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hdr_row.add_child(slot_lbl)
+	top.add_child(slot_lbl)
 
-	if run_gs > 0:
-		var run_lbl := Label.new()
-		run_lbl.text = "+%s GS earned" % _fmt_int(run_gs)
-		run_lbl.add_theme_font_size_override("font_size", 11)
-		run_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
-		hdr_row.add_child(run_lbl)
-	vbox.add_child(hdr_row)
-
-	# ── Tier name + input info ────────────────────────────────────────────────
 	var tier_lbl := Label.new()
-	tier_lbl.text = tier_name
-	tier_lbl.add_theme_font_size_override("font_size", 15)
+	tier_lbl.text = "Idle" if is_idle else tier_name
+	tier_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tier_lbl.add_theme_font_size_override("font_size", 13)
 	tier_lbl.add_theme_color_override("font_color",
-		tm.c("text_muted") if tier_id == "" else tm.c("accent"))
-	vbox.add_child(tier_lbl)
+		tm.c("text_muted") if is_idle else tm.c("text_primary"))
+	top.add_child(tier_lbl)
 
-	if tier_id != "":
-		var inv_row := HBoxContainer.new()
-		inv_row.add_theme_constant_override("separation", 12)
+	if not is_idle:
+		if crafted > 0:
+			var badge := Label.new()
+			badge.text = "×%d" % crafted
+			badge.add_theme_font_size_override("font_size", 11)
+			badge.add_theme_color_override("font_color", tm.c("text_muted"))
+			top.add_child(badge)
+		var gs_lbl := Label.new()
+		gs_lbl.text = "+%d GS" % next_gs
+		gs_lbl.add_theme_font_size_override("font_size", 11)
+		gs_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
+		top.add_child(gs_lbl)
 
-		var inp_lbl := Label.new()
-		inp_lbl.text = "Input: %s  (%s held)" % [input_name, _fmt_int(input_held)]
-		inp_lbl.add_theme_font_size_override("font_size", 12)
-		inp_lbl.add_theme_color_override("font_color",
-			tm.c("text_primary") if input_held > 0 else tm.c("text_muted"))
-		inp_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		inv_row.add_child(inp_lbl)
-
-		if held > 0:
-			var held_lbl := Label.new()
-			held_lbl.text = "%s held" % _fmt_int(held)
-			held_lbl.add_theme_font_size_override("font_size", 12)
-			held_lbl.add_theme_color_override("font_color", tm.c("accent_dim"))
-			inv_row.add_child(held_lbl)
-		vbox.add_child(inv_row)
-
-		# ── Progress bar ──────────────────────────────────────────────────────
-		var prog_bar := ProgressBar.new()
-		prog_bar.min_value       = 0
-		prog_bar.max_value       = 100
-		prog_bar.value           = pct
-		prog_bar.show_percentage = false
-		prog_bar.custom_minimum_size = Vector2(0, 10)
-		prog_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# ── Progress bar + countdown (when active) ────────────────────────────
+	if not is_idle:
 		if stalled:
-			var lbl_stall := Label.new()
-			lbl_stall.text = "⚠ Waiting for %s" % input_name
-			lbl_stall.add_theme_font_size_override("font_size", 11)
-			lbl_stall.add_theme_color_override("font_color", tm.c("warning"))
-			vbox.add_child(lbl_stall)
+			var stall_lbl := Label.new()
+			stall_lbl.text = "⚠ Waiting for ingredients"
+			stall_lbl.add_theme_font_size_override("font_size", 10)
+			stall_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
+			vbox.add_child(stall_lbl)
 		else:
-			vbox.add_child(prog_bar)
+			var track := PanelContainer.new()
+			var sb_t := StyleBoxFlat.new()
+			sb_t.bg_color = tm.c("bg_deep")
+			sb_t.set_corner_radius_all(3)
+			sb_t.content_margin_top = 0; sb_t.content_margin_bottom = 0
+			track.add_theme_stylebox_override("panel", sb_t)
+			track.custom_minimum_size = Vector2(0, 5)
+			vbox.add_child(track)
 
-		# ── GS breakdown (compact) ────────────────────────────────────────────
-		var gs_info := PanelContainer.new()
-		var sb_gs := StyleBoxFlat.new()
-		sb_gs.bg_color   = tm.c("bg_deep")
-		sb_gs.border_color = tm.c("border")
-		sb_gs.set_border_width_all(1)
-		sb_gs.set_corner_radius_all(6)
-		sb_gs.content_margin_left = 10; sb_gs.content_margin_right = 10
-		sb_gs.content_margin_top  = 6;  sb_gs.content_margin_bottom = 6
-		gs_info.add_theme_stylebox_override("panel", sb_gs)
+			var fill := Control.new()
+			fill.name = "SlotFill_mutagen_%d" % (slot_index + 1)
+			fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			fill.custom_minimum_size = Vector2(0, 5)
+			var fill_pct := pct
+			fill.draw.connect(func():
+				var live_pct: int = fill.get_meta("_pct", fill_pct)
+				var w := fill.size.x * clampf(float(live_pct) / 100.0, 0.0, 1.0)
+				if w > 0:
+					var sb_f := StyleBoxFlat.new()
+					sb_f.bg_color = tm.c("accent") if live_pct >= 100 else tm.c("accent_dim")
+					sb_f.set_corner_radius_all(3)
+					fill.draw_style_box(sb_f, Rect2(0, 0, w, fill.size.y))
+			)
+			track.add_child(fill)
 
-		var gs_vbox := VBoxContainer.new()
-		gs_vbox.add_theme_constant_override("separation", 2)
-		gs_info.add_child(gs_vbox)
+			var remaining := maxf(0.0, craft_time - progress)
+			var countdown := Label.new()
+			countdown.name = "SlotCountdown_mutagen_%d" % (slot_index + 1)
+			countdown.add_theme_font_size_override("font_size", 10)
+			countdown.add_theme_color_override("font_color", tm.c("text_muted"))
+			countdown.text = _fmt_seconds(remaining)
+			vbox.add_child(countdown)
 
-		var gs_title := Label.new()
-		gs_title.text = "GS per craft"
-		gs_title.add_theme_font_size_override("font_size", 10)
-		gs_title.add_theme_color_override("font_color", tm.c("text_muted"))
-		gs_vbox.add_child(gs_title)
+	# ── Tap to open recipe picker ─────────────────────────────────────────
+	row.gui_input.connect(func(ev: InputEvent):
+		if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) or \
+		   (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
+			_show_mutagen_tier_picker(slot_index, available_tiers)
+			get_viewport().set_input_as_handled()
+	)
 
-		var craft_labels := ["1st:", "2nd:", "3rd:", "4th+:"]
-		for ci in range(min(gs_table.size(), 4)):
-			var row := HBoxContainer.new()
-			var is_next: bool = (ci == 0 and crafted == 0) or \
-								(ci == 1 and crafted == 1) or \
-								(ci == 2 and crafted == 2) or \
-								(ci == 3 and crafted >= 3)
-			var lk := Label.new()
-			lk.text = ("▶ " if is_next else "") + craft_labels[ci]
-			lk.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			lk.add_theme_font_size_override("font_size", 10)
-			lk.add_theme_color_override("font_color",
-				tm.c("accent") if is_next else tm.c("text_muted"))
-			row.add_child(lk)
-			var lv := Label.new()
-			lv.text = "+%d GS" % int(gs_table[ci])
-			lv.add_theme_font_size_override("font_size", 10)
-			lv.add_theme_color_override("font_color",
-				tm.c("accent") if is_next else tm.c("text_muted"))
-			row.add_child(lv)
-			gs_vbox.add_child(row)
-		vbox.add_child(gs_info)
-
-	# ── Select Recipe button ──────────────────────────────────────────────────
-	var pick_btn := Button.new()
-	pick_btn.text = "Select Recipe" if tier_id == "" else "Change Recipe"
-	pick_btn.custom_minimum_size = Vector2(0, 36)
-	pick_btn.focus_mode = Control.FOCUS_NONE
-	_theme_action_button(pick_btn)
-	pick_btn.pressed.connect(func():
-		_show_mutagen_tier_picker(slot_index, available_tiers))
-	vbox.add_child(pick_btn)
-
-	return card
+	return row
 
 
 func _show_mutagen_gs_breakdown_popup(slots: Array, total_run_gs: int) -> void:
@@ -3563,20 +3562,27 @@ func _show_mutagen_tier_picker(slot_index: int, available_tiers: Array) -> void:
 
 	# Tier rows
 	for tier_v in available_tiers:
-		var tier: Dictionary = tier_v as Dictionary
-		var tid: String      = str(tier.get("id", ""))
-		var tname: String    = str(tier.get("name", tid))
-		var inp_name: String = str(tier.get("input_name", ""))
-		var inp_held: int    = int(tier.get("input_held", 0))
-		var next_gs: int     = int(tier.get("next_gs", 0))
-		var ct: float        = float(tier.get("craft_time", 0))
-		var mins: int        = int(ct) / 60
-		var secs: int        = int(ct) % 60
+		var tier: Dictionary   = tier_v as Dictionary
+		var tid: String        = str(tier.get("id", ""))
+		var tname: String      = str(tier.get("name", tid))
+		var tier_inputs: Array = tier.get("inputs", []) as Array
+		var next_gs: int       = int(tier.get("next_gs", 0))
+		var ct: float          = float(tier.get("craft_time", 0))
+		var mins: int          = int(ct) / 60
+		var secs: int          = int(ct) % 60
+
+		# Can craft if ALL inputs are satisfied
+		var can_craft: bool = not tier_inputs.is_empty()
+		for inp_v in tier_inputs:
+			var inp: Dictionary = inp_v as Dictionary
+			if int(inp.get("held", 0)) < int(inp.get("qty", 1)):
+				can_craft = false
+				break
 
 		var row := PanelContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var sb_row := StyleBoxFlat.new()
-		sb_row.bg_color     = tm.c("bg_row") if inp_held > 0 else Color(0, 0, 0, 0)
+		sb_row.bg_color     = tm.c("bg_row") if can_craft else Color(0, 0, 0, 0)
 		sb_row.border_color = tm.c("border")
 		sb_row.set_border_width_all(1)
 		sb_row.set_corner_radius_all(8)
@@ -3584,14 +3590,14 @@ func _show_mutagen_tier_picker(slot_index: int, available_tiers: Array) -> void:
 		sb_row.content_margin_top  = 8;  sb_row.content_margin_bottom = 8
 		row.add_theme_stylebox_override("panel", sb_row)
 		row.mouse_filter = Control.MOUSE_FILTER_STOP
-		if inp_held > 0:
-			row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 		var rvbox := VBoxContainer.new()
 		rvbox.add_theme_constant_override("separation", 3)
 		rvbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(rvbox)
 
+		# Name + GS
 		var top_row := HBoxContainer.new()
 		top_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var name_lbl := Label.new()
@@ -3599,38 +3605,42 @@ func _show_mutagen_tier_picker(slot_index: int, available_tiers: Array) -> void:
 		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name_lbl.add_theme_font_size_override("font_size", 13)
 		name_lbl.add_theme_color_override("font_color",
-			tm.c("text_primary") if inp_held > 0 else tm.c("text_muted"))
+			tm.c("text_primary") if can_craft else tm.c("text_muted"))
 		name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		top_row.add_child(name_lbl)
 		var gs_lbl := Label.new()
 		gs_lbl.text = "+%d GS" % next_gs
 		gs_lbl.add_theme_font_size_override("font_size", 13)
 		gs_lbl.add_theme_color_override("font_color",
-			tm.c("accent") if inp_held > 0 else tm.c("text_muted"))
+			tm.c("accent") if can_craft else tm.c("text_muted"))
 		gs_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		top_row.add_child(gs_lbl)
 		rvbox.add_child(top_row)
 
-		var bot_row := HBoxContainer.new()
-		bot_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var inp_lbl := Label.new()
-		inp_lbl.text = "Input: %s (%s held)" % [inp_name, _fmt_int(inp_held)]
-		inp_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		inp_lbl.add_theme_font_size_override("font_size", 11)
-		inp_lbl.add_theme_color_override("font_color",
-			tm.c("text_secondary") if inp_held > 0 else tm.c("text_muted"))
-		inp_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		bot_row.add_child(inp_lbl)
+		# Inputs list
+		for inp_v in tier_inputs:
+			var inp: Dictionary = inp_v as Dictionary
+			var iname: String = str(inp.get("name", ""))
+			var qty: int      = int(inp.get("qty", 1))
+			var held: int     = int(inp.get("held", 0))
+			var enough: bool  = held >= qty
+			var inp_lbl := Label.new()
+			inp_lbl.text = "%s ×%d  (%s held)" % [iname, qty, _fmt_int(held)]
+			inp_lbl.add_theme_font_size_override("font_size", 11)
+			inp_lbl.add_theme_color_override("font_color",
+				tm.c("text_secondary") if enough else tm.c("text_muted"))
+			inp_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			rvbox.add_child(inp_lbl)
+
+		# Craft time
 		var time_lbl := Label.new()
 		time_lbl.text = "%dm %ds" % [mins, secs] if mins > 0 else "%ds" % secs
 		time_lbl.add_theme_font_size_override("font_size", 11)
 		time_lbl.add_theme_color_override("font_color", tm.c("text_muted"))
 		time_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		bot_row.add_child(time_lbl)
-		rvbox.add_child(bot_row)
+		rvbox.add_child(time_lbl)
 
-		if inp_held > 0:
-			row.gui_input.connect(func(ev: InputEvent):
+		row.gui_input.connect(func(ev: InputEvent):
 				if (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed and \
 				   (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT) or \
 				   (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed):
@@ -3638,7 +3648,7 @@ func _show_mutagen_tier_picker(slot_index: int, available_tiers: Array) -> void:
 						game_state.call("assign_mutagen_slot", slot_index, tid)
 					layer.queue_free()
 					_refresh_refinery_panel()
-			)
+		)
 
 		outer.add_child(row)
 
