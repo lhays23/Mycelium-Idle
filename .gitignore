@@ -55,3 +55,9 @@ obj/
 .gradle/
 local.properties
 *.iml
+
+# =========================
+# Allow Godot web export files in railway deploy folder
+# =========================
+!railway-deploy/public/
+!railway-deploy/public/*
